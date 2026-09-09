@@ -1,0 +1,13 @@
+.venv/
+__pycache__/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.idea/
+.ai-doc-output/
+examples/**/.ai-doc-output/
+*.egg-info/
+build/
+dist/
+runtime/
+*.spec

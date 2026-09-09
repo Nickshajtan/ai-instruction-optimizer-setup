@@ -1,0 +1,54 @@
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+[project]
+name = "ai-doc"
+version = "0.1.0"
+description = "CLI for clarity and FinOps optimization of AI-facing Markdown documentation."
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+  "markdown-it-py>=3.0",
+  "pydantic>=2.8",
+  "pyyaml>=6.0",
+  "typer>=0.12",
+]
+
+[project.optional-dependencies]
+dev = [
+  "build>=1.2",
+  "hatchling>=1.25",
+  "pyinstaller>=6.10",
+  "pytest>=8.2",
+  "ruff>=0.6",
+  "mypy>=1.11",
+  "types-PyYAML>=6.0",
+]
+deepeval = ["deepeval>=1.0"]
+
+[project.scripts]
+ai-doc = "ai_doc.cli.main:app"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/ai_doc"]
+
+[tool.hatch.build.targets.sdist]
+include = ["src/ai_doc", "README.md", "ARCHITECTURE.md", "DEFERRED.md", "pyproject.toml"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+warn_unused_ignores = true
+packages = ["ai_doc"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
