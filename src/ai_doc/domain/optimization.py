@@ -1,0 +1,138 @@
+from __future__ import annotations
+
+from decimal import Decimal
+from typing import Literal
+
+from pydantic import BaseModel, Field
+
+from ai_doc.domain.evaluations import EvaluationCaseResult, EvaluationResult
+from ai_doc.domain.findings import Finding
+from ai_doc.domain.proposals import CandidateProposal
+
+
+class ObjectiveVector(BaseModel):
+    reliability: float = Field(ge=0, le=1)
+    clarity: float = Field(ge=0, le=1)
+    always_loaded_tokens: int
+    expected_context_tokens: float | None = None
+    estimated_context_cost: Decimal | None = None
+    critical_invariant_recall: float = Field(ge=0, le=1)
+
+
+class CandidateCost(BaseModel):
+    generation_requests: int = 0
+    evaluation_requests: int = 0
+    generation_input_tokens: int | None = None
+    generation_output_tokens: int | None = None
+    evaluation_input_tokens: int | None = None
+    evaluation_output_tokens: int | None = None
+    total_cost: Decimal | None = None
+
+
+RunCost = CandidateCost
+
+
+class CandidateFingerprint(BaseModel):
+    operations: tuple[str, ...]
+    affected_sections: tuple[str, ...]
+    extracted_targets: tuple[str, ...]
+    content_hash: str
+
+
+class Candidate(BaseModel):
+    id: str
+    parent_ids: list[str] = Field(default_factory=list)
+    strategy: str
+    proposal: CandidateProposal
+    objective_vector: ObjectiveVector | None = None
+    evaluation: EvaluationResult | None = None
+    status: Literal[
+        "generated",
+        "evaluating",
+        "valid",
+        "dominated",
+        "rejected",
+        "frontier",
+    ] = "generated"
+    generation: int
+    creation_cost: RunCost = Field(default_factory=RunCost)
+    fingerprint: CandidateFingerprint | None = None
+    rejection_reasons: list[str] = Field(default_factory=list)
+    artifact_dir: str | None = None
+
+
+class CandidatePopulation(BaseModel):
+    generation: int
+    candidates: list[Candidate]
+
+
+class ParetoEntry(BaseModel):
+    candidate_id: str
+    objective_vector: ObjectiveVector
+    generation: int
+    proposal_summary: list[str]
+    evaluation_references: list[str] = Field(default_factory=list)
+    cost: RunCost = Field(default_factory=RunCost)
+
+
+class ParetoArchive(BaseModel):
+    entries: list[ParetoEntry] = Field(default_factory=list)
+
+
+class EvalFailure(BaseModel):
+    scenario_id: str
+    message: str | None = None
+    score: float | None = None
+
+
+class OptimizationFeedback(BaseModel):
+    candidate_id: str
+    strengths: list[str] = Field(default_factory=list)
+    weaknesses: list[str] = Field(default_factory=list)
+    failed_evals: list[EvalFailure] = Field(default_factory=list)
+    clarity_findings: list[Finding] = Field(default_factory=list)
+    finops_findings: list[Finding] = Field(default_factory=list)
+    invariant_risks: list[str] = Field(default_factory=list)
+    comparison_to_baseline: list[str] = Field(default_factory=list)
+    comparison_to_frontier: list[str] = Field(default_factory=list)
+    suggested_mutation_directions: list[str] = Field(default_factory=list)
+
+
+class SearchMemory(BaseModel):
+    successful_patterns: list[str] = Field(default_factory=list)
+    failed_patterns: list[str] = Field(default_factory=list)
+    invariant_risks: list[str] = Field(default_factory=list)
+    unexplored_opportunities: list[str] = Field(default_factory=list)
+
+
+class StopReason(str):
+    pass
+
+
+class OptimizationRun(BaseModel):
+    run_id: str
+    strategy: str
+    seed: int | None = None
+    baseline_candidate_id: str = "baseline"
+    candidates: list[Candidate] = Field(default_factory=list)
+    frontier: ParetoArchive = Field(default_factory=ParetoArchive)
+    recommended_candidate_id: str | None = None
+    search_memory: SearchMemory = Field(default_factory=SearchMemory)
+    stopped_reason: str
+    total_cost: RunCost = Field(default_factory=RunCost)
+    metadata: dict[str, object] = Field(default_factory=dict)
+
+
+def passed_evaluation_score(evaluation: EvaluationResult | None) -> float:
+    if evaluation is None or not evaluation.cases:
+        return 1.0
+    scores = [case.score for case in evaluation.cases if case.score is not None]
+    if scores:
+        return sum(scores) / len(scores)
+    return sum(1.0 for case in evaluation.cases if case.passed) / len(evaluation.cases)
+
+
+def failed_cases(evaluation: EvaluationResult | None) -> list[EvaluationCaseResult]:
+    if evaluation is None:
+        return []
+    return [case for case in evaluation.cases if not case.passed]
