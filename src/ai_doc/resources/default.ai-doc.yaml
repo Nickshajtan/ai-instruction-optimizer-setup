@@ -1,0 +1,61 @@
+version: 1
+
+include:
+  - AGENTS.md
+  - CLAUDE.md
+  - ".ai/**/*.md"
+  - ".codex/**/*.md"
+  - ".claude/**/*.md"
+  - "docs/**/*.md"
+
+exclude:
+  - node_modules/**
+  - vendor/**
+  - build/**
+  - dist/**
+  - .ai-doc-output/**
+  - .tools/ai-doc/**
+
+profiles:
+  CLAUDE.md: instruction
+  AGENTS.md: instruction
+  docs/AGENTS.md: instruction
+  docs/CLAUDE.md: instruction
+  ".ai/skills/**/SKILL.md": skill
+  ".codex/skills/**/SKILL.md": skill
+  ".claude/skills/**/SKILL.md": skill
+  "docs/adr/**": adr
+  "docs/**": reference
+
+budgets:
+  instruction:
+    warning_tokens: 3000
+    error_tokens: 6000
+  skill:
+    warning_tokens: 3500
+  reference:
+    warning_tokens: null
+
+evaluation:
+  fast:
+    engine: promptfoo
+  deep:
+    engine: promptfoo
+
+optimization:
+  engine: deepeval
+  strategy: balanced
+  population:
+    initial_candidates: 4
+  search:
+    generations: 1
+    initial_candidates: 4
+    children_per_generation: 3
+    max_candidates: 4
+    max_llm_requests: 100
+    max_cost_usd: 5.00
+    patience: 2
+  gepa:
+    enabled: false
+
+extensions: []

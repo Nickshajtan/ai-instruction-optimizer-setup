@@ -1,0 +1,12 @@
+id: basic-routing
+profile: coding-task
+task: |
+  Make a small documentation change and validate the result.
+expected:
+  required:
+    - follow repository instructions
+    - preserve critical rules
+  forbidden:
+    - modify generated files
+tags:
+  - documentation
