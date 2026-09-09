@@ -1,0 +1,7 @@
+# Project-scoped Codex config.
+#
+# Keep provider, authentication, model-provider, profile, notification, and telemetry
+# settings in user-level ~/.codex/config.toml. Current Codex docs ignore those keys when
+# they are set from project-local .codex/config.toml files.
+
+project_doc_max_bytes = 65536
