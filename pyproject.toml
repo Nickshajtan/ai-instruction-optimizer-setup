@@ -25,7 +25,9 @@ dev = [
   "mypy>=1.11",
   "types-PyYAML>=6.0",
 ]
+promptfoo = ["promptfoo>=0.1.0"]
 deepeval = ["deepeval>=1.0"]
+deep = ["promptfoo>=0.1.0", "deepeval>=1.0"]
 
 [project.scripts]
 ai-doc = "ai_doc.cli.main:app"

@@ -1,13 +1,10 @@
-﻿---
+---
 name: "ai-doc-documentation-authoring"
 description: "Thin Codex consumer for the repository documentation authoring skill."
 ---
 
-# Documentation Authoring
+# Codex Documentation Adapter
 
-Before Codex edits documentation, read the canonical shared skill:
-
-- [.ai/skills/documentation-authoring/SKILL.md](../../../.ai/skills/documentation-authoring/SKILL.md)
-
-Keep this Codex adapter minimal. Update the `.ai` skill when documentation-authoring rules
-change.
+Read [.ai/skills/documentation-authoring/SKILL.md](../../../.ai/skills/documentation-authoring/SKILL.md)
+before editing documentation. Keep this adapter as Codex routing only; update the shared
+`.ai` skill when documentation-writing rules change.

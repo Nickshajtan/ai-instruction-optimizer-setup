@@ -1,6 +1,7 @@
 {
   "$schema": "https://json.schemastore.org/claude-code-settings.json",
   "permissions": {
+    "defaultMode": "manual",
     "deny": [
       "Read(./.env)",
       "Read(./.env.*)",
@@ -8,5 +9,24 @@
       "Read(./.ai-doc-output/**)",
       "Read(./examples/**/.ai-doc-output/**)"
     ]
+  },
+  "sandbox": {
+    "enabled": true,
+    "failIfUnavailable": true,
+    "allowUnsandboxedCommands": false,
+    "filesystem": {
+      "denyRead": [
+        "./.env",
+        "./.env.*",
+        "./secrets/**",
+        "./.ai-doc-output/**",
+        "./examples/**/.ai-doc-output/**"
+      ],
+      "denyWrite": [
+        "./.env",
+        "./.env.*",
+        "./secrets/**"
+      ]
+    }
   }
 }

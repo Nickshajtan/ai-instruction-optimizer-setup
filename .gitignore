@@ -11,3 +11,5 @@ build/
 dist/
 runtime/
 *.spec
+.codex-log/
+.claude/settings.local.json

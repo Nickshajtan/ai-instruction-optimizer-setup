@@ -150,6 +150,9 @@ version: 1
 include:
   - AGENTS.md
   - CLAUDE.md
+  - ".ai/**/*.md"
+  - ".codex/**/*.md"
+  - ".claude/**/*.md"
   - "docs/**/*.md"
 exclude:
   - node_modules/**
@@ -161,6 +164,9 @@ exclude:
 profiles:
   AGENTS.md: instruction
   CLAUDE.md: instruction
+  ".ai/skills/**/SKILL.md": skill
+  ".codex/skills/**/SKILL.md": skill
+  ".claude/skills/**/SKILL.md": skill
   "docs/**": reference
 ```
 

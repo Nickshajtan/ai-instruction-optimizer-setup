@@ -3,11 +3,9 @@ name: "ai-doc-documentation-authoring"
 description: "Thin Claude Code consumer for the repository documentation authoring skill."
 ---
 
-# Documentation Authoring
+# Claude Documentation Adapter
 
-Before Claude Code edits documentation, read the canonical shared skill:
-
-- [.ai/skills/documentation-authoring/SKILL.md](../../../.ai/skills/documentation-authoring/SKILL.md)
-
-Keep this Claude adapter minimal. Update the `.ai` skill when documentation-authoring
-rules change.
+Claude Code should load the shared repository skill at
+[.ai/skills/documentation-authoring/SKILL.md](../../../.ai/skills/documentation-authoring/SKILL.md)
+before editing docs. Keep this adapter as Claude routing only; update the shared `.ai`
+skill when documentation-writing rules change.

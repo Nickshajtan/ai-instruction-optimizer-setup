@@ -2,6 +2,6 @@
 
 # Claude Code Documentation Notes
 
-Claude Code should follow the documentation rules in `docs/AGENTS.md` for files in this
-directory. Keep shared documentation guidance there and add only Claude-specific notes
-here.
+Claude Code should use this file only as docs-scoped routing. Keep shared documentation
+guidance in `.ai/skills/documentation-authoring/SKILL.md` and agent-specific adapters in
+`.claude/skills/`.

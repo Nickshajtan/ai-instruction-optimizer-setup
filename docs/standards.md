@@ -126,8 +126,11 @@ Stable exit codes:
 
 - README is an entry point, not the full manual.
 - Detailed docs live under `docs/`.
-- Documentation under `docs/` must follow the local guidance in `docs/AGENTS.md`.
-- Operational procedures belong in `docs/runbook.md`.
+- General documentation-writing guidance lives in `docs/AGENTS.md` so human maintainers
+  can apply it manually.
+- Agent-only procedural workflows belong in `.ai/skills/`, with Codex and Claude adapters
+  under `.codex/skills/` and `.claude/skills/`.
+- Operational procedures belong in `docs/operations/runbook.md`.
 - Normative project rules belong in this standards document.
-- Architecture rationale belongs in `docs/architecture.md` and `docs/decisions.md`.
-- Deferred work belongs in `docs/deferred.md`.
+- Architecture rationale belongs in `docs/design/architecture.md` and `docs/design/decisions.md`.
+- Deferred work belongs in `docs/design/deferred.md`.

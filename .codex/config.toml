@@ -5,3 +5,9 @@
 # they are set from project-local .codex/config.toml files.
 
 project_doc_max_bytes = 65536
+
+# Keep Codex commands sandboxed to the project workspace by default. Escalation remains
+# explicit and task-scoped.
+sandbox_mode = "workspace-write"
+approval_policy = "on-request"
+sandbox_permissions = []

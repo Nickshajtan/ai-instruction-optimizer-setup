@@ -29,6 +29,9 @@ version: 1
 include:
   - AGENTS.md
   - CLAUDE.md
+  - ".ai/**/*.md"
+  - ".codex/**/*.md"
+  - ".claude/**/*.md"
   - "docs/**/*.md"
 exclude:
   - node_modules/**
@@ -42,6 +45,9 @@ profiles:
   CLAUDE.md: instruction
   docs/AGENTS.md: instruction
   docs/CLAUDE.md: instruction
+  ".ai/skills/**/SKILL.md": skill
+  ".codex/skills/**/SKILL.md": skill
+  ".claude/skills/**/SKILL.md": skill
   "docs/**": reference
 ```
 
@@ -55,10 +61,11 @@ Patterns are evaluated relative to the project root and results are sorted
 deterministically.
 
 Use `include` for files agents are expected to read, such as `AGENTS.md`, `CLAUDE.md`,
-`.claude/**/*.md`, or `docs/**/*.md`. Use `exclude` for dependency folders, build output,
-generated reports, and other paths that should not be reviewed as source documentation.
-The default excludes skip `.tools/ai-doc/**` so a source-checkout copy of this tool does
-not recursively analyze its own Markdown files inside a target project.
+`.ai/**/*.md`, `.codex/**/*.md`, `.claude/**/*.md`, or `docs/**/*.md`. Use `exclude` for
+dependency folders, build output, generated reports, and other paths that should not be
+reviewed as source documentation. The default excludes skip `.tools/ai-doc/**` so a
+source-checkout copy of this tool does not recursively analyze its own Markdown files
+inside a target project.
 
 For repositories with inner modules, wildcard patterns in one root config are often
 enough:
