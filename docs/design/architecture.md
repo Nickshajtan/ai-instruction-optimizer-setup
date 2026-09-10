@@ -50,6 +50,7 @@ ai_doc.markdown     Markdown parsing, links, and graph construction
 ai_doc.analyzers    deterministic static analyzers
 ai_doc.tokens       token counting and pricing helpers
 ai_doc.evaluators   lexical/semantic evaluator and context-selection boundaries
+ai_doc.providers    provider-neutral external semantic command boundary
 ai_doc.optimizer    generation, gates, feedback, Pareto search, artifacts
 ai_doc.plugins      project-local static analyzer extension loading and registry
 ai_doc.api.v1       stable extension imports
@@ -74,23 +75,24 @@ CLI
 
 Static mode never requires Promptfoo, DeepEval, or API keys.
 
-In plain terms, `check` loads configuration, merges nested module configs when no explicit `--config` file was passed, finds Markdown files, parses them, runs deterministic analyzers, optionally runs the configured deep evaluator, and returns a human or JSON report.
-
 ## Optimization Flow
 
-The optimizer is no longer only a static candidate generator followed by Pareto scoring. When semantic evaluation is configured, evaluation evidence is part of the search loop and can cause rejection and feedback-directed repair.
+Semantic evaluation and production semantic adapters are part of the causal search path when configured.
 
 ```text
 baseline snapshot + static baseline report + EvaluationSuite
         |
         v
-extract deterministic invariants
+deterministic + optional semantic invariant discovery
         |
         v
-generate candidate
+deterministic or semantic candidate generation
         |
         v
-Tier-0 static/invariant gate
+optional eligible prompt suboptimization
+        |
+        v
+Tier-0 static/invariant safety gate
         |
         +---- failure ----> reject
         |
@@ -118,75 +120,96 @@ run artifacts
 
 The optimizer writes under `.ai-doc-output/<run-id>/` and does not modify source documentation.
 
-This isolation is deliberate. Users should be able to inspect candidate files and patches before deciding whether any change belongs in the target project.
+## Production Semantic Boundary
+
+Adaptive modes can use the provider-neutral `AI_DOC_SEMANTIC_COMMAND` contract. The command receives JSON on stdin and returns normalized semantic data plus usage telemetry on stdout. Provider SDK objects therefore remain outside optimizer domain models.
+
+The production stack can supply:
+
+- semantic candidate generation;
+- semantic invariant discovery and verification;
+- semantic scenario evaluation;
+- eligible prompt suboptimization.
+
+Deterministic generation and offline operation remain first-class. `conservative` mode intentionally remains deterministic even if a semantic command is configured.
+
+The production boundary is real, but the remaining v0.3 specification still contains acceptance hardening for CLI wiring, budget enforcement, and contradiction-safe invariant verification. Do not infer completion from the existence of an adapter alone.
 
 ## Evaluation Is Causal
 
 `SearchController` consumes the repository `EvaluationSuite`. Semantic evaluation is not merely attached to the final report.
 
-When an evaluator is configured, candidates that survive deterministic gates are evaluated against repository-owned scenarios. A required semantic failure can reject the candidate. Evaluation score contributes to the reliability objective. Failed evaluation evidence can be converted into feedback and used when generating a repair child.
+When an evaluator is configured, candidates that survive safety gates are evaluated against repository-owned scenarios. A required semantic failure can reject the candidate. Evaluation score contributes to the reliability objective. Failed evaluation evidence can be converted into feedback and used when generating a repair child.
 
-The end-to-end integration coverage intentionally proves this chain with a deterministic fake semantic evaluator so normal CI does not require paid calls.
+Normal CI uses deterministic fake semantic providers/evaluators rather than paid calls.
 
 ## Effective Context Boundary
 
-Evaluation does not have to concatenate every Markdown file in the repository.
+Evaluation does not concatenate every Markdown file in the repository.
 
-`ai_doc.evaluators.context` provides a context-selection boundary that separates the full documentation corpus from always-loaded instructions and task-selected references. The current implementation is deterministic and approximate: it uses document profiles, task terms, and references to select relevant context.
+`ai_doc.evaluators.context` separates the full corpus from always-loaded instructions and task-selected references. The deterministic selector now requires task-relevant explicit routing from already reachable context; merely sharing task vocabulary with a target reference is not enough to select it.
 
-`ScenarioContextEvaluator` evaluates scenarios independently and passes the selected context for each scenario to the wrapped semantic evaluator. Effective-context evidence is retained in the normalized evaluation summary.
+`ScenarioContextEvaluator` evaluates scenarios independently and retains effective-context evidence per scenario. Repair coverage verifies that useful extraction/context saving can survive while routing is restored.
 
-This boundary is necessary for FinOps optimization. Moving large low-frequency detail out of an always-loaded instruction file only helps if relevant tasks can still discover the extracted document.
-
-The selector is intentionally not claimed to perfectly simulate every coding agent. Routing/discoverability anti-gaming remains active hardening work.
+This is deliberately an approximation of coding-agent loading behavior, not a claim to perfectly simulate Claude, Codex, Copilot, or future agents.
 
 ## Invariant Safety
 
-The production Tier-0 path protects explicit critical normative language with deterministic invariant extraction and verification. This catches obvious removal of rules such as MUST/NEVER instructions before semantic evaluation.
+Critical behavior has deterministic and semantic layers.
 
-A semantic invariant-verification boundary also exists and can represent preserved, weakened, removed, and uncertain results. Unit tests prove the seam can accept a meaning-preserving paraphrase and reject weakening.
+Deterministic extraction protects explicit normative language such as MUST, NEVER, REQUIRED, and FORBIDDEN. A configured production semantic service can additionally discover high-confidence critical behavior without those keywords and verify meaning-preserving rewrites.
 
-A concrete semantic invariant discovery/verifier is not yet wired into the normal production CLI path. Therefore the semantic boundary is architecture, while deterministic explicit-rule protection is the current production behavior. See the remaining-work specification before treating implicit critical behavior as fully protected.
+Semantic decisions can represent preserved, weakened, removed, and uncertain behavior and are persisted as candidate evidence.
 
-## Candidate Generation Boundary
+A remaining v0.3 safety gap is contradiction handling: literal survival of the original critical sentence currently short-circuits semantic verification, so an opposing exception elsewhere can evade the semantic check. The remaining-work specification requires this to be fixed before the milestone is complete.
 
-Deterministic candidate strategies remain first-class because they are cheap, reproducible, and work without model access.
+Semantic discovery also still needs stronger persisted rationale/provenance and negative coverage against overclassifying ordinary descriptive text.
 
-The optimizer also exposes a semantic generation boundary capable of receiving previous candidate summaries, explored transformations, feedback, search memory, invariants, and strategy. Tests prove these values reach an injected semantic generator.
+## Candidate Generation
 
-The normal CLI does not yet wire a production semantic generator. Adaptive search therefore means bounded/iterative search over currently available mutations; it should not yet be read as a promise that an LLM is generating arbitrary semantic rewrites.
+Deterministic candidate strategies remain cheap, reproducible, and offline-capable.
+
+When the production semantic command is configured in an adaptive mode, `ProviderSemanticCandidateGenerator` can receive documents, invariants, strategy, previous summaries, explored transformations/fingerprints, structured feedback, and search memory. Its rendered documents enter the same safety/evaluation/Pareto pipeline as deterministic candidates.
+
+The remaining acceptance work is to exercise this through the actual CLI stack and prove that meaningful feedback/search-memory changes are observable by the production adapter, rather than merely proving that injectable classes compose.
 
 ## Feedback And Repair
 
-Feedback is derived from candidate evidence rather than being only a test fixture. Failed evaluation cases, invariant/static problems, and comparison information can become structured `OptimizationFeedback`.
+Feedback is derived from candidate evidence. Failed evaluation cases, invariant/static problems, and comparison information can become structured `OptimizationFeedback`.
 
-The current repair path can use evaluation feedback to strengthen a weak router while retaining useful parent changes. The child is a normal candidate: it is sent through the same deterministic gates and semantic evaluation rather than being trusted merely because it is a repair.
+A repair child is a normal candidate and must pass the same safety and semantic evaluation path. Candidate evidence persists the feedback used to produce the child. Integration coverage also verifies that a router repair can retain the useful parent context saving and keep extracted detail reachable.
 
-## Pareto Selection
+## Pareto And Recommendation
 
-The optimizer keeps clarity, reliability, critical invariant recall, always-loaded tokens, expected context tokens, and estimated context cost as separate dimensions where evidence exists. It does not use one weighted scalar score as the frontier mechanism.
+The optimizer keeps clarity, reliability, critical invariant recall, always-loaded tokens, expected context tokens, and estimated context cost as separate dimensions where evidence exists.
 
-A candidate dominates another candidate only when it is no worse in every comparable objective and strictly better in at least one objective, after configured tolerances.
+The baseline is a real frontier competitor. A generated candidate is not recommended merely because it remains inside configured tolerances: the recommendation policy also requires material improvement. A legitimate no-change result is therefore supported and covered.
 
-The baseline participates in frontier comparison so the report never needs to imply improvement when generated candidates are worse. The recommendation policy may return no candidate.
+Missing semantic reliability remains unavailable rather than being fabricated from another metric.
 
-Missing semantic reliability is represented as unavailable rather than automatically substituted with invariant recall.
+Run-level recommendation/no-change reasons are persisted. Remaining v0.3 explainability work is to make those reasons concrete enough to identify the objective improvements, tolerances, or blocking factors without recomputing the policy.
 
-## Cost Model
+## Cost And Budget Model
 
-The domain separates deterministic operations, generation requests, evaluation requests, and prompt-suboptimizer requests. Deterministic work does not consume the LLM-request budget.
+The domain separates deterministic operations, generation requests, evaluation requests, and prompt-suboptimizer requests. Normalized provider usage can include input/output tokens, USD cost, cache hits, and cost provenance.
 
-The cost model also has fields for input/output tokens and USD cost. These are not yet fully populated by all production external adapters. Request accounting is therefore more mature than token/USD accounting. Full provider telemetry and truthful cost/token enforcement are remaining milestone work.
+The production CLI wraps semantic work with `BudgetedSemanticProvider`, so external request usage is bounded between provider calls. The current CLI wiring passes the request limit but does not yet pass the active input-token, output-token, and USD limits into that wrapper. Search-level accounting can stop later work after usage is observed, but this is weaker than provider-boundary enforcement.
 
-## Adapter Boundaries
+Until the remaining budget work is complete, do not describe token/USD limits as strict pre-call guarantees. A provider that cannot estimate a call before execution may report an overrun after that call; the required behavior is then to persist it truthfully and stop subsequent external work.
 
-Promptfoo is isolated in `ai_doc.evaluators.promptfoo`. The current echo/contains behavior is classified as lexical rather than semantic evidence. Scenario assertions are built independently so one scenario's requirements do not leak into another.
+## GEPA / Prompt Suboptimization
 
-DeepEval is isolated in `ai_doc.evaluators.deepeval`. Imports are optional and happen inside the adapter, so static operation does not require DeepEval. When no candidate is supplied, the adapter evaluates baseline documentation rather than an empty snapshot.
+Prompt suboptimization remains behind `PromptSubOptimizer`. An eligible Markdown artifact is explicitly marked with `<!-- ai-doc:gepa -->`.
 
-GEPA is isolated behind `PromptSubOptimizer` in `ai_doc.optimizer.prompt_suboptimizer`. DeepEval `Prompt`, `PromptOptimizer`, `GEPA`, and `Golden` objects do not cross that boundary.
+With GEPA enabled and a production semantic provider configured, an eligible artifact can be optimized and the changed text enters the ordinary candidate safety/evaluation/Pareto path. Usage is accounted separately. Ineligible/no-provider cases remain explicit no-ops rather than pretending optimization occurred.
 
-GEPA currently has truthful no-op behavior when no eligible prompt artifact is wired. Behaviorally effective eligible-artifact integration remains unfinished.
+The remaining v0.3 gap is adversarial acceptance coverage proving that a harmful GEPA rewrite is rejected by the common gates.
+
+## Lexical And Optional Evaluator Adapters
+
+Promptfoo is isolated in `ai_doc.evaluators.promptfoo`. Echo/contains behavior is lexical evidence, not semantic evidence, and scenario assertions remain isolated.
+
+DeepEval is isolated in `ai_doc.evaluators.deepeval`. Imports remain optional. When no candidate is supplied, it evaluates baseline documentation rather than an empty snapshot.
 
 ## Run Evidence
 
@@ -201,10 +224,13 @@ report.json
 candidates/<id>/proposal.json
 candidates/<id>/candidate/...
 candidates/<id>/evaluation.json
+candidates/<id>/evidence.json
 candidates/<id>/diff.patch
 ```
 
-These already preserve candidate content, proposal, lineage, evaluation, frontier, and run/search state. The remaining evidence work is to persist richer feedback provenance, semantic invariant decisions, recommendation/no-change reasoning, and complete external token/USD telemetry.
+Current evidence includes candidate content/proposal, lineage, evaluation, frontier/search state, repair feedback, invariant decisions, effective context, usage, status/rejection reasons, and run-level recommendation/no-change reasoning.
+
+The remaining explainability work is narrower: semantic invariant discovery needs stronger provenance/rationale, and recommendation/no-change evidence should expose concrete policy factors instead of only a generic outcome label.
 
 ## Public API Boundary
 
@@ -214,7 +240,7 @@ Extensions should import only from:
 from ai_doc.api.v1 import AnalysisContext, Finding
 ```
 
-Do not import from `ai_doc.optimizer`, `ai_doc.markdown`, `ai_doc.evaluators`, or other internal modules in project extensions.
+Do not import optimizer/evaluator/provider internals from project extensions unless they are explicitly added to a future public API.
 
 ## Runtime Modes
 
@@ -224,8 +250,6 @@ Do not import from `ai_doc.optimizer`, `ai_doc.markdown`, `ai_doc.evaluators`, o
 - installed package;
 - standalone executable.
 
-This distinction helps debug `.tools/ai-doc` deployments and PyInstaller builds.
-
 ## Where To Read Next
 
-For operational usage and examples, read [Semantic Optimization](../guides/semantic-optimization.md). For the authoritative list of unfinished semantic-core implementation work, read [`../../specs/semantic-optimizer-core-v0.3.md`](../../specs/semantic-optimizer-core-v0.3.md).
+For operational usage and examples, read [Semantic Optimization](../guides/semantic-optimization.md). For the authoritative list of unfinished semantic-core work, read [`../../specs/semantic-optimizer-core-v0.3.md`](../../specs/semantic-optimizer-core-v0.3.md).
