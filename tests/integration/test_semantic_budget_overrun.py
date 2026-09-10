@@ -1,5 +1,6 @@
 from decimal import Decimal
 from pathlib import Path
+from typing import cast
 
 from ai_doc.app import run_static_check
 from ai_doc.config.models import DEFAULT_CONFIG
@@ -22,13 +23,10 @@ class OverrunEvaluationProvider:
         self.calls = 0
 
     def invoke(self, operation: str, payload: dict[str, object]) -> SemanticResponse:
+        assert operation == "evaluate"
         self.calls += 1
-        scenarios = payload.get("scenarios", [])
-        cases = [
-            {"id": scenario["id"], "passed": True, "score": 1.0}
-            for scenario in scenarios
-            if isinstance(scenario, dict)
-        ]
+        scenarios = cast(list[dict[str, object]], payload.get("scenarios", []))
+        cases = [{"id": str(scenario["id"]), "passed": True, "score": 1.0} for scenario in scenarios]
         return SemanticResponse(
             data={"cases": cases},
             usage=ProviderUsage(
@@ -63,5 +61,5 @@ def test_one_call_overrun_is_persisted_and_stops_followup_external_work(tmp_path
     assert inner.calls == 1
     assert result.run.total_cost.input_tokens == 120
     assert result.run.stopped_reason == "stopped_token_budget"
-    assert result.run.candidates == [result.run.candidates[0]]
+    assert len(result.run.candidates) == 1
     assert result.run.candidates[0].id == "baseline"
