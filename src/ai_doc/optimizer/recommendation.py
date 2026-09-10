@@ -22,14 +22,22 @@ class RecommendationPolicy:
         eligible: list[ScoredCandidate] = []
         baseline_objective = baseline.objective_vector
         for candidate in frontier:
-            if candidate.objective_vector is None or candidate.status == CandidateStatus.REJECTED:
+            if candidate.id == baseline.id or candidate.objective_vector is None or candidate.status == CandidateStatus.REJECTED:
                 continue
             objective = candidate.objective_vector
-            if objective.reliability - baseline_objective.reliability < self.config.minimum_reliability_delta:
+            if not _reliability_eligible(objective, baseline_objective, self.config.minimum_reliability_delta):
                 continue
             if objective.clarity - baseline_objective.clarity < self.config.minimum_clarity_delta:
                 continue
             eligible.append(ScoredCandidate(candidate=candidate, objective=objective))
         if not eligible:
-            return baseline if baseline in frontier else None
+            return None
         return min(eligible, key=lambda item: item.objective.always_loaded_tokens).candidate
+
+
+def _reliability_eligible(candidate: ObjectiveVector, baseline: ObjectiveVector, minimum_delta: float) -> bool:
+    if candidate.reliability is None and baseline.reliability is None:
+        return True
+    if candidate.reliability is None or baseline.reliability is None:
+        return False
+    return candidate.reliability - baseline.reliability >= minimum_delta
