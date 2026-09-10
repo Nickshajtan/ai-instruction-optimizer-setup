@@ -33,7 +33,7 @@ def find_deleted_parameters(path: Path) -> list[str]:
     findings: list[str] = []
 
     for node in ast.walk(tree):
-        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+        if not isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
             continue
         deleted = _deleted_names(node) & _function_parameters(node)
         for parameter in sorted(deleted):

@@ -11,8 +11,8 @@ requires-python = ">=3.12"
 dependencies = [
   "markdown-it-py>=3.0",
   "pydantic>=2.8",
-  "pyyaml>=6.0",
-  "typer>=0.12",
+  "pyyaml>=6.0.2",
+  "typer>=0.27.2",
 ]
 
 [project.optional-dependencies]
@@ -24,8 +24,8 @@ dev = [
   "pytest-cov>=5.0",
   "ruff>=0.6",
   "pylint>=3.2",
-  "mypy>=1.11",
-  "types-PyYAML>=6.0",
+  "mypy>=2.3.1",
+  "types-PyYAML>=6.0.12.12",
 ]
 promptfoo = ["promptfoo>=0.1.0"]
 deepeval = ["deepeval>=1.0"]
