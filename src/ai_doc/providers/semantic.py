@@ -5,7 +5,7 @@ import os
 import shlex
 import subprocess
 from decimal import Decimal
-from typing import Protocol
+from typing import Protocol, runtime_checkable
 
 from pydantic import BaseModel, Field
 
@@ -28,6 +28,11 @@ class SemanticResponse(BaseModel):
 
 class SemanticProvider(Protocol):
     def invoke(self, operation: str, payload: dict[str, object]) -> SemanticResponse: ...
+
+
+@runtime_checkable
+class UsageDrainer(Protocol):
+    def drain_usage(self) -> ProviderUsage: ...
 
 
 class SemanticBudgetExceeded(RuntimeError):
