@@ -37,12 +37,13 @@ class CommandSemanticProvider:
         self.command = command or os.getenv(SEMANTIC_COMMAND_ENV, "")
         if not self.command:
             raise RuntimeError(
-                f"Semantic provider is not configured. Set {SEMANTIC_COMMAND_ENV} to a command that accepts JSON stdin."
+                f"Semantic provider is not configured. Set {SEMANTIC_COMMAND_ENV} "
+                "to a command that accepts JSON stdin."
             )
 
     def invoke(self, operation: str, payload: dict[str, object]) -> SemanticResponse:
         request = {"operation": operation, "payload": payload}
-        completed = subprocess.run(  # noqa: S603
+        completed = subprocess.run(
             shlex.split(self.command),
             input=json.dumps(request),
             text=True,
