@@ -32,12 +32,7 @@ class DeepEvalSymbols:
 
 
 class DeepEvalEvaluator:
-    """Optional DeepEval adapter.
-
-    The current public API represents single-turn cases with `LLMTestCase` and
-    custom semantic judging with `GEval` plus `SingleTurnParams`. Imports stay
-    inside this adapter so DeepEval is not a core dependency.
-    """
+    """Optional semantic DeepEval adapter."""
 
     def __init__(self, threshold: float = DEEPEVAL_DEFAULT_THRESHOLD) -> None:
         self.threshold = threshold
@@ -48,9 +43,8 @@ class DeepEvalEvaluator:
         candidate: DocumentationSnapshot | None,
         suite: EvaluationSuite,
     ) -> EvaluationResult:
-        del baseline
         symbols = _load_deepeval_symbols()
-        documents = candidate.documents if candidate else ()
+        documents = (candidate if candidate is not None else baseline).documents
         actual = "\n\n".join(document.text for document in documents)
         cases: list[EvaluationCaseResult] = []
         for scenario in suite.scenarios:
@@ -63,10 +57,13 @@ class DeepEvalEvaluator:
                 ],
                 threshold=self.threshold,
             )
+            expected = [*scenario.expected_required]
+            if scenario.expected_forbidden:
+                expected.append("Forbidden behavior: " + "; ".join(scenario.expected_forbidden))
             test_case = symbols.llm_test_case(
                 input=scenario.task,
                 actual_output=actual,
-                expected_output="\n".join(scenario.expected_required),
+                expected_output="\n".join(expected),
             )
             metric.measure(test_case)
             cases.append(
@@ -81,6 +78,7 @@ class DeepEvalEvaluator:
             engine=DEEPEVAL_ENGINE,
             passed=all(case.passed for case in cases),
             cases=cases,
+            raw_summary={"semantic": True},
         )
 
 
