@@ -24,12 +24,12 @@ app = typer.Typer(help="Analyze and optimize AI-facing Markdown documentation.")
 
 @app.callback()
 def main(
-    version: Annotated[
+    _version: Annotated[
         bool | None,
         typer.Option("--version", callback=_version_callback, help="Show version and exit."),
     ] = None,
 ) -> None:
-    del version
+    pass
 
 
 @app.command()
