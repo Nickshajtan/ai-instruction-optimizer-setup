@@ -1,8 +1,8 @@
 # AI Documentation Optimizer
 
 `ai-doc` is a Python CLI for analyzing Markdown documentation used by AI coding agents.
-It reports clarity, structure, and context-cost issues, can run optional Promptfoo-backed
-semantic checks, and can generate optimization candidates without modifying source files.
+It reports clarity, structure, and context-cost issues, supports optional lexical/semantic
+evaluation, and can generate optimization candidates without modifying source files.
 
 ## Install And Run
 
@@ -43,6 +43,8 @@ ai-doc setup --deep
 ai-doc check examples/basic --deep
 ```
 
+Adaptive optimization can also use the provider-neutral `AI_DOC_SEMANTIC_COMMAND` contract for semantic generation, invariant safety, evaluation, and eligible prompt suboptimization. See [Semantic Optimization](docs/guides/semantic-optimization.md) for the command contract, budget semantics, and evidence model.
+
 ## What Is Stable
 
 The public contract is limited to:
@@ -53,8 +55,7 @@ The public contract is limited to:
 - configured project-local extensions;
 - explicit exports from `ai_doc.api.v1`.
 
-Internal optimizer, parser, storage, Promptfoo, DeepEval, and GEPA modules are not
-extension contracts.
+Internal optimizer, parser, storage, Promptfoo, DeepEval, provider, and GEPA modules are not extension contracts.
 
 ## Documentation
 
@@ -63,7 +64,7 @@ Use these when you want to run or configure the tool:
 - [Getting Started](docs/guides/getting-started.md): install modes, first run, and common commands.
 - [Runbook](docs/operations/runbook.md): routine operation, CI usage, diagnosis, and recovery.
 - [Configuration](docs/guides/configuration.md): `.ai-doc.yaml`, profiles, budgets, evals, optimization, and extensions.
-- [Semantic Optimization](docs/guides/semantic-optimization.md): how optimization, semantic evaluation, task-selected context, Pareto comparison, repair, and current limitations fit together.
+- [Semantic Optimization](docs/guides/semantic-optimization.md): semantic generation/evaluation, invariant safety, task-selected context, budgets, Pareto comparison, repair, and evidence.
 
 Use these when changing the project:
 

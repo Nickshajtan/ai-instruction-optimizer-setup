@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import os
+from dataclasses import dataclass
 from decimal import Decimal
 from enum import StrEnum
 from pathlib import Path
@@ -12,10 +14,26 @@ from ai_doc.app import load_suite, run_static_check
 from ai_doc.config.loader import ConfigError, load_config
 from ai_doc.config.search import OptimizeMode, RuntimeSearchConfig
 from ai_doc.discovery.markdown_discovery import discover_markdown
+from ai_doc.domain.evaluations import Evaluator
 from ai_doc.evaluators.context import ScenarioContextEvaluator
 from ai_doc.evaluators.deepeval import DeepEvalEvaluator, DeepEvalUnavailableError
+from ai_doc.optimizer.generator import SemanticCandidateGenerator
+from ai_doc.optimizer.invariants import SemanticInvariantDiscoverer, SemanticInvariantVerifier
+from ai_doc.optimizer.prompt_suboptimizer import PromptSubOptimizer
 from ai_doc.optimizer.search import SearchController
+from ai_doc.optimizer.semantic import (
+    ProviderPromptSubOptimizer,
+    ProviderSemanticCandidateGenerator,
+    ProviderSemanticEvaluator,
+    ProviderSemanticInvariantService,
+)
 from ai_doc.plugins.loader import ExtensionError, load_extensions
+from ai_doc.providers.semantic import (
+    SEMANTIC_COMMAND_ENV,
+    BudgetedSemanticProvider,
+    CommandSemanticProvider,
+    SemanticProvider,
+)
 from ai_doc.reporting.console import render_search_optimize_console
 from ai_doc.reporting.json import render_json
 from ai_doc.reporting.models import SearchOptimizeReport
@@ -28,9 +46,16 @@ class OutputFormat(StrEnum):
     JSON = "json"
 
 
-# Typer maps this signature directly to the public CLI. Keeping one typed parameter
-# per option is clearer than hiding the command contract in a DTO solely to satisfy
-# generic function-arity heuristics.
+@dataclass
+class SemanticStack:
+    provider: SemanticProvider | None = None
+    generator: SemanticCandidateGenerator | None = None
+    invariant_verifier: SemanticInvariantVerifier | None = None
+    invariant_discoverer: SemanticInvariantDiscoverer | None = None
+    evaluator: Evaluator | None = None
+    prompt_suboptimizer: PromptSubOptimizer | None = None
+
+
 def optimize_command(  # pylint: disable=too-many-arguments,too-many-positional-arguments
     path: Annotated[Path, typer.Argument(help="Repository root to optimize.")] = Path("."),
     root: Annotated[Path | None, typer.Option("--root", help="Explicit project root.")] = None,
@@ -43,19 +68,25 @@ def optimize_command(  # pylint: disable=too-many-arguments,too-many-positional-
         int | None, typer.Option("--max-candidates", help="Maximum generated candidates.")
     ] = None,
     max_cost: Annotated[float | None, typer.Option("--max-cost", help="Maximum optimizer cost USD.")] = None,
-    max_requests: Annotated[int | None, typer.Option("--max-requests", help="Maximum external model requests.")] = None,
+    max_requests: Annotated[
+        int | None, typer.Option("--max-requests", help="Maximum external model requests.")
+    ] = None,
     strategy: Annotated[OptimizeMode | None, typer.Option("--strategy", help="Optimization mode.")] = None,
     deep: Annotated[
-        bool, typer.Option("--deep", help="Run semantic DeepEval evaluation on task-selected context.")
+        bool, typer.Option("--deep", help="Run semantic evaluation on task-selected context.")
     ] = False,
     gepa: Annotated[bool, typer.Option("--gepa", help="Enable GEPA prompt sub-optimizer.")] = False,
     seed: Annotated[int | None, typer.Option("--seed", help="Random seed.")] = None,
-    show_frontier: Annotated[bool, typer.Option("--show-frontier", help="Print all frontier candidates.")] = False,
+    show_frontier: Annotated[
+        bool, typer.Option("--show-frontier", help="Print all frontier candidates.")
+    ] = False,
     non_interactive: Annotated[
         bool, typer.Option("--non-interactive", help="Do not prompt before external calls.")
     ] = False,
     debug: Annotated[bool, typer.Option("--debug", help="Keep adapter temporary files.")] = False,
-    experimental_gepa: Annotated[bool, typer.Option("--experimental-gepa", help="Alias for --gepa.")] = False,
+    experimental_gepa: Annotated[
+        bool, typer.Option("--experimental-gepa", help="Alias for --gepa.")
+    ] = False,
 ) -> None:
     project_root = discover_project_root(path, root)
     try:
@@ -63,10 +94,7 @@ def optimize_command(  # pylint: disable=too-many-arguments,too-many-positional-
         extensions = load_extensions(project_root, loaded.extensions, debug=debug)
         baseline_report = run_static_check(project_root, loaded, extensions=extensions)
         baseline_snapshot = discover_markdown(project_root, loaded, ApproximateTokenCounter())
-    except ConfigError as exc:
-        typer.echo(str(exc), err=True)
-        raise typer.Exit(1) from exc
-    except ExtensionError as exc:
+    except (ConfigError, ExtensionError) as exc:
         typer.echo(str(exc), err=True)
         raise typer.Exit(1) from exc
 
@@ -91,23 +119,37 @@ def optimize_command(  # pylint: disable=too-many-arguments,too-many-positional-
         runtime.search.generations = 1
 
     suite = load_suite(project_root)
-    evaluator = ScenarioContextEvaluator(DeepEvalEvaluator()) if deep else None
+    semantic = _build_semantic_stack(runtime, deep)
+    if semantic.provider:
+        typer.echo(
+            f"Semantic provider enabled from {SEMANTIC_COMMAND_ENV}; generation and invariant safety are active.",
+            err=True,
+        )
     if deep:
-        mode = "non-interactive" if non_interactive else "interactive"
-        typer.echo(f"Semantic evaluation enabled ({mode}); external model calls may occur.", err=True)
-    elif runtime.gepa.enabled:
-        typer.echo("GEPA requested; search will report whether an eligible prompt optimizer was available.", err=True)
+        interaction = "non-interactive" if non_interactive else "interactive"
+        typer.echo(f"Semantic evaluation enabled ({interaction}); external calls may occur.", err=True)
 
     output_root = (project_root / output).resolve() if not output.is_absolute() else output
     try:
-        result = SearchController(loaded, runtime, output_root, extensions=extensions, evaluator=evaluator).optimize(
-            baseline_snapshot, suite, baseline_report
+        controller = SearchController(
+            loaded,
+            runtime,
+            output_root,
+            extensions=extensions,
+            evaluator=semantic.evaluator,
+            semantic_generator=semantic.generator,
+            semantic_invariant_verifier=semantic.invariant_verifier,
+            semantic_invariant_discoverer=semantic.invariant_discoverer,
+            prompt_suboptimizer=semantic.prompt_suboptimizer,
         )
-    except DeepEvalUnavailableError as exc:
+        result = controller.optimize(baseline_snapshot, suite, baseline_report)
+    except (DeepEvalUnavailableError, RuntimeError) as exc:
         typer.echo(str(exc), err=True)
         raise typer.Exit(1) from exc
+
     recommended = next(
-        (candidate for candidate in result.run.candidates if candidate.id == result.run.recommended_candidate_id), None
+        (candidate for candidate in result.run.candidates if candidate.id == result.run.recommended_candidate_id),
+        None,
     )
     report = SearchOptimizeReport(
         baseline=baseline_report,
@@ -119,12 +161,37 @@ def optimize_command(  # pylint: disable=too-many-arguments,too-many-positional-
         baseline_in_frontier=bool(result.run.metadata.get("baseline_in_frontier")),
     )
     _write_run_artifacts(result.run_dir, report)
-    typer.echo(
+    rendered_report = (
         render_json(report)
         if output_format == OutputFormat.JSON
         else render_search_optimize_console(report, show_frontier=show_frontier)
     )
+    typer.echo(rendered_report)
     raise typer.Exit(4 if not result.run.recommended_candidate_id else 0)
+
+
+def _build_semantic_stack(runtime: RuntimeSearchConfig, deep: bool) -> SemanticStack:
+    enabled = bool(os.getenv(SEMANTIC_COMMAND_ENV)) and runtime.mode != OptimizeMode.CONSERVATIVE
+    if not enabled:
+        evaluator = ScenarioContextEvaluator(DeepEvalEvaluator()) if deep else None
+        return SemanticStack(evaluator=evaluator)
+    provider = BudgetedSemanticProvider(
+        CommandSemanticProvider(),
+        runtime.search.max_llm_requests,
+        max_input_tokens=runtime.search.max_input_tokens,
+        max_output_tokens=runtime.search.max_output_tokens,
+        max_cost_usd=runtime.search.max_cost_usd,
+    )
+    invariant_service = ProviderSemanticInvariantService(provider)
+    evaluator = ScenarioContextEvaluator(ProviderSemanticEvaluator(provider)) if deep else None
+    return SemanticStack(
+        provider=provider,
+        generator=ProviderSemanticCandidateGenerator(provider),
+        invariant_verifier=invariant_service,
+        invariant_discoverer=invariant_service,
+        evaluator=evaluator,
+        prompt_suboptimizer=ProviderPromptSubOptimizer(provider) if runtime.gepa.enabled else None,
+    )
 
 
 def _apply_overrides(

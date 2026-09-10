@@ -7,6 +7,7 @@ from typing import Protocol
 from pydantic import BaseModel, Field
 
 from ai_doc.domain.documents import Document, DocumentationSnapshot
+from ai_doc.domain.optimization import InvariantDecision
 
 
 class InvariantImportance(StrEnum):
@@ -29,10 +30,17 @@ class Invariant(BaseModel):
     text: str
     importance: InvariantImportance
     confidence: float = Field(ge=0, le=1)
+    discovery_source: str = "literal"
+    evidence: str | None = None
+    rationale: str | None = None
 
 
 class SemanticInvariantVerifier(Protocol):
     def verify(self, invariant: Invariant, candidate: DocumentationSnapshot) -> InvariantSemanticStatus: ...
+
+
+class SemanticInvariantDiscoverer(Protocol):
+    def discover(self, snapshot: DocumentationSnapshot) -> list[Invariant]: ...
 
 
 CRITICAL_RE = re.compile(r"\b(MUST|NEVER|REQUIRED|FORBIDDEN)\b", re.IGNORECASE)
@@ -40,7 +48,10 @@ IMPORTANT_RE = re.compile(r"\b(SHOULD|IMPORTANT|WARNING)\b", re.IGNORECASE)
 MIN_INVARIANT_SENTENCE_LENGTH = 12
 
 
-def extract_invariants(snapshot: DocumentationSnapshot) -> list[Invariant]:
+def extract_invariants(
+    snapshot: DocumentationSnapshot,
+    semantic_discoverer: SemanticInvariantDiscoverer | None = None,
+) -> list[Invariant]:
     invariants: list[Invariant] = []
     counter = 1
     for document in snapshot.documents:
@@ -64,22 +75,76 @@ def extract_invariants(snapshot: DocumentationSnapshot) -> list[Invariant]:
                             text=sentence.strip(),
                             importance=importance,
                             confidence=confidence,
+                            discovery_source="literal",
+                            evidence=sentence.strip(),
+                            rationale="Explicit normative language in repository documentation.",
                         )
                     )
                     counter += 1
+    if semantic_discoverer is not None:
+        existing = {_normalize(item.text) for item in invariants}
+        for item in semantic_discoverer.discover(snapshot):
+            normalized = _normalize(item.text)
+            if normalized not in existing:
+                invariants.append(item)
+                existing.add(normalized)
     return invariants
 
 
 def verify_invariants(invariants: list[Invariant], documents: list[Document]) -> list[str]:
-    candidate_text = "\n".join(document.text for document in documents).lower()
-    missing: list[str] = []
+    candidate_text = _normalize("\n".join(document.text for document in documents))
+    return [
+        item.id
+        for item in invariants
+        if item.importance == InvariantImportance.CRITICAL and _normalize(item.text) not in candidate_text
+    ]
+
+
+def verify_invariants_with_evidence(
+    invariants: list[Invariant],
+    candidate: DocumentationSnapshot,
+    semantic_verifier: SemanticInvariantVerifier | None,
+) -> tuple[list[str], list[InvariantDecision]]:
+    literal_missing = set(verify_invariants(invariants, list(candidate.documents)))
+    unsafe: list[str] = []
+    decisions: list[InvariantDecision] = []
     for invariant in invariants:
         if invariant.importance != InvariantImportance.CRITICAL:
             continue
-        normalized = _normalize(invariant.text)
-        if normalized not in _normalize(candidate_text):
-            missing.append(invariant.id)
-    return missing
+        literal_preserved = invariant.id not in literal_missing
+        if semantic_verifier is None:
+            status = InvariantSemanticStatus.PRESERVED if literal_preserved else InvariantSemanticStatus.REMOVED
+            detail = "Exact critical wording preserved." if literal_preserved else "Exact critical wording removed."
+            decisions.append(
+                InvariantDecision(
+                    invariant_id=invariant.id,
+                    status=status.value,
+                    source="literal",
+                    detail=detail,
+                )
+            )
+            if status != InvariantSemanticStatus.PRESERVED:
+                unsafe.append(invariant.id)
+            continue
+
+        # Literal presence is useful evidence, but not proof: another sentence may contradict or weaken the rule.
+        status = semantic_verifier.verify(invariant, candidate)
+        source = "literal+semantic" if literal_preserved else "semantic"
+        decisions.append(
+            InvariantDecision(
+                invariant_id=invariant.id,
+                status=status.value,
+                source=source,
+                detail=(
+                    "Semantic verification checked the whole candidate despite exact wording being present."
+                    if literal_preserved
+                    else "Semantic verification evaluated changed or missing critical wording."
+                ),
+            )
+        )
+        if status != InvariantSemanticStatus.PRESERVED:
+            unsafe.append(invariant.id)
+    return sorted(unsafe), decisions
 
 
 def verify_invariants_with_semantics(
@@ -87,16 +152,7 @@ def verify_invariants_with_semantics(
     candidate: DocumentationSnapshot,
     semantic_verifier: SemanticInvariantVerifier | None,
 ) -> list[str]:
-    literal_missing = set(verify_invariants(invariants, list(candidate.documents)))
-    if not literal_missing or semantic_verifier is None:
-        return sorted(literal_missing)
-    unsafe: list[str] = []
-    by_id = {invariant.id: invariant for invariant in invariants}
-    for invariant_id in sorted(literal_missing):
-        status = semantic_verifier.verify(by_id[invariant_id], candidate)
-        if status != InvariantSemanticStatus.PRESERVED:
-            unsafe.append(invariant_id)
-    return unsafe
+    return verify_invariants_with_evidence(invariants, candidate, semantic_verifier)[0]
 
 
 def _sentences(text: str) -> list[str]:
