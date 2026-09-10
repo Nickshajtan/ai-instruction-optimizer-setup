@@ -15,6 +15,9 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+
 jobs:
   quality:
     name: Quality / Python ${{ matrix.python-version }}
@@ -42,6 +45,12 @@ jobs:
       - name: Lint
         run: python -m ruff check .
 
+      - name: Quality contracts
+        run: python tools/check_quality_contracts.py
+      
+      - name: Type check
+        run: python -m mypy
+     
       - name: Type check
         run: python -m mypy
 
