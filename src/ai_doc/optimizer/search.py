@@ -245,7 +245,7 @@ class SearchController:
         candidate_dir.mkdir(parents=True)
         write_proposal(proposal, candidate_dir)
         tree = write_candidate_tree(source_snapshot, rendered, candidate_dir)
-        copy_untracked_context(baseline.root, tree, self.config.include)
+        copy_untracked_context(baseline.root, tree)
         diff_path = write_diff(source_snapshot, rendered, candidate_dir)
         report = run_static_check(tree, self.config, extensions=self.extensions)
         snapshot = discover_markdown(tree, self.config, ApproximateTokenCounter())
