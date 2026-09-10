@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+from dataclasses import dataclass
 from decimal import Decimal
 from enum import StrEnum
 from pathlib import Path
@@ -13,8 +14,12 @@ from ai_doc.app import load_suite, run_static_check
 from ai_doc.config.loader import ConfigError, load_config
 from ai_doc.config.search import OptimizeMode, RuntimeSearchConfig
 from ai_doc.discovery.markdown_discovery import discover_markdown
+from ai_doc.domain.evaluations import Evaluator
 from ai_doc.evaluators.context import ScenarioContextEvaluator
 from ai_doc.evaluators.deepeval import DeepEvalEvaluator, DeepEvalUnavailableError
+from ai_doc.optimizer.generator import SemanticCandidateGenerator
+from ai_doc.optimizer.invariants import SemanticInvariantDiscoverer, SemanticInvariantVerifier
+from ai_doc.optimizer.prompt_suboptimizer import PromptSubOptimizer
 from ai_doc.optimizer.search import SearchController
 from ai_doc.optimizer.semantic import (
     ProviderPromptSubOptimizer,
@@ -23,7 +28,12 @@ from ai_doc.optimizer.semantic import (
     ProviderSemanticInvariantService,
 )
 from ai_doc.plugins.loader import ExtensionError, load_extensions
-from ai_doc.providers.semantic import SEMANTIC_COMMAND_ENV, CommandSemanticProvider
+from ai_doc.providers.semantic import (
+    SEMANTIC_COMMAND_ENV,
+    BudgetedSemanticProvider,
+    CommandSemanticProvider,
+    SemanticProvider,
+)
 from ai_doc.reporting.console import render_search_optimize_console
 from ai_doc.reporting.json import render_json
 from ai_doc.reporting.models import SearchOptimizeReport
@@ -34,6 +44,16 @@ from ai_doc.tokens.counter import ApproximateTokenCounter
 class OutputFormat(StrEnum):
     CONSOLE = "console"
     JSON = "json"
+
+
+@dataclass
+class SemanticStack:
+    provider: SemanticProvider | None = None
+    generator: SemanticCandidateGenerator | None = None
+    invariant_verifier: SemanticInvariantVerifier | None = None
+    invariant_discoverer: SemanticInvariantDiscoverer | None = None
+    evaluator: Evaluator | None = None
+    prompt_suboptimizer: PromptSubOptimizer | None = None
 
 
 def optimize_command(  # pylint: disable=too-many-arguments,too-many-positional-arguments
@@ -99,13 +119,8 @@ def optimize_command(  # pylint: disable=too-many-arguments,too-many-positional-
         runtime.search.generations = 1
 
     suite = load_suite(project_root)
-    provider_enabled = bool(os.getenv(SEMANTIC_COMMAND_ENV)) and runtime.mode != OptimizeMode.CONSERVATIVE
-    provider = CommandSemanticProvider() if provider_enabled else None
-    semantic_generator = ProviderSemanticCandidateGenerator(provider) if provider else None
-    invariant_service = ProviderSemanticInvariantService(provider) if provider else None
-    evaluator = _build_evaluator(deep, provider)
-    prompt_suboptimizer = ProviderPromptSubOptimizer(provider) if provider and runtime.gepa.enabled else None
-    if provider:
+    semantic = _build_semantic_stack(runtime, deep)
+    if semantic.provider:
         typer.echo(
             f"Semantic provider enabled from {SEMANTIC_COMMAND_ENV}; generation and invariant safety are active.",
             err=True,
@@ -121,11 +136,11 @@ def optimize_command(  # pylint: disable=too-many-arguments,too-many-positional-
             runtime,
             output_root,
             extensions=extensions,
-            evaluator=evaluator,
-            semantic_generator=semantic_generator,
-            semantic_invariant_verifier=invariant_service,
-            semantic_invariant_discoverer=invariant_service,
-            prompt_suboptimizer=prompt_suboptimizer,
+            evaluator=semantic.evaluator,
+            semantic_generator=semantic.generator,
+            semantic_invariant_verifier=semantic.invariant_verifier,
+            semantic_invariant_discoverer=semantic.invariant_discoverer,
+            prompt_suboptimizer=semantic.prompt_suboptimizer,
         )
         result = controller.optimize(baseline_snapshot, suite, baseline_report)
     except (DeepEvalUnavailableError, RuntimeError) as exc:
@@ -155,12 +170,22 @@ def optimize_command(  # pylint: disable=too-many-arguments,too-many-positional-
     raise typer.Exit(4 if not result.run.recommended_candidate_id else 0)
 
 
-def _build_evaluator(deep: bool, provider: CommandSemanticProvider | None):
-    if not deep:
-        return None
-    if provider:
-        return ScenarioContextEvaluator(ProviderSemanticEvaluator(provider))
-    return ScenarioContextEvaluator(DeepEvalEvaluator())
+def _build_semantic_stack(runtime: RuntimeSearchConfig, deep: bool) -> SemanticStack:
+    enabled = bool(os.getenv(SEMANTIC_COMMAND_ENV)) and runtime.mode != OptimizeMode.CONSERVATIVE
+    if not enabled:
+        evaluator = ScenarioContextEvaluator(DeepEvalEvaluator()) if deep else None
+        return SemanticStack(evaluator=evaluator)
+    provider = BudgetedSemanticProvider(CommandSemanticProvider(), runtime.search.max_llm_requests)
+    invariant_service = ProviderSemanticInvariantService(provider)
+    evaluator = ScenarioContextEvaluator(ProviderSemanticEvaluator(provider)) if deep else None
+    return SemanticStack(
+        provider=provider,
+        generator=ProviderSemanticCandidateGenerator(provider),
+        invariant_verifier=invariant_service,
+        invariant_discoverer=invariant_service,
+        evaluator=evaluator,
+        prompt_suboptimizer=ProviderPromptSubOptimizer(provider) if runtime.gepa.enabled else None,
+    )
 
 
 def _apply_overrides(
