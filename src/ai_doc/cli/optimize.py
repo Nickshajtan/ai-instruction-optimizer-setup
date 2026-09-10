@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from decimal import Decimal
 from enum import StrEnum
 from pathlib import Path
@@ -15,7 +16,9 @@ from ai_doc.discovery.markdown_discovery import discover_markdown
 from ai_doc.evaluators.context import ScenarioContextEvaluator
 from ai_doc.evaluators.deepeval import DeepEvalEvaluator, DeepEvalUnavailableError
 from ai_doc.optimizer.search import SearchController
+from ai_doc.optimizer.semantic import ProviderPromptSubOptimizer, ProviderSemanticCandidateGenerator, ProviderSemanticEvaluator, ProviderSemanticInvariantService
 from ai_doc.plugins.loader import ExtensionError, load_extensions
+from ai_doc.providers.semantic import CommandSemanticProvider, SEMANTIC_COMMAND_ENV
 from ai_doc.reporting.console import render_search_optimize_console
 from ai_doc.reporting.json import render_json
 from ai_doc.reporting.models import SearchOptimizeReport
@@ -28,9 +31,6 @@ class OutputFormat(StrEnum):
     JSON = "json"
 
 
-# Typer maps this signature directly to the public CLI. Keeping one typed parameter
-# per option is clearer than hiding the command contract in a DTO solely to satisfy
-# generic function-arity heuristics.
 def optimize_command(  # pylint: disable=too-many-arguments,too-many-positional-arguments
     path: Annotated[Path, typer.Argument(help="Repository root to optimize.")] = Path("."),
     root: Annotated[Path | None, typer.Option("--root", help="Explicit project root.")] = None,
@@ -39,120 +39,80 @@ def optimize_command(  # pylint: disable=too-many-arguments,too-many-positional-
     output: Annotated[Path, typer.Option("--output", help="Output directory.")] = Path(".ai-doc-output"),
     candidates: Annotated[int | None, typer.Option("--candidates", help="Initial candidates.")] = None,
     generations: Annotated[int | None, typer.Option("--generations", help="Search generations.")] = None,
-    max_candidates: Annotated[
-        int | None, typer.Option("--max-candidates", help="Maximum generated candidates.")
-    ] = None,
+    max_candidates: Annotated[int | None, typer.Option("--max-candidates", help="Maximum generated candidates.")] = None,
     max_cost: Annotated[float | None, typer.Option("--max-cost", help="Maximum optimizer cost USD.")] = None,
     max_requests: Annotated[int | None, typer.Option("--max-requests", help="Maximum external model requests.")] = None,
     strategy: Annotated[OptimizeMode | None, typer.Option("--strategy", help="Optimization mode.")] = None,
-    deep: Annotated[
-        bool, typer.Option("--deep", help="Run semantic DeepEval evaluation on task-selected context.")
-    ] = False,
+    deep: Annotated[bool, typer.Option("--deep", help="Run semantic evaluation on task-selected context.")] = False,
     gepa: Annotated[bool, typer.Option("--gepa", help="Enable GEPA prompt sub-optimizer.")] = False,
     seed: Annotated[int | None, typer.Option("--seed", help="Random seed.")] = None,
     show_frontier: Annotated[bool, typer.Option("--show-frontier", help="Print all frontier candidates.")] = False,
-    non_interactive: Annotated[
-        bool, typer.Option("--non-interactive", help="Do not prompt before external calls.")
-    ] = False,
+    non_interactive: Annotated[bool, typer.Option("--non-interactive", help="Do not prompt before external calls.")] = False,
     debug: Annotated[bool, typer.Option("--debug", help="Keep adapter temporary files.")] = False,
     experimental_gepa: Annotated[bool, typer.Option("--experimental-gepa", help="Alias for --gepa.")] = False,
 ) -> None:
     project_root = discover_project_root(path, root)
     try:
-        loaded = load_config(project_root, config)
-        extensions = load_extensions(project_root, loaded.extensions, debug=debug)
+        loaded = load_config(project_root, config); extensions = load_extensions(project_root, loaded.extensions, debug=debug)
         baseline_report = run_static_check(project_root, loaded, extensions=extensions)
         baseline_snapshot = discover_markdown(project_root, loaded, ApproximateTokenCounter())
-    except ConfigError as exc:
-        typer.echo(str(exc), err=True)
-        raise typer.Exit(1) from exc
-    except ExtensionError as exc:
-        typer.echo(str(exc), err=True)
-        raise typer.Exit(1) from exc
+    except (ConfigError, ExtensionError) as exc:
+        typer.echo(str(exc), err=True); raise typer.Exit(1) from exc
 
-    runtime = RuntimeSearchConfig(
-        mode=strategy or loaded.optimization.strategy,
-        population=loaded.optimization.population.model_copy(deep=True),
-        search=loaded.optimization.search.model_copy(deep=True),
-        pareto=loaded.optimization.pareto.model_copy(deep=True),
-        gepa=loaded.optimization.gepa.model_copy(
-            update={"enabled": gepa or experimental_gepa or loaded.optimization.gepa.enabled}
-        ),
-        recommendation=loaded.optimization.recommendation.model_copy(deep=True),
-        exploration_rate=loaded.optimization.exploration_rate,
-        restart_after_stagnation=loaded.optimization.restart_after_stagnation,
-        concurrency=loaded.optimization.concurrency,
-        seed=seed or loaded.optimization.gepa.random_seed,
-    )
+    runtime = RuntimeSearchConfig(mode=strategy or loaded.optimization.strategy, population=loaded.optimization.population.model_copy(deep=True),
+        search=loaded.optimization.search.model_copy(deep=True), pareto=loaded.optimization.pareto.model_copy(deep=True),
+        gepa=loaded.optimization.gepa.model_copy(update={"enabled": gepa or experimental_gepa or loaded.optimization.gepa.enabled}),
+        recommendation=loaded.optimization.recommendation.model_copy(deep=True), exploration_rate=loaded.optimization.exploration_rate,
+        restart_after_stagnation=loaded.optimization.restart_after_stagnation, concurrency=loaded.optimization.concurrency,
+        seed=seed or loaded.optimization.gepa.random_seed)
     _apply_overrides(runtime, candidates, generations, max_candidates, max_cost, max_requests)
     if runtime.mode == OptimizeMode.CONSERVATIVE:
-        runtime.population.initial_candidates = 1
-        runtime.search.max_candidates = 1
-        runtime.search.generations = 1
+        runtime.population.initial_candidates = runtime.search.max_candidates = runtime.search.generations = 1
 
     suite = load_suite(project_root)
-    evaluator = ScenarioContextEvaluator(DeepEvalEvaluator()) if deep else None
+    provider = CommandSemanticProvider() if os.getenv(SEMANTIC_COMMAND_ENV) and runtime.mode != OptimizeMode.CONSERVATIVE else None
+    semantic_generator = ProviderSemanticCandidateGenerator(provider) if provider else None
+    invariant_service = ProviderSemanticInvariantService(provider) if provider else None
+    if deep and provider:
+        evaluator = ScenarioContextEvaluator(ProviderSemanticEvaluator(provider))
+    else:
+        evaluator = ScenarioContextEvaluator(DeepEvalEvaluator()) if deep else None
+    prompt_suboptimizer = ProviderPromptSubOptimizer(provider) if provider and runtime.gepa.enabled else None
+    if provider:
+        typer.echo(f"Semantic provider enabled from {SEMANTIC_COMMAND_ENV}; adaptive generation and invariant safety are active.", err=True)
     if deep:
-        mode = "non-interactive" if non_interactive else "interactive"
-        typer.echo(f"Semantic evaluation enabled ({mode}); external model calls may occur.", err=True)
-    elif runtime.gepa.enabled:
-        typer.echo("GEPA requested; search will report whether an eligible prompt optimizer was available.", err=True)
+        typer.echo(f"Semantic evaluation enabled ({'non-interactive' if non_interactive else 'interactive'}); external calls may occur.", err=True)
 
     output_root = (project_root / output).resolve() if not output.is_absolute() else output
     try:
-        result = SearchController(loaded, runtime, output_root, extensions=extensions, evaluator=evaluator).optimize(
-            baseline_snapshot, suite, baseline_report
-        )
-    except DeepEvalUnavailableError as exc:
-        typer.echo(str(exc), err=True)
-        raise typer.Exit(1) from exc
-    recommended = next(
-        (candidate for candidate in result.run.candidates if candidate.id == result.run.recommended_candidate_id), None
-    )
-    report = SearchOptimizeReport(
-        baseline=baseline_report,
-        run=result.run,
-        candidates_evaluated=len([candidate for candidate in result.run.candidates if candidate.id != "baseline"]),
-        candidates_rejected=len([candidate for candidate in result.run.candidates if candidate.status == "rejected"]),
-        frontier=result.run.frontier.entries,
-        recommended_candidate=recommended,
-        baseline_in_frontier=bool(result.run.metadata.get("baseline_in_frontier")),
-    )
+        result = SearchController(loaded, runtime, output_root, extensions=extensions, evaluator=evaluator,
+            semantic_generator=semantic_generator, semantic_invariant_verifier=invariant_service,
+            semantic_invariant_discoverer=invariant_service, prompt_suboptimizer=prompt_suboptimizer).optimize(baseline_snapshot, suite, baseline_report)
+    except (DeepEvalUnavailableError, RuntimeError) as exc:
+        typer.echo(str(exc), err=True); raise typer.Exit(1) from exc
+    recommended = next((c for c in result.run.candidates if c.id == result.run.recommended_candidate_id), None)
+    report = SearchOptimizeReport(baseline=baseline_report, run=result.run,
+        candidates_evaluated=len([c for c in result.run.candidates if c.id != "baseline"]),
+        candidates_rejected=len([c for c in result.run.candidates if c.status == "rejected"]), frontier=result.run.frontier.entries,
+        recommended_candidate=recommended, baseline_in_frontier=bool(result.run.metadata.get("baseline_in_frontier")))
     _write_run_artifacts(result.run_dir, report)
-    typer.echo(
-        render_json(report)
-        if output_format == OutputFormat.JSON
-        else render_search_optimize_console(report, show_frontier=show_frontier)
-    )
+    typer.echo(render_json(report) if output_format == OutputFormat.JSON else render_search_optimize_console(report, show_frontier=show_frontier))
     raise typer.Exit(4 if not result.run.recommended_candidate_id else 0)
 
 
-def _apply_overrides(
-    runtime: RuntimeSearchConfig,
-    candidates: int | None,
-    generations: int | None,
-    max_candidates: int | None,
-    max_cost: float | None,
-    max_requests: int | None,
-) -> None:
-    if candidates is not None:
-        runtime.population.initial_candidates = candidates
-        runtime.search.initial_candidates = candidates
-    if generations is not None:
-        runtime.search.generations = generations
-    if max_candidates is not None:
-        runtime.search.max_candidates = max_candidates
-    if max_cost is not None:
-        runtime.search.max_cost_usd = Decimal(str(max_cost))
-    if max_requests is not None:
-        runtime.search.max_llm_requests = max_requests
+def _apply_overrides(runtime: RuntimeSearchConfig, candidates: int | None, generations: int | None,
+                     max_candidates: int | None, max_cost: float | None, max_requests: int | None) -> None:
+    if candidates is not None: runtime.population.initial_candidates = runtime.search.initial_candidates = candidates
+    if generations is not None: runtime.search.generations = generations
+    if max_candidates is not None: runtime.search.max_candidates = max_candidates
+    if max_cost is not None: runtime.search.max_cost_usd = Decimal(str(max_cost))
+    if max_requests is not None: runtime.search.max_llm_requests = max_requests
 
 
 def _write_run_artifacts(run_dir: Path, report: SearchOptimizeReport) -> None:
     run = report.run
     (run_dir / "run.json").write_text(run.model_dump_json(indent=2), encoding="utf-8")
     (run_dir / "frontier.json").write_text(run.frontier.model_dump_json(indent=2), encoding="utf-8")
-    lineage = {candidate.id: candidate.parent_ids for candidate in run.candidates}
-    (run_dir / "lineage.json").write_text(json.dumps(lineage, indent=2), encoding="utf-8")
+    (run_dir / "lineage.json").write_text(json.dumps({c.id: c.parent_ids for c in run.candidates}, indent=2), encoding="utf-8")
     (run_dir / "search-memory.json").write_text(run.search_memory.model_dump_json(indent=2), encoding="utf-8")
     (run_dir / "report.json").write_text(report.model_dump_json(indent=2), encoding="utf-8")
