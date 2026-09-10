@@ -37,11 +37,24 @@ static gates during optimization. They are not a general plugin system for every
 Stable imports live under:
 
 ```python
-from ai_doc.api.v1 import AnalysisContext, Finding, FindingCategory, FindingSeverity
+from ai_doc.api.v1 import API_VERSION, AnalysisContext, Finding, FindingCategory, FindingSeverity
 ```
+
+`API_VERSION` is currently `"1"`. Extensions that need an explicit compatibility guard can
+check that value during registration. A change that requires existing `api.v1` consumers
+to rewrite their integration must ship under a new versioned API module rather than
+silently changing the v1 contract.
 
 Anything outside `ai_doc.api.v1` should be treated as internal unless explicitly
 documented otherwise.
+
+Deprecation policy for the stable API:
+
+- additions that do not break existing consumers may be made within v1;
+- deprecated v1 exports remain available for at least one documented minor release before removal;
+- breaking replacements are introduced under a new versioned API namespace;
+- release notes must identify the replacement and migration path before an old stable export is removed;
+- internal modules have no such compatibility guarantee.
 
 ## Configure Extensions
 
