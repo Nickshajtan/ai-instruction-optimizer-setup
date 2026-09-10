@@ -11,6 +11,7 @@ from ai_doc.domain.proposals import CandidateProposal, OperationType, ProposalOp
 from ai_doc.optimizer.invariants import Invariant, InvariantImportance
 
 EXAMPLES_MIN_TOKENS = 350
+MIN_DEDUPLICATION_LINE_LENGTH = 20
 EXTRACTED_DOCS_DIR = "docs/ai-doc-extracted"
 EXAMPLE_HEADING_KEYWORD = "example"
 STRENGTHEN_FEEDBACK_KEYWORD = "strengthen"
@@ -331,7 +332,7 @@ def _deduplicate_lines(text: str, invariant_texts: set[str]) -> tuple[str, bool]
     output: list[str] = []
     for line in text.splitlines():
         normalized = re.sub(r"\s+", " ", line.strip().lower())
-        is_candidate = line.lstrip().startswith(("-", "*")) and len(normalized) > 20
+        is_candidate = line.lstrip().startswith(("-", "*")) and len(normalized) > MIN_DEDUPLICATION_LINE_LENGTH
         if is_candidate and normalized in seen and line.strip(" -*") not in invariant_texts:
             changed = True
             continue

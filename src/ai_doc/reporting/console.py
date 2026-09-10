@@ -28,7 +28,10 @@ def render_optimize_console(report: OptimizeReport) -> str:
         f"Baseline tokens: {comparison.baseline.total_tokens:,}",
         f"Candidate tokens: {comparison.candidate.total_tokens:,}",
         f"Token delta: {comparison.token_delta:,} ({comparison.token_delta_percent:.1f}%)",
-        f"Always-loaded tokens: {comparison.baseline.always_loaded_tokens:,} -> {comparison.candidate.always_loaded_tokens:,}",
+        (
+            f"Always-loaded tokens: {comparison.baseline.always_loaded_tokens:,} -> "
+            f"{comparison.candidate.always_loaded_tokens:,}"
+        ),
         f"Invariant regressions: {len(comparison.invariant_regressions)}",
         f"Recommendation: {comparison.recommendation.upper()}",
         "",

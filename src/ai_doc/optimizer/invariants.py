@@ -37,6 +37,7 @@ class SemanticInvariantVerifier(Protocol):
 
 CRITICAL_RE = re.compile(r"\b(MUST|NEVER|REQUIRED|FORBIDDEN)\b", re.IGNORECASE)
 IMPORTANT_RE = re.compile(r"\b(SHOULD|IMPORTANT|WARNING)\b", re.IGNORECASE)
+MIN_INVARIANT_SENTENCE_LENGTH = 12
 
 
 def extract_invariants(snapshot: DocumentationSnapshot) -> list[Invariant]:
@@ -100,7 +101,7 @@ def verify_invariants_with_semantics(
 
 def _sentences(text: str) -> list[str]:
     parts = re.split(r"(?<=[.!?])\s+|\n(?=\s*(?:[-*]|\d+\.|\w))", text)
-    return [part.strip(" -*\t\r\n") for part in parts if len(part.strip()) > 12]
+    return [part.strip(" -*\t\r\n") for part in parts if len(part.strip()) > MIN_INVARIANT_SENTENCE_LENGTH]
 
 
 def _normalize(text: str) -> str:
