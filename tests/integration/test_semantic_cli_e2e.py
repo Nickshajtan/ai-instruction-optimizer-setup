@@ -62,6 +62,28 @@ def _run_json(root: Path) -> dict[str, object]:
     return json.loads((run_dir / "run.json").read_text(encoding="utf-8"))
 
 
+def _serialized_input_tokens(total_cost: dict[str, object]) -> int:
+    return sum(
+        int(total_cost[key])
+        for key in (
+            "generation_input_tokens",
+            "evaluation_input_tokens",
+            "prompt_suboptimizer_input_tokens",
+        )
+    )
+
+
+def _serialized_requests(total_cost: dict[str, object]) -> int:
+    return sum(
+        int(total_cost[key])
+        for key in (
+            "generation_requests",
+            "evaluation_requests",
+            "prompt_suboptimizer_requests",
+        )
+    )
+
+
 def test_cli_uses_production_semantic_command_and_writes_real_usage(tmp_path: Path, monkeypatch) -> None:
     _write_project(tmp_path, max_input_tokens=10_000)
     monkeypatch.setenv("AI_DOC_SEMANTIC_COMMAND", _fixture_command())
@@ -73,9 +95,9 @@ def test_cli_uses_production_semantic_command_and_writes_real_usage(tmp_path: Pa
     run = _run_json(tmp_path)
     total_cost = run["total_cost"]
     assert isinstance(total_cost, dict)
-    assert total_cost["generation_requests"] >= 1
-    assert total_cost["evaluation_requests"] >= 1
-    assert total_cost["input_tokens"] > 0
+    assert int(total_cost["generation_requests"]) >= 1
+    assert int(total_cost["evaluation_requests"]) >= 1
+    assert _serialized_input_tokens(total_cost) > 0
     assert (tmp_path / ".ai-doc-output").exists()
 
 
@@ -89,9 +111,11 @@ def test_cli_persists_discovery_overrun_as_normal_budget_stop(tmp_path: Path, mo
     assert result.exit_code == 4
     run = _run_json(tmp_path)
     assert run["stopped_reason"] == "stopped_token_budget"
-    assert run["metadata"]["budget_stop_stage"] == "semantic invariant discovery"
+    metadata = run["metadata"]
+    assert isinstance(metadata, dict)
+    assert metadata["budget_stop_stage"] == "semantic invariant discovery"
     total_cost = run["total_cost"]
     assert isinstance(total_cost, dict)
-    assert total_cost["input_tokens"] == 100
-    assert total_cost["external_requests"] == 1
+    assert _serialized_input_tokens(total_cost) == 100
+    assert _serialized_requests(total_cost) == 1
     assert (next((tmp_path / ".ai-doc-output").iterdir()) / "report.json").exists()
