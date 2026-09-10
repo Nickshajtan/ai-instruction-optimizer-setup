@@ -40,8 +40,8 @@ jobs:
         run: python tools/check_quality_contracts.py
       - name: Type check
         run: python -m mypy
-      - name: Test
-        run: python -m pytest
+      - name: Test with branch coverage
+        run: python -m pytest --cov=ai_doc --cov-branch --cov-report=term-missing --cov-report=xml --cov-fail-under=80
 
   platform:
     name: Platform / ${{ matrix.os }} / Python 3.12
