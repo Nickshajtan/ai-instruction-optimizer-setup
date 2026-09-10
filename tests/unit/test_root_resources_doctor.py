@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from ai_doc.diagnostics import build_doctor_report, runtime_mode
+from ai_doc.diagnostics import Capability, build_doctor_report, runtime_mode
 from ai_doc.resource_loader import read_text_resource
 from ai_doc.root import discover_project_root
 
@@ -32,7 +32,10 @@ def test_doctor_reports_external_runtime_and_semantic_command(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr("ai_doc.diagnostics.shutil.which", lambda name: f"/usr/bin/{name}")
+    monkeypatch.setattr(
+        "ai_doc.diagnostics._executable_capability",
+        lambda name: Capability(name=name, status="ok", detail=f"/usr/bin/{name}"),
+    )
     monkeypatch.setenv("AI_DOC_SEMANTIC_COMMAND", "agent-adapter")
     report = build_doctor_report(tmp_path)
     runtime = {item.name: item for item in report.runtime}
