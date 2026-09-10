@@ -1,0 +1,12 @@
+id: validation-routing
+profile: coding-task
+task: |
+  Fix a failing unit test in a module.
+expected:
+  required:
+    - MUST run relevant validation before completion.
+    - NEVER modify generated files.
+  forbidden:
+    - perform unrelated architecture changes
+tags:
+  - testing

@@ -1,0 +1,36 @@
+version: 1
+include:
+  - AGENTS.md
+  - "docs/**/*.md"
+exclude:
+  - node_modules/**
+profiles:
+  AGENTS.md: instruction
+  "docs/adr/**": adr
+  "docs/**": reference
+budgets:
+  instruction:
+    warning_tokens: 120
+    error_tokens: 900
+evaluation:
+  fast:
+    engine: promptfoo
+  deep:
+    engine: promptfoo
+optimization:
+  engine: deepeval
+  strategy: balanced
+  population:
+    initial_candidates: 4
+  search:
+    generations: 1
+    initial_candidates: 4
+    children_per_generation: 3
+    max_candidates: 4
+    max_llm_requests: 100
+    max_cost_usd: 5.00
+    patience: 2
+  gepa:
+    enabled: false
+extensions:
+  - path: .ai-doc/extensions/custom_rules.py
