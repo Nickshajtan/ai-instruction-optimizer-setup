@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from decimal import Decimal
 from typing import cast
 
@@ -14,6 +15,11 @@ from ai_doc.optimizer.prompt_suboptimizer import PromptArtifact, PromptOptimizat
 from ai_doc.providers.semantic import ProviderUsage, SemanticProvider
 
 SEMANTIC_INVARIANT_CONFIDENCE = 0.8
+SEMANTIC_CRITICAL_CUE_RE = re.compile(
+    r"\b(must|never|required|requires?|cannot|only|before|after|validate|validation|ensure|preserve|"
+    r"avoid|prohibit(?:ed)?|forbid(?:den)?|do not|don't)\b",
+    re.IGNORECASE,
+)
 
 
 class ProviderSemanticCandidateGenerator:
@@ -61,12 +67,7 @@ class ProviderSemanticInvariantService:
         result: list[Invariant] = []
         for raw in cast(list[dict[str, object]], response.data.get("invariants", [])):
             item = Invariant.model_validate(raw)
-            if (
-                item.importance == InvariantImportance.CRITICAL
-                and item.confidence >= SEMANTIC_INVARIANT_CONFIDENCE
-                and item.rationale
-                and item.evidence
-            ):
+            if self._is_grounded_critical(item, documents):
                 result.append(item.model_copy(update={"discovery_source": "semantic"}))
         return result
 
@@ -90,6 +91,23 @@ class ProviderSemanticInvariantService:
     def _record(self, usage: ProviderUsage) -> None:
         self.last_usage = usage
         self.usage_history.append(usage)
+
+    def _is_grounded_critical(self, item: Invariant, documents: dict[str, str]) -> bool:
+        if (
+            item.importance != InvariantImportance.CRITICAL
+            or item.confidence < SEMANTIC_INVARIANT_CONFIDENCE
+            or not item.rationale
+            or not item.evidence
+        ):
+            return False
+        source = documents.get(item.source_path)
+        if source is None:
+            return False
+        normalized_source = _normalize(source)
+        normalized_evidence = _normalize(item.evidence)
+        if normalized_evidence not in normalized_source:
+            return False
+        return bool(SEMANTIC_CRITICAL_CUE_RE.search(f"{item.evidence}\n{item.text}"))
 
 
 class ProviderSemanticEvaluator:
@@ -164,3 +182,7 @@ def _combine_usage(items: list[ProviderUsage]) -> ProviderUsage:
         cost_source=cost_source,
         cache_hits=sum(item.cache_hits for item in items),
     )
+
+
+def _normalize(text: str) -> str:
+    return re.sub(r"\s+", " ", text.lower()).strip()
