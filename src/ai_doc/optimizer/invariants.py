@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 from enum import StrEnum
+from typing import Protocol
 
 from pydantic import BaseModel, Field
 
@@ -14,6 +15,13 @@ class InvariantImportance(StrEnum):
     NORMAL = "normal"
 
 
+class InvariantSemanticStatus(StrEnum):
+    PRESERVED = "preserved"
+    WEAKENED = "weakened"
+    REMOVED = "removed"
+    UNCERTAIN = "uncertain"
+
+
 class Invariant(BaseModel):
     id: str
     source_path: str
@@ -21,6 +29,10 @@ class Invariant(BaseModel):
     text: str
     importance: InvariantImportance
     confidence: float = Field(ge=0, le=1)
+
+
+class SemanticInvariantVerifier(Protocol):
+    def verify(self, invariant: Invariant, candidate: DocumentationSnapshot) -> InvariantSemanticStatus: ...
 
 
 CRITICAL_RE = re.compile(r"\b(MUST|NEVER|REQUIRED|FORBIDDEN)\b", re.IGNORECASE)
@@ -43,16 +55,7 @@ def extract_invariants(snapshot: DocumentationSnapshot) -> list[Invariant]:
                     importance = InvariantImportance.IMPORTANT
                     confidence = 0.8
                 if importance:
-                    invariants.append(
-                        Invariant(
-                            id=f"inv-{counter}",
-                            source_path=document.relative_path,
-                            source_section=section_name,
-                            text=sentence.strip(),
-                            importance=importance,
-                            confidence=confidence,
-                        )
-                    )
+                    invariants.append(Invariant(id=f"inv-{counter}", source_path=document.relative_path, source_section=section_name, text=sentence.strip(), importance=importance, confidence=confidence))
                     counter += 1
     return invariants
 
@@ -67,6 +70,23 @@ def verify_invariants(invariants: list[Invariant], documents: list[Document]) ->
         if normalized not in _normalize(candidate_text):
             missing.append(invariant.id)
     return missing
+
+
+def verify_invariants_with_semantics(
+    invariants: list[Invariant],
+    candidate: DocumentationSnapshot,
+    semantic_verifier: SemanticInvariantVerifier | None,
+) -> list[str]:
+    literal_missing = set(verify_invariants(invariants, list(candidate.documents)))
+    if not literal_missing or semantic_verifier is None:
+        return sorted(literal_missing)
+    unsafe: list[str] = []
+    by_id = {invariant.id: invariant for invariant in invariants}
+    for invariant_id in sorted(literal_missing):
+        status = semantic_verifier.verify(by_id[invariant_id], candidate)
+        if status != InvariantSemanticStatus.PRESERVED:
+            unsafe.append(invariant_id)
+    return unsafe
 
 
 def _sentences(text: str) -> list[str]:
