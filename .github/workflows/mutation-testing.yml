@@ -57,31 +57,47 @@ jobs:
           fi
 
           python - <<'PY'
+          from collections import defaultdict
           from pathlib import Path
           import subprocess
 
-          results = Path("mutation-results.txt").read_text(encoding="utf-8").splitlines()
-          survivors = []
-          for raw in results:
+          groups = {
+              "budget-provider": "ai_doc.providers.semantic.",
+              "search": "ai_doc.optimizer.search.",
+              "invariants": "ai_doc.optimizer.invariants.",
+              "pareto-recommendation": ("ai_doc.optimizer.pareto.", "ai_doc.optimizer.recommendation."),
+              "evaluators": ("ai_doc.evaluators.deepeval.", "ai_doc.evaluators.promptfoo."),
+          }
+          limit_per_group = 5
+          selected: dict[str, list[str]] = defaultdict(list)
+
+          for raw in Path("mutation-results.txt").read_text(encoding="utf-8").splitlines():
               line = raw.strip()
               if not line.endswith(": survived"):
                   continue
-              survivors.append(line.removesuffix(": survived"))
+              mutant = line.removesuffix(": survived")
+              for group, prefixes in groups.items():
+                  prefixes_tuple = (prefixes,) if isinstance(prefixes, str) else prefixes
+                  if mutant.startswith(prefixes_tuple) and len(selected[group]) < limit_per_group:
+                      selected[group].append(mutant)
+                      break
 
           with Path("mutation-survivor-diffs.txt").open("w", encoding="utf-8") as handle:
-              for mutant in survivors:
-                  handle.write(f"===== {mutant} =====\n")
-                  completed = subprocess.run(
-                      ["python", "-m", "mutmut", "show", mutant],
-                      check=False,
-                      text=True,
-                      capture_output=True,
-                  )
-                  handle.write(completed.stdout)
-                  if completed.stderr:
-                      handle.write("\n[stderr]\n")
-                      handle.write(completed.stderr)
-                  handle.write("\n\n")
+              for group in groups:
+                  handle.write(f"## {group}\n\n")
+                  for mutant in selected[group]:
+                      handle.write(f"===== {mutant} =====\n")
+                      completed = subprocess.run(
+                          ["python", "-m", "mutmut", "show", mutant],
+                          check=False,
+                          text=True,
+                          capture_output=True,
+                      )
+                      handle.write(completed.stdout)
+                      if completed.stderr:
+                          handle.write("\n[stderr]\n")
+                          handle.write(completed.stderr)
+                      handle.write("\n\n")
           PY
 
           printf '%s\n' "${mutation_exit}" > mutation-exit-code.txt
@@ -92,7 +108,6 @@ jobs:
           echo "mutmut results exit code: ${results_exit}"
           echo "mutmut export-cicd-stats exit code: ${stats_exit}"
           cat mutation-export.txt || true
-          cat mutation-results.txt || true
           cat mutation-stats.json || true
           cat mutation-stats.stderr || true
       - name: Upload mutation baseline
