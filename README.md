@@ -1,8 +1,10 @@
 # AI Documentation Optimizer
 
-`ai-doc` is a Python CLI for analyzing Markdown documentation used by AI coding agents.
-It reports clarity, structure, and context-cost issues, supports optional lexical/semantic
-evaluation, and can generate optimization candidates without modifying source files.
+Repository instructions are part of the interface between repository knowledge and an AI coding agent. `ai-doc` analyzes and optimizes that interface for clarity, consistency, task reliability, and context cost.
+
+The tool combines static analysis, optional semantic evaluation, conservative optimization, and an empirical evidence layer for comparing baseline instructions with optimized instructions on real coding-agent tasks. The intended outcome is not a prettier Markdown file: it is fewer instruction violations and retries, lower context/token cost, and equal or better task success.
+
+`ai-doc` is **not** a generic Grammarly-style Markdown linter, a generic prompt improver, or an LLM wrapper. A no-op is a valid optimization result when evidence does not justify replacing the baseline.
 
 ## Install And Run
 
@@ -12,6 +14,7 @@ Editable install for local development:
 python -m pip install -e ".[dev]"
 ai-doc check examples/basic
 ai-doc optimize examples/basic --strategy balanced --show-frontier
+ai-doc benchmark examples/benchmark/evidence.json
 ai-doc doctor examples/basic
 ```
 
@@ -35,6 +38,8 @@ Standalone executable build:
 python -m tools.build executable
 ```
 
+The standalone executable is the preferred adoption path for repositories that do not otherwise use Python: consumers do not need to add Python to their application stack.
+
 Optional deep-evaluation setup:
 
 ```bash
@@ -45,12 +50,41 @@ ai-doc check examples/basic --deep
 
 Adaptive optimization can also use the provider-neutral `AI_DOC_SEMANTIC_COMMAND` contract for semantic generation, invariant safety, evaluation, and eligible prompt suboptimization. See [Semantic Optimization](docs/guides/semantic-optimization.md) for the command contract, budget semantics, and evidence model.
 
+## Prove That An Optimization Works
+
+Static clarity and token metrics are useful signals, but they do not prove that an AI agent performs better. `ai-doc benchmark` consumes repeated baseline/candidate task runs and reports task success, instruction violations, retries, tokens, latency, cost, variance, and a confidence-aware decision without collapsing them into one magic quality score.
+
+```bash
+ai-doc benchmark examples/benchmark/evidence.json \
+  --minimum-runs 3 \
+  --minimum-meaningful-improvement 0.05
+```
+
+The evidence format is provider-neutral: Codex, Claude, Copilot, Promptfoo, DeepEval, or a custom harness can produce raw runs. See [Empirical Benchmarking](docs/guides/benchmarking.md).
+
+## Product Direction
+
+- **v0.2 — Prove it works:** empirical benchmark harness, repeated evaluation, task-success/cost evidence.
+- **v0.3 — Make it reliable:** stronger confidence/noise handling, regression baselines, conservative recommendation gates.
+- **v0.4 — Make it easy to adopt:** release binaries, first-class install/update flow, richer `doctor`, and published case studies.
+
+Infrastructure additions should serve measurable benchmark outcomes. New optimizer abstractions or evaluators should come with a concrete scenario demonstrating the additional signal they provide.
+
+## Runtime Topology
+
+- Core analyzer, optimizer, benchmark aggregation: Python.
+- DeepEval adapter: optional Python dependency.
+- Promptfoo adapter: optional integration whose runtime may include Node.js/npm/npx.
+- Real coding-agent execution: external provider/agent adapter or harness; benchmark evidence remains stable across those implementations.
+
+Use `ai-doc doctor` to inspect the capabilities available in the current installation.
+
 ## What Is Stable
 
 The public contract is limited to:
 
 - CLI commands, options, and exit codes;
-- JSON output schemas;
+- JSON output schemas, including benchmark evidence/report schemas;
 - `.ai-doc.yaml` configuration;
 - configured project-local extensions;
 - explicit exports from `ai_doc.api.v1`.
@@ -65,6 +99,7 @@ Use these when you want to run or configure the tool:
 - [Runbook](docs/operations/runbook.md): routine operation, CI usage, diagnosis, and recovery.
 - [Configuration](docs/guides/configuration.md): `.ai-doc.yaml`, profiles, budgets, evals, optimization, and extensions.
 - [Semantic Optimization](docs/guides/semantic-optimization.md): semantic generation/evaluation, invariant safety, task-selected context, budgets, Pareto comparison, repair, and evidence.
+- [Empirical Benchmarking](docs/guides/benchmarking.md): real agent-task evidence, repeated runs, noise handling, and FinOps metrics.
 
 Use these when changing the project:
 
