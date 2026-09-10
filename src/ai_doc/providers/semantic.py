@@ -63,7 +63,7 @@ class CommandSemanticProvider:
     """Production provider-neutral adapter using a JSON stdin/stdout command contract."""
 
     def __init__(self, command: str | None = None) -> None:
-        self.command = command or os.getenv(SEMANTIC_COMMAND_ENV, "")
+        self.command: str = command or os.getenv(SEMANTIC_COMMAND_ENV) or ""
         if not self.command:
             raise RuntimeError(
                 f"Semantic provider is not configured. Set {SEMANTIC_COMMAND_ENV} "
