@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Annotated
 
 import typer
@@ -9,12 +8,10 @@ from ai_doc.optional_dependencies import OptionalDependencyError, install_deep_d
 
 
 def setup_command(
-    path: Annotated[Path, typer.Argument(help="Project path.")] = Path("."),
     deep: Annotated[
         bool, typer.Option("--deep", help="Install optional deep-evaluation dependencies.")
     ] = False,
 ) -> None:
-    del path
     if not deep:
         typer.echo("Nothing to set up. Use --deep to install optional deep-evaluation dependencies.")
         return
