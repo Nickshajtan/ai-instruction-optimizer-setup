@@ -1,10 +1,10 @@
 from pathlib import Path
 
 from ai_doc.app import run_static_check
-from ai_doc.config.models import BudgetConfig, DEFAULT_CONFIG
+from ai_doc.config.models import DEFAULT_CONFIG, BudgetConfig
 from ai_doc.config.search import OptimizeMode, RuntimeSearchConfig
 from ai_doc.discovery.markdown_discovery import discover_markdown
-from ai_doc.domain.documents import DocumentProfile, DocumentationSnapshot
+from ai_doc.domain.documents import DocumentationSnapshot, DocumentProfile
 from ai_doc.domain.evaluations import EvaluationSuite
 from ai_doc.domain.optimization import SearchMemory
 from ai_doc.domain.proposals import CandidateProposal, ProposalOperation
@@ -18,7 +18,7 @@ from ai_doc.tokens.counter import ApproximateTokenCounter
 class OversizedSemanticGenerator:
     def generate(
         self,
-        snapshot: DocumentationSnapshot,
+        _snapshot: DocumentationSnapshot,
         _invariants: list[Invariant],
         _strategy: GenerationStrategyName,
         _previous_summaries: list[str],
