@@ -35,16 +35,25 @@ class SemanticBudgetExceeded(RuntimeError):
 
 
 class BudgetedSemanticProvider:
-    """Enforce request budget before an external call and track reported usage."""
+    """Stop external work once reported request, token, or cost budgets are exhausted."""
 
-    def __init__(self, provider: SemanticProvider, max_requests: int) -> None:
+    def __init__(
+        self,
+        provider: SemanticProvider,
+        max_requests: int,
+        max_input_tokens: int | None = None,
+        max_output_tokens: int | None = None,
+        max_cost_usd: Decimal | None = None,
+    ) -> None:
         self.provider = provider
         self.max_requests = max_requests
+        self.max_input_tokens = max_input_tokens
+        self.max_output_tokens = max_output_tokens
+        self.max_cost_usd = max_cost_usd
         self.usage = ProviderUsage(requests=0)
 
     def invoke(self, operation: str, payload: dict[str, object]) -> SemanticResponse:
-        if self.usage.requests >= self.max_requests:
-            raise SemanticBudgetExceeded("semantic provider request budget exhausted")
+        self._assert_can_start()
         response = self.provider.invoke(operation, payload)
         self.usage = ProviderUsage(
             requests=self.usage.requests + response.usage.requests,
@@ -57,6 +66,16 @@ class BudgetedSemanticProvider:
         if self.usage.requests > self.max_requests:
             raise SemanticBudgetExceeded("semantic provider reported more requests than the configured budget permits")
         return response
+
+    def _assert_can_start(self) -> None:
+        if self.usage.requests >= self.max_requests:
+            raise SemanticBudgetExceeded("semantic provider request budget exhausted")
+        if self.max_input_tokens is not None and self.usage.input_tokens >= self.max_input_tokens:
+            raise SemanticBudgetExceeded("semantic provider input-token budget exhausted")
+        if self.max_output_tokens is not None and self.usage.output_tokens >= self.max_output_tokens:
+            raise SemanticBudgetExceeded("semantic provider output-token budget exhausted")
+        if self.max_cost_usd is not None and self.usage.cost_usd >= self.max_cost_usd:
+            raise SemanticBudgetExceeded("semantic provider cost budget exhausted")
 
 
 class CommandSemanticProvider:
