@@ -12,7 +12,7 @@ class FakeProvider:
     def __init__(self) -> None:
         self.calls = 0
 
-    def invoke(self, operation: str, payload: dict[str, object]) -> SemanticResponse:
+    def invoke(self, operation: str, _payload: dict[str, object]) -> SemanticResponse:
         self.calls += 1
         return SemanticResponse(data={"operation": operation}, usage=ProviderUsage(requests=1))
 
