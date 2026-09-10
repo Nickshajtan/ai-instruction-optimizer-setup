@@ -1,4 +1,4 @@
-name: Pylint advisory
+name: Pylint
 
 on:
   push:
@@ -17,9 +17,8 @@ concurrency:
 
 jobs:
   pylint:
-    name: Pylint advisory
+    name: Pylint
     runs-on: ubuntu-latest
-    continue-on-error: true
 
     steps:
       - uses: actions/checkout@v4
@@ -37,4 +36,4 @@ jobs:
         run: python -m pip install -e ".[dev]"
 
       - name: Analyze production package
-        run: python -m pylint --exit-zero src/ai_doc
+        run: python -m pylint src/ai_doc
