@@ -16,7 +16,7 @@ from ai_doc.providers.semantic import ProviderUsage, SemanticBudgetExceeded, Sem
 
 SEMANTIC_INVARIANT_CONFIDENCE = 0.8
 SEMANTIC_CRITICAL_CUE_RE = re.compile(
-    r"\b(must|never|required|requires?|cannot|only|before|after|validate|validation|ensure|preserve|"
+    r"\b(must|never|required|requires?|cannot|validate|validation|ensure|preserve|"
     r"avoid|prohibit(?:ed)?|forbid(?:den)?|do not|don't)\b",
     re.IGNORECASE,
 )
