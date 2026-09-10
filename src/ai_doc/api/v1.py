@@ -12,7 +12,10 @@ from ai_doc.plugins.registry import ExtensionRegistry
 from ai_doc.providers.base import LLMProvider
 from ai_doc.tokens.counter import TokenCounter
 
+API_VERSION = "1"
+
 __all__ = [
+    "API_VERSION",
     "AnalysisContext",
     "Analyzer",
     "BenchmarkReport",
