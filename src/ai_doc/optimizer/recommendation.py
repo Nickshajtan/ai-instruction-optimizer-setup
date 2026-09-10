@@ -19,8 +19,8 @@ class RecommendationPolicy:
     def choose(self, baseline: Candidate, frontier: list[Candidate]) -> Candidate | None:
         if baseline.objective_vector is None:
             return None
-        eligible: list[ScoredCandidate] = []
         baseline_objective = baseline.objective_vector
+        eligible: list[ScoredCandidate] = []
         for candidate in frontier:
             if (
                 candidate.id == baseline.id
@@ -32,6 +32,8 @@ class RecommendationPolicy:
             if not _reliability_eligible(objective, baseline_objective, self.config.minimum_reliability_delta):
                 continue
             if objective.clarity - baseline_objective.clarity < self.config.minimum_clarity_delta:
+                continue
+            if not _material_improvement(objective, baseline_objective):
                 continue
             eligible.append(ScoredCandidate(candidate=candidate, objective=objective))
         if not eligible:
@@ -45,3 +47,21 @@ def _reliability_eligible(candidate: ObjectiveVector, baseline: ObjectiveVector,
     if candidate.reliability is None or baseline.reliability is None:
         return False
     return candidate.reliability - baseline.reliability >= minimum_delta
+
+
+def _material_improvement(candidate: ObjectiveVector, baseline: ObjectiveVector) -> bool:
+    """Require evidence that replacing the baseline improves at least one optimization objective."""
+    if candidate.reliability is not None and baseline.reliability is not None and candidate.reliability > baseline.reliability:
+        return True
+    return any(
+        (
+            candidate.clarity > baseline.clarity,
+            candidate.always_loaded_tokens < baseline.always_loaded_tokens,
+            _lower_optional(candidate.expected_context_tokens, baseline.expected_context_tokens),
+            candidate.critical_invariant_recall > baseline.critical_invariant_recall,
+        )
+    )
+
+
+def _lower_optional(candidate: float | None, baseline: float | None) -> bool:
+    return candidate is not None and baseline is not None and candidate < baseline
