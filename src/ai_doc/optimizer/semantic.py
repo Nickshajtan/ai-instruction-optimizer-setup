@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from decimal import Decimal
 from typing import cast
 
 from ai_doc.config.search import SearchConfig
@@ -14,54 +15,131 @@ from ai_doc.providers.semantic import ProviderUsage, SemanticProvider
 
 
 class ProviderSemanticCandidateGenerator:
-    def __init__(self, provider: SemanticProvider) -> None: self.provider, self.last_usage = provider, ProviderUsage(requests=0)
-    def generate(self, snapshot: DocumentationSnapshot, invariants: list[Invariant], strategy: GenerationStrategyName,
-                 previous_summaries: list[str], explored_transformations: list[str], feedback: OptimizationFeedback | None,
-                 memory: SearchMemory) -> tuple[CandidateProposal, dict[str, str]]:
-        response = self.provider.invoke("generate_candidate", {"strategy": strategy.value,
-            "documents": {d.relative_path: d.text for d in snapshot.documents}, "invariants": [i.model_dump(mode="json") for i in invariants],
-            "previous_summaries": previous_summaries, "explored_transformations": explored_transformations,
-            "feedback": feedback.model_dump(mode="json") if feedback else None, "search_memory": memory.model_dump(mode="json")})
+    def __init__(self, provider: SemanticProvider) -> None:
+        self.provider = provider
+        self.last_usage = ProviderUsage(requests=0)
+
+    def generate(
+        self, snapshot: DocumentationSnapshot, invariants: list[Invariant], strategy: GenerationStrategyName,
+        previous_summaries: list[str], explored_transformations: list[str], feedback: OptimizationFeedback | None,
+        memory: SearchMemory,
+    ) -> tuple[CandidateProposal, dict[str, str]]:
+        response = self.provider.invoke(
+            "generate_candidate",
+            {
+                "strategy": strategy.value,
+                "documents": {document.relative_path: document.text for document in snapshot.documents},
+                "invariants": [item.model_dump(mode="json") for item in invariants],
+                "previous_summaries": previous_summaries,
+                "explored_transformations": explored_transformations,
+                "feedback": feedback.model_dump(mode="json") if feedback else None,
+                "search_memory": memory.model_dump(mode="json"),
+            },
+        )
         self.last_usage = response.usage
-        return CandidateProposal.model_validate(response.data.get("proposal")), cast(dict[str, str], response.data.get("documents", {}))
+        proposal = CandidateProposal.model_validate(response.data.get("proposal"))
+        return proposal, cast(dict[str, str], response.data.get("documents", {}))
 
 
 class ProviderSemanticInvariantService:
     def __init__(self, provider: SemanticProvider) -> None:
-        self.provider, self.last_usage, self.usage_history = provider, ProviderUsage(requests=0), []
+        self.provider = provider
+        self.last_usage = ProviderUsage(requests=0)
+        self.usage_history: list[ProviderUsage] = []
+
     def discover(self, snapshot: DocumentationSnapshot) -> list[Invariant]:
-        response = self.provider.invoke("discover_invariants", {"documents": {d.relative_path: d.text for d in snapshot.documents}})
-        self.last_usage = response.usage; self.usage_history.append(response.usage)
-        result = []
+        response = self.provider.invoke(
+            "discover_invariants", {"documents": {document.relative_path: document.text for document in snapshot.documents}}
+        )
+        self._record(response.usage)
+        result: list[Invariant] = []
         for raw in cast(list[dict[str, object]], response.data.get("invariants", [])):
             item = Invariant.model_validate(raw)
-            if item.importance == InvariantImportance.CRITICAL and item.confidence >= 0.8: result.append(item)
+            if item.importance == InvariantImportance.CRITICAL and item.confidence >= 0.8:
+                result.append(item)
         return result
+
     def verify(self, invariant: Invariant, candidate: DocumentationSnapshot) -> InvariantSemanticStatus:
-        response = self.provider.invoke("verify_invariant", {"invariant": invariant.model_dump(mode="json"),
-            "documents": {d.relative_path: d.text for d in candidate.documents}, "statuses": [s.value for s in InvariantSemanticStatus]})
-        self.last_usage = response.usage; self.usage_history.append(response.usage)
+        response = self.provider.invoke(
+            "verify_invariant",
+            {
+                "invariant": invariant.model_dump(mode="json"),
+                "documents": {document.relative_path: document.text for document in candidate.documents},
+                "statuses": [status.value for status in InvariantSemanticStatus],
+            },
+        )
+        self._record(response.usage)
         return InvariantSemanticStatus(str(response.data.get("status", "uncertain")))
+
+    def drain_usage(self) -> ProviderUsage:
+        usage = _combine_usage(self.usage_history)
+        self.usage_history.clear()
+        return usage
+
+    def _record(self, usage: ProviderUsage) -> None:
+        self.last_usage = usage
+        self.usage_history.append(usage)
 
 
 class ProviderSemanticEvaluator:
-    def __init__(self, provider: SemanticProvider) -> None: self.provider, self.last_usage = provider, ProviderUsage(requests=0)
-    def evaluate(self, baseline: DocumentationSnapshot, candidate: DocumentationSnapshot | None, suite: EvaluationSuite) -> EvaluationResult:
+    def __init__(self, provider: SemanticProvider) -> None:
+        self.provider = provider
+        self.last_usage = ProviderUsage(requests=0)
+
+    def evaluate(
+        self, baseline: DocumentationSnapshot, candidate: DocumentationSnapshot | None, suite: EvaluationSuite
+    ) -> EvaluationResult:
         effective = candidate or baseline
-        response = self.provider.invoke("evaluate", {"documents": {d.relative_path: d.text for d in effective.documents},
-            "scenarios": [s.model_dump(mode="json") for s in suite.scenarios]})
+        response = self.provider.invoke(
+            "evaluate",
+            {
+                "documents": {document.relative_path: document.text for document in effective.documents},
+                "scenarios": [scenario.model_dump(mode="json") for scenario in suite.scenarios],
+            },
+        )
         self.last_usage = response.usage
-        cases = [EvaluationCaseResult.model_validate(item) for item in cast(list[dict[str, object]], response.data.get("cases", []))]
-        return EvaluationResult(engine="semantic-provider", passed=all(c.passed for c in cases), cases=cases,
-            raw_summary={"semantic": True, "usage": response.usage.model_dump(mode="json")})
+        cases = [
+            EvaluationCaseResult.model_validate(item)
+            for item in cast(list[dict[str, object]], response.data.get("cases", []))
+        ]
+        return EvaluationResult(
+            engine="semantic-provider",
+            passed=all(case.passed for case in cases),
+            cases=cases,
+            raw_summary={"semantic": True, "usage": response.usage.model_dump(mode="json")},
+        )
 
 
 class ProviderPromptSubOptimizer:
-    def __init__(self, provider: SemanticProvider) -> None: self.provider, self.last_usage = provider, ProviderUsage(requests=0)
+    def __init__(self, provider: SemanticProvider) -> None:
+        self.provider = provider
+        self.last_usage = ProviderUsage(requests=0)
+
     def optimize(self, prompt: PromptArtifact, evals: EvaluationSuite, budget: SearchConfig) -> PromptOptimizationResult:
-        response = self.provider.invoke("optimize_prompt", {"artifact": prompt.model_dump(mode="json"),
-            "scenarios": [s.model_dump(mode="json") for s in evals.scenarios], "budget": budget.model_dump(mode="json")})
+        response = self.provider.invoke(
+            "optimize_prompt",
+            {
+                "artifact": prompt.model_dump(mode="json"),
+                "scenarios": [scenario.model_dump(mode="json") for scenario in evals.scenarios],
+                "budget": budget.model_dump(mode="json"),
+            },
+        )
         self.last_usage = response.usage
         text = str(response.data.get("optimized_text", prompt.text))
-        return PromptOptimizationResult(artifact_id=prompt.id, optimized_text=text, changed=text != prompt.text,
-            metadata={"provider_usage": response.usage.model_dump(mode="json")})
+        return PromptOptimizationResult(
+            artifact_id=prompt.id,
+            optimized_text=text,
+            changed=text != prompt.text,
+            metadata={"provider_usage": response.usage.model_dump(mode="json")},
+        )
+
+
+def _combine_usage(items: list[ProviderUsage]) -> ProviderUsage:
+    return ProviderUsage(
+        requests=sum(item.requests for item in items),
+        input_tokens=sum(item.input_tokens for item in items),
+        output_tokens=sum(item.output_tokens for item in items),
+        cost_usd=sum((item.cost_usd for item in items), Decimal("0")),
+        cost_source="mixed" if len({item.cost_source for item in items}) > 1 else (items[0].cost_source if items else "provider"),
+        cache_hits=sum(item.cache_hits for item in items),
+    )
