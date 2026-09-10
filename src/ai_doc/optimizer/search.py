@@ -243,7 +243,7 @@ class SearchController:  # pylint: disable=too-many-instance-attributes
         duplicate = fingerprint.content_hash in fingerprints
         fingerprints.add(fingerprint.content_hash)
         tier0 = hard_constraint_failures(report, regressions, None, baseline_report)
-        if tier0 or duplicate or self._would_exceed_after(candidates_cost=None, extra=invariant_usage):
+        if tier0 or duplicate:
             evaluation = None
             semantic_usage = ProviderUsage(requests=0)
         else:
@@ -275,20 +275,14 @@ class SearchController:  # pylint: disable=too-many-instance-attributes
             evidence=evidence,
         )
         eval_evidence = evaluation or EvaluationResult(
-            engine="tier0-static",
-            passed=not failures,
-            raw_summary={"diff": str(diff_path), "semantic": False},
+            engine="tier0-static", passed=not failures, raw_summary={"diff": str(diff_path), "semantic": False}
         )
         (candidate_dir / "evaluation.json").write_text(eval_evidence.model_dump_json(indent=2), encoding="utf-8")
         (candidate_dir / "evidence.json").write_text(evidence.model_dump_json(indent=2), encoding="utf-8")
         return candidate, report
 
     def _apply_gepa(
-        self,
-        source: DocumentationSnapshot,
-        proposal: CandidateProposal,
-        rendered: dict[str, str],
-        suite: EvaluationSuite,
+        self, source: DocumentationSnapshot, proposal: CandidateProposal, rendered: dict[str, str], suite: EvaluationSuite
     ) -> tuple[CandidateProposal, dict[str, str], ProviderUsage, bool]:
         if self.prompt_suboptimizer is None:
             return proposal, rendered, ProviderUsage(requests=0), False
@@ -335,11 +329,7 @@ class SearchController:  # pylint: disable=too-many-instance-attributes
         return ProviderUsage(requests=0)
 
     def _candidate_cost(
-        self,
-        proposal: CandidateProposal,
-        generation: ProviderUsage,
-        evaluation: ProviderUsage,
-        gepa: ProviderUsage,
+        self, proposal: CandidateProposal, generation: ProviderUsage, evaluation: ProviderUsage, gepa: ProviderUsage
     ) -> CandidateCost:
         return CandidateCost(
             deterministic_operations=len(proposal.operations),
@@ -371,7 +361,11 @@ class SearchController:  # pylint: disable=too-many-instance-attributes
         return [base[index % len(base)] for index in range(self.runtime.population.initial_candidates)]
 
     def _parents(
-        self, generation: int, strategies: list[GenerationStrategyName], candidates: list[Candidate], baseline: Candidate
+        self,
+        generation: int,
+        strategies: list[GenerationStrategyName],
+        candidates: list[Candidate],
+        baseline: Candidate,
     ) -> list[Candidate]:
         if generation == 1:
             return [baseline] * len(strategies)
@@ -383,11 +377,7 @@ class SearchController:  # pylint: disable=too-many-instance-attributes
         return [self.random.choice(pool) for _ in strategies] if pool else []
 
     def _feedback(
-        self,
-        generation: int,
-        parent: Candidate,
-        reports: dict[str, CheckReport],
-        baseline_report: CheckReport,
+        self, generation: int, parent: Candidate, reports: dict[str, CheckReport], baseline_report: CheckReport,
         candidates: list[Candidate],
     ) -> OptimizationFeedback | None:
         if generation <= 1 or parent.id not in reports:
@@ -431,15 +421,9 @@ class SearchController:  # pylint: disable=too-many-instance-attributes
         )
 
     def _external_capability_enabled(self) -> bool:
-        return any(
-            (
-                self.generator.semantic is not None,
-                self.evaluator is not None,
-                self.semantic_invariant_discoverer is not None,
-                self.semantic_invariant_verifier is not None,
-                self.prompt_suboptimizer is not None,
-            )
-        )
+        return any((self.generator.semantic is not None, self.evaluator is not None,
+                    self.semantic_invariant_discoverer is not None, self.semantic_invariant_verifier is not None,
+                    self.prompt_suboptimizer is not None))
 
     def _budget_exhausted(self, candidates: list[Candidate]) -> bool:
         if not self._external_capability_enabled():
@@ -452,11 +436,6 @@ class SearchController:  # pylint: disable=too-many-instance-attributes
             or (budget.max_input_tokens is not None and total.input_tokens >= budget.max_input_tokens)
             or (budget.max_output_tokens is not None and total.output_tokens >= budget.max_output_tokens)
         )
-
-    def _would_exceed_after(self, candidates_cost: CandidateCost | None, extra: ProviderUsage) -> bool:
-        if candidates_cost is None:
-            return False
-        return candidates_cost.external_requests + extra.requests >= self.runtime.search.max_llm_requests
 
     def _budget_stop_reason(self, candidates: list[Candidate]) -> StopReason:
         total = self._total_cost(candidates)
@@ -493,11 +472,13 @@ class SearchController:  # pylint: disable=too-many-instance-attributes
 
 def _combine_usage(*items: ProviderUsage) -> ProviderUsage:
     active = [item for item in items if item.requests]
+    sources = {item.cost_source for item in active}
+    cost_source = "mixed" if len(sources) > 1 else (active[0].cost_source if active else "provider")
     return ProviderUsage(
         requests=sum(item.requests for item in items),
         input_tokens=sum(item.input_tokens for item in items),
         output_tokens=sum(item.output_tokens for item in items),
         cost_usd=sum((item.cost_usd for item in items), Decimal("0")),
-        cost_source="mixed" if len({item.cost_source for item in active}) > 1 else (active[0].cost_source if active else "provider"),
+        cost_source=cost_source,
         cache_hits=sum(item.cache_hits for item in items),
     )
