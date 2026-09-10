@@ -107,13 +107,6 @@ class InvariantDecision(BaseModel):
     detail: str | None = None
 
 
-class RecommendationEvidence(BaseModel):
-    selected_candidate_id: str | None = None
-    improved_objectives: list[str] = Field(default_factory=list)
-    tolerated_regressions: list[str] = Field(default_factory=list)
-    blocking_factors: list[str] = Field(default_factory=list)
-
-
 class CandidateEvidence(BaseModel):
     generation_reason: str | None = None
     feedback: OptimizationFeedback | None = None
@@ -172,7 +165,6 @@ class OptimizationRun(BaseModel):
     frontier: ParetoArchive = Field(default_factory=ParetoArchive)
     recommended_candidate_id: str | None = None
     recommendation_reason: str | None = None
-    recommendation_evidence: RecommendationEvidence = Field(default_factory=RecommendationEvidence)
     search_memory: SearchMemory = Field(default_factory=SearchMemory)
     stopped_reason: StopReason | str
     total_cost: RunCost = Field(default_factory=RunCost)
