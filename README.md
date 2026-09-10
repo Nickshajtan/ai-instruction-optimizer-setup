@@ -38,7 +38,7 @@ Standalone executable build:
 python -m tools.build executable
 ```
 
-The standalone executable is the preferred adoption path for repositories that do not otherwise use Python: consumers do not need to add Python to their application stack.
+The standalone executable is the preferred adoption path for repositories that do not otherwise use Python: consumers do not need to add Python to their application stack. Version tags matching `v*` build release executables for Linux, macOS, and Windows plus the Python distribution and attach them to a GitHub Release.
 
 Optional deep-evaluation setup:
 
@@ -52,7 +52,7 @@ Adaptive optimization can also use the provider-neutral `AI_DOC_SEMANTIC_COMMAND
 
 ## Prove That An Optimization Works
 
-Static clarity and token metrics are useful signals, but they do not prove that an AI agent performs better. `ai-doc benchmark` consumes repeated baseline/candidate task runs and reports task success, instruction violations, retries, tokens, latency, cost, variance, and a confidence-aware decision without collapsing them into one magic quality score.
+Static clarity and token metrics are useful signals, but they do not prove that an AI agent performs better. `ai-doc benchmark` consumes repeated baseline/candidate task runs and reports task success, instruction violations, retries, tokens, latency, cost, median, variance, and a confidence-aware decision without collapsing them into one magic quality score.
 
 ```bash
 ai-doc benchmark examples/benchmark/evidence.json \
@@ -60,13 +60,15 @@ ai-doc benchmark examples/benchmark/evidence.json \
   --minimum-meaningful-improvement 0.05
 ```
 
-The evidence format is provider-neutral: Codex, Claude, Copilot, Promptfoo, DeepEval, or a custom harness can produce raw runs. See [Empirical Benchmarking](docs/guides/benchmarking.md).
+Use `--fail-on-regression` in CI when committed empirical evidence should block a change only after a meaningful task-success regression clears the configured confidence threshold. Inconclusive evidence remains non-blocking.
+
+The evidence format is provider-neutral: Codex, Claude, Copilot, Promptfoo, DeepEval, or a custom harness can produce raw runs. See [Empirical Benchmarking](docs/guides/benchmarking.md) and the empirical corpus contract in [benchmarks/README.md](benchmarks/README.md).
 
 ## Product Direction
 
-- **v0.2 — Prove it works:** empirical benchmark harness, repeated evaluation, task-success/cost evidence.
-- **v0.3 — Make it reliable:** stronger confidence/noise handling, regression baselines, conservative recommendation gates.
-- **v0.4 — Make it easy to adopt:** release binaries, first-class install/update flow, richer `doctor`, and published case studies.
+- **v0.2 — Prove it works:** empirical benchmark contract, repeated evaluation, task-success/cost evidence, and regression CI.
+- **v0.3 — Make it reliable:** confidence/noise handling, conservative/no-op recommendation gates, invariant protection, and explicit independent metrics.
+- **v0.4 — Make it easy to adopt:** release binaries, source-checkout mode, richer `doctor`, stable versioned extension API, and case-study workflow.
 
 Infrastructure additions should serve measurable benchmark outcomes. New optimizer abstractions or evaluators should come with a concrete scenario demonstrating the additional signal they provide.
 
@@ -77,7 +79,7 @@ Infrastructure additions should serve measurable benchmark outcomes. New optimiz
 - Promptfoo adapter: optional integration whose runtime may include Node.js/npm/npx.
 - Real coding-agent execution: external provider/agent adapter or harness; benchmark evidence remains stable across those implementations.
 
-Use `ai-doc doctor` to inspect the capabilities available in the current installation.
+Use `ai-doc doctor` to inspect Python/runtime mode, Node/npx availability, optional integrations, provider credentials, and the provider-neutral semantic command.
 
 ## What Is Stable
 
@@ -87,7 +89,7 @@ The public contract is limited to:
 - JSON output schemas, including benchmark evidence/report schemas;
 - `.ai-doc.yaml` configuration;
 - configured project-local extensions;
-- explicit exports from `ai_doc.api.v1`.
+- explicit exports from `ai_doc.api.v1`, including `API_VERSION`.
 
 Internal optimizer, parser, storage, Promptfoo, DeepEval, provider, and GEPA modules are not extension contracts.
 
@@ -110,7 +112,7 @@ Use these when changing the project:
 
 Use these for integration or distribution:
 
-- [Extension API](docs/guides/extensions.md): stable `ai_doc.api.v1` imports and custom analyzer extensions.
+- [Extension API](docs/guides/extensions.md): stable `ai_doc.api.v1` imports, compatibility, deprecation policy, and custom analyzer extensions.
 - [Packaging](docs/operations/packaging.md): source checkout, wheel, executable builds, checksums, and limitations.
 - [Deferred Work](docs/design/deferred.md): intentionally postponed capabilities and known limitations.
 
@@ -131,3 +133,4 @@ Documentation maintenance rules:
 - `2`: static quality gate failed.
 - `3`: semantic evaluation gate failed.
 - `4`: optimization produced no acceptable candidate.
+- `5`: benchmark regression gate detected a meaningful task-success regression.
