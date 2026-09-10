@@ -16,7 +16,9 @@ from ai_doc.domain.optimization import (
     Candidate,
     CandidateCost,
     CandidateEvidence,
+    CandidateFingerprint,
     CandidateStatus,
+    InvariantDecision,
     OptimizationFeedback,
     OptimizationRun,
     SearchMemory,
@@ -37,7 +39,6 @@ from ai_doc.optimizer.feedback import FeedbackBuilder, update_search_memory
 from ai_doc.optimizer.generator import GenerationStrategyName, SemanticCandidateGenerator, StrategyCandidateGenerator
 from ai_doc.optimizer.invariants import (
     Invariant,
-    InvariantDecision,
     InvariantImportance,
     SemanticInvariantDiscoverer,
     SemanticInvariantVerifier,
@@ -107,6 +108,20 @@ class CandidateWorkspace:
     diff_path: Path
     report: CheckReport
     snapshot: DocumentationSnapshot
+
+
+@dataclass(frozen=True)
+class CandidateProcessResult:
+    entered_frontier: bool = False
+    stop_reason: StopReason | None = None
+
+
+@dataclass(frozen=True)
+class GepaStageResult:
+    draft: CandidateDraft
+    workspace: CandidateWorkspace
+    rejected: bool = False
+    stop_reason: StopReason | None = None
 
 
 class SearchController:  # pylint: disable=too-many-instance-attributes
@@ -189,122 +204,140 @@ class SearchController:  # pylint: disable=too-many-instance-attributes
                 if stop_reason is not None:
                     return stop_reason
                 parent = parents[index] if index < len(parents) else baseline_candidate
-                feedback = self._feedback(
-                    generation, parent, state.reports, context.baseline_report, state.candidates
-                )
-                source = self._source_snapshot(parent, context.baseline)
-                try:
-                    proposal, rendered = self.generator.generate(
-                        source,
-                        context.invariants,
-                        strategy,
-                        previous_summaries=[self._candidate_summary(item) for item in state.candidates],
-                        explored_transformations=sorted(state.fingerprints),
-                        feedback=feedback,
-                        memory=state.memory,
-                    )
-                except SemanticBudgetExceeded:
-                    state.budget_stop_stage = "semantic candidate generation"
-                    return self._budget_stop_for_candidates(state.candidates) or StopReason.REQUEST_BUDGET
-                generation_usage = self._last_usage(self.generator.semantic)
-                draft = CandidateDraft(
-                    candidate_id=f"C{state.generated_count + 1:03d}",
-                    generation=generation,
-                    parent=parent,
-                    strategy=str(strategy),
-                    proposal=proposal,
-                    rendered=rendered,
-                    source=source,
-                    feedback=feedback,
-                    generation_usage=generation_usage,
-                    gepa_usage=ProviderUsage(requests=0),
-                )
-                workspace = self._materialize_candidate(draft, context)
-                cheap_failures = hard_constraint_failures(workspace.report, [], None, context.baseline_report)
-                if cheap_failures:
-                    candidate = self._static_rejected_candidate(draft, context, workspace, cheap_failures)
-                    self._record_candidate(state, candidate, workspace.report, feedback)
-                    continue
-
-                generation_stop = self._budget_stop_with_extra(state.candidates, self._draft_cost(draft))
-                if generation_stop is not None:
-                    candidate = self._static_rejected_candidate(
-                        draft,
-                        context,
-                        workspace,
-                        [BUDGET_REJECTION],
-                    )
-                    self._record_candidate(state, candidate, workspace.report, feedback)
-                    state.budget_stop_stage = "semantic candidate generation"
-                    return generation_stop
-
-                if self.runtime.gepa.enabled:
-                    try:
-                        proposal, rendered, gepa_usage, performed = self._apply_gepa(
-                            source,
-                            proposal,
-                            rendered,
-                            context.suite,
-                        )
-                    except SemanticBudgetExceeded:
-                        candidate = self._static_rejected_candidate(
-                            draft,
-                            context,
-                            workspace,
-                            [BUDGET_REJECTION],
-                        )
-                        self._record_candidate(state, candidate, workspace.report, feedback)
-                        state.budget_stop_stage = "prompt suboptimization"
-                        return self._budget_stop_for_candidates(state.candidates) or StopReason.REQUEST_BUDGET
-                    state.gepa_performed = state.gepa_performed or performed
-                    draft = replace(draft, proposal=proposal, rendered=rendered, gepa_usage=gepa_usage)
-                    workspace = self._materialize_candidate(draft, context)
-                    post_gepa_failures = hard_constraint_failures(
-                        workspace.report,
-                        [],
-                        None,
-                        context.baseline_report,
-                    )
-                    if post_gepa_failures:
-                        candidate = self._static_rejected_candidate(
-                            draft,
-                            context,
-                            workspace,
-                            post_gepa_failures,
-                        )
-                        self._record_candidate(state, candidate, workspace.report, feedback)
-                        continue
-                    gepa_stop = self._budget_stop_with_extra(state.candidates, self._draft_cost(draft))
-                    if gepa_stop is not None:
-                        candidate = self._static_rejected_candidate(
-                            draft,
-                            context,
-                            workspace,
-                            [BUDGET_REJECTION],
-                        )
-                        self._record_candidate(state, candidate, workspace.report, feedback)
-                        state.budget_stop_stage = "prompt suboptimization"
-                        return gepa_stop
-
-                candidate, report, candidate_stop = self._evaluate_candidate(
-                    draft,
-                    context,
-                    state.fingerprints,
-                    workspace,
-                    state.candidates,
-                )
-                self._record_candidate(state, candidate, report, feedback)
-                frontier_ids = {item.id for item in self.selector.frontier(state.candidates)}
-                entered = entered or (candidate.id in frontier_ids and candidate.status != CandidateStatus.REJECTED)
-                self._update_statuses(state.candidates, frontier_ids)
-                if candidate_stop is not None:
-                    state.budget_stop_stage = "candidate safety/evaluation"
-                    return candidate_stop
+                outcome = self._process_candidate(state, context, generation, strategy, parent)
+                entered = entered or outcome.entered_frontier
+                if outcome.stop_reason is not None:
+                    return outcome.stop_reason
             state.stagnant = 0 if entered else state.stagnant + 1
             if self.runtime.search.patience and state.stagnant >= self.runtime.search.patience:
                 return StopReason.PATIENCE
             generation += 1
         return StopReason.GENERATION_COMPLETE
+
+    def _process_candidate(
+        self,
+        state: SearchState,
+        context: EvaluationContext,
+        generation: int,
+        strategy: GenerationStrategyName,
+        parent: Candidate,
+    ) -> CandidateProcessResult:
+        feedback = self._feedback(generation, parent, state.reports, context.baseline_report, state.candidates)
+        source = self._source_snapshot(parent, context.baseline)
+        try:
+            proposal, rendered = self.generator.generate(
+                source,
+                context.invariants,
+                strategy,
+                previous_summaries=[self._candidate_summary(item) for item in state.candidates],
+                explored_transformations=sorted(state.fingerprints),
+                feedback=feedback,
+                memory=state.memory,
+            )
+        except SemanticBudgetExceeded:
+            state.budget_stop_stage = "semantic candidate generation"
+            stop = self._budget_stop_for_candidates(state.candidates) or StopReason.REQUEST_BUDGET
+            return CandidateProcessResult(stop_reason=stop)
+
+        draft = CandidateDraft(
+            candidate_id=f"C{state.generated_count + 1:03d}",
+            generation=generation,
+            parent=parent,
+            strategy=str(strategy),
+            proposal=proposal,
+            rendered=rendered,
+            source=source,
+            feedback=feedback,
+            generation_usage=self._last_usage(self.generator.semantic),
+            gepa_usage=ProviderUsage(requests=0),
+        )
+        workspace = self._materialize_candidate(draft, context)
+        cheap_failures = hard_constraint_failures(workspace.report, [], None, context.baseline_report)
+        if cheap_failures:
+            candidate = self._static_rejected_candidate(draft, context, workspace, cheap_failures)
+            self._record_candidate(state, candidate, workspace.report, feedback)
+            return CandidateProcessResult()
+
+        generation_stop = self._budget_stop_with_extra(state.candidates, self._draft_cost(draft))
+        if generation_stop is not None:
+            candidate = self._static_rejected_candidate(draft, context, workspace, [BUDGET_REJECTION])
+            self._record_candidate(state, candidate, workspace.report, feedback)
+            state.budget_stop_stage = "semantic candidate generation"
+            return CandidateProcessResult(stop_reason=generation_stop)
+
+        gepa_stage = self._prepare_gepa_stage(state, context, draft, workspace)
+        if gepa_stage.rejected or gepa_stage.stop_reason is not None:
+            return CandidateProcessResult(stop_reason=gepa_stage.stop_reason)
+
+        candidate, report, candidate_stop = self._evaluate_candidate(
+            gepa_stage.draft,
+            context,
+            state.fingerprints,
+            gepa_stage.workspace,
+            state.candidates,
+        )
+        self._record_candidate(state, candidate, report, feedback)
+        frontier_ids = {item.id for item in self.selector.frontier(state.candidates)}
+        entered = candidate.id in frontier_ids and candidate.status != CandidateStatus.REJECTED
+        self._update_statuses(state.candidates, frontier_ids)
+        if candidate_stop is not None:
+            state.budget_stop_stage = "candidate safety/evaluation"
+        return CandidateProcessResult(entered_frontier=entered, stop_reason=candidate_stop)
+
+    def _prepare_gepa_stage(
+        self,
+        state: SearchState,
+        context: EvaluationContext,
+        draft: CandidateDraft,
+        workspace: CandidateWorkspace,
+    ) -> GepaStageResult:
+        if not self.runtime.gepa.enabled:
+            return GepaStageResult(draft, workspace)
+        try:
+            proposal, rendered, gepa_usage, performed = self._apply_gepa(
+                draft.source,
+                draft.proposal,
+                draft.rendered,
+                context.suite,
+            )
+        except SemanticBudgetExceeded:
+            candidate = self._static_rejected_candidate(draft, context, workspace, [BUDGET_REJECTION])
+            self._record_candidate(state, candidate, workspace.report, draft.feedback)
+            state.budget_stop_stage = "prompt suboptimization"
+            stop = self._budget_stop_for_candidates(state.candidates) or StopReason.REQUEST_BUDGET
+            return GepaStageResult(draft, workspace, rejected=True, stop_reason=stop)
+
+        state.gepa_performed = state.gepa_performed or performed
+        updated_draft = replace(draft, proposal=proposal, rendered=rendered, gepa_usage=gepa_usage)
+        updated_workspace = self._materialize_candidate(updated_draft, context)
+        post_gepa_failures = hard_constraint_failures(
+            updated_workspace.report,
+            [],
+            None,
+            context.baseline_report,
+        )
+        if post_gepa_failures:
+            candidate = self._static_rejected_candidate(
+                updated_draft,
+                context,
+                updated_workspace,
+                post_gepa_failures,
+            )
+            self._record_candidate(state, candidate, updated_workspace.report, draft.feedback)
+            return GepaStageResult(updated_draft, updated_workspace, rejected=True)
+
+        gepa_stop = self._budget_stop_with_extra(state.candidates, self._draft_cost(updated_draft))
+        if gepa_stop is not None:
+            candidate = self._static_rejected_candidate(
+                updated_draft,
+                context,
+                updated_workspace,
+                [BUDGET_REJECTION],
+            )
+            self._record_candidate(state, candidate, updated_workspace.report, draft.feedback)
+            state.budget_stop_stage = "prompt suboptimization"
+            return GepaStageResult(updated_draft, updated_workspace, rejected=True, stop_reason=gepa_stop)
+        return GepaStageResult(updated_draft, updated_workspace)
 
     def _materialize_candidate(self, draft: CandidateDraft, context: EvaluationContext) -> CandidateWorkspace:
         candidate_dir = context.run_dir / "candidates" / draft.candidate_id
@@ -325,12 +358,19 @@ class SearchController:  # pylint: disable=too-many-instance-attributes
         failures: list[str],
     ) -> Candidate:
         regressions, decisions = verify_invariants_with_evidence(context.invariants, workspace.snapshot, None)
-        all_failures = list(dict.fromkeys([*failures, *hard_constraint_failures(
-            workspace.report,
-            regressions,
-            None,
-            context.baseline_report,
-        )]))
+        all_failures = list(
+            dict.fromkeys(
+                [
+                    *failures,
+                    *hard_constraint_failures(
+                        workspace.report,
+                        regressions,
+                        None,
+                        context.baseline_report,
+                    ),
+                ]
+            )
+        )
         candidate = self._make_candidate(
             draft,
             context,
@@ -408,7 +448,7 @@ class SearchController:  # pylint: disable=too-many-instance-attributes
         evaluation: EvaluationResult | None,
         evaluation_usage: ProviderUsage,
         failures: list[str],
-        fingerprint=None,
+        fingerprint: CandidateFingerprint | None = None,
     ) -> Candidate:
         cost = self._candidate_cost(
             draft.proposal,
