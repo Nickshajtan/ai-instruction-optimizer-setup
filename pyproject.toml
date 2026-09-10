@@ -24,7 +24,7 @@ dev = [
   "pytest-cov>=5.0",
   "ruff>=0.6",
   "pylint>=3.2",
-  "mypy>=1.11",
+  "mypy>=2.3.1",
   "types-PyYAML>=6.0.12.12",
 ]
 promptfoo = ["promptfoo>=0.1.0"]
