@@ -30,6 +30,9 @@ class Invariant(BaseModel):
     text: str
     importance: InvariantImportance
     confidence: float = Field(ge=0, le=1)
+    discovery_source: str = "literal"
+    evidence: str | None = None
+    rationale: str | None = None
 
 
 class SemanticInvariantVerifier(Protocol):
@@ -72,6 +75,9 @@ def extract_invariants(
                             text=sentence.strip(),
                             importance=importance,
                             confidence=confidence,
+                            discovery_source="literal",
+                            evidence=sentence.strip(),
+                            rationale="Explicit normative language in repository documentation.",
                         )
                     )
                     counter += 1
@@ -102,19 +108,39 @@ def verify_invariants_with_evidence(
     literal_missing = set(verify_invariants(invariants, list(candidate.documents)))
     unsafe: list[str] = []
     decisions: list[InvariantDecision] = []
-    by_id = {item.id: item for item in invariants}
     for invariant in invariants:
         if invariant.importance != InvariantImportance.CRITICAL:
             continue
-        if invariant.id not in literal_missing:
-            decisions.append(InvariantDecision(invariant_id=invariant.id, status="preserved", source="literal"))
-            continue
+        literal_preserved = invariant.id not in literal_missing
         if semantic_verifier is None:
-            unsafe.append(invariant.id)
-            decisions.append(InvariantDecision(invariant_id=invariant.id, status="removed", source="literal"))
+            status = InvariantSemanticStatus.PRESERVED if literal_preserved else InvariantSemanticStatus.REMOVED
+            decisions.append(
+                InvariantDecision(
+                    invariant_id=invariant.id,
+                    status=status.value,
+                    source="literal",
+                    detail="Exact critical wording preserved." if literal_preserved else "Exact critical wording removed.",
+                )
+            )
+            if status != InvariantSemanticStatus.PRESERVED:
+                unsafe.append(invariant.id)
             continue
-        status = semantic_verifier.verify(by_id[invariant.id], candidate)
-        decisions.append(InvariantDecision(invariant_id=invariant.id, status=status.value, source="semantic"))
+
+        # Literal presence is useful evidence, but not proof: another sentence may contradict or weaken the rule.
+        status = semantic_verifier.verify(invariant, candidate)
+        source = "literal+semantic" if literal_preserved else "semantic"
+        decisions.append(
+            InvariantDecision(
+                invariant_id=invariant.id,
+                status=status.value,
+                source=source,
+                detail=(
+                    "Semantic verification checked the whole candidate despite exact wording being present."
+                    if literal_preserved
+                    else "Semantic verification evaluated changed or missing critical wording."
+                ),
+            )
+        )
         if status != InvariantSemanticStatus.PRESERVED:
             unsafe.append(invariant.id)
     return sorted(unsafe), decisions
