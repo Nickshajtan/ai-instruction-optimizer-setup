@@ -83,14 +83,6 @@ max-statements = 61
 # and Pydantic resolve the instance attributes correctly at runtime.
 ignored-classes = ["FieldInfo"]
 
-[tool.pylint."messages control"]
-# Typer command functions intentionally expose one parameter per CLI option. Treating
-# those as an ordinary application API produces a false design signal; keep the
-# argument-count checks enabled everywhere else.
-per-file-ignores = [
-  "src/ai_doc/cli/optimize.py:too-many-arguments,too-many-positional-arguments",
-]
-
 [tool.mypy]
 python_version = "3.12"
 strict = true
