@@ -33,6 +33,7 @@ from ai_doc.optimizer.evaluation import fingerprint_candidate, hard_constraint_f
 from ai_doc.optimizer.feedback import FeedbackBuilder, update_search_memory
 from ai_doc.optimizer.generator import GenerationStrategyName, SemanticCandidateGenerator, StrategyCandidateGenerator
 from ai_doc.optimizer.invariants import (
+    Invariant,
     InvariantImportance,
     SemanticInvariantVerifier,
     extract_invariants,
@@ -235,7 +236,7 @@ class SearchController:
         baseline: DocumentationSnapshot,
         suite: EvaluationSuite,
         baseline_report: CheckReport,
-        invariants: list,
+        invariants: list[Invariant],
         critical_count: int,
         fingerprints: set[str],
         run_dir: Path,
