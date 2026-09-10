@@ -63,6 +63,7 @@ Use these when you want to run or configure the tool:
 - [Getting Started](docs/guides/getting-started.md): install modes, first run, and common commands.
 - [Runbook](docs/operations/runbook.md): routine operation, CI usage, diagnosis, and recovery.
 - [Configuration](docs/guides/configuration.md): `.ai-doc.yaml`, profiles, budgets, evals, optimization, and extensions.
+- [Semantic Optimization](docs/guides/semantic-optimization.md): how optimization, semantic evaluation, task-selected context, Pareto comparison, repair, and current limitations fit together.
 
 Use these when changing the project:
 

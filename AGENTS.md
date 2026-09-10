@@ -21,14 +21,14 @@ map.
   or executable behavior.
 - Use [.ai/skills/documentation-authoring/SKILL.md](.ai/skills/documentation-authoring/SKILL.md)
   before changing repository documentation.
+- Use [.ai/skills/semantic-optimization-review/SKILL.md](.ai/skills/semantic-optimization-review/SKILL.md)
+  when reviewing, explaining, validating, or critiquing an optimization run.
 
 ## Agent Setup
-Shared documentation-authoring instructions live in
-[.ai/skills/documentation-authoring/SKILL.md](.ai/skills/documentation-authoring/SKILL.md).
-Codex-specific and Claude-specific skill routing lives in `.codex/skills/` and
-`.claude/skills/`.
+Shared agent workflows live in `.ai/skills/`. Codex-specific and Claude-specific skill
+routing lives in `.codex/skills/` and `.claude/skills/`.
 
-Agent-only implementation workflows belong in skills, not human-facing docs.
+Agent-only implementation and review workflows belong in skills, not human-facing docs.
 
 ## Repository policy:
 
