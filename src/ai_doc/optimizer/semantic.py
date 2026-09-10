@@ -12,7 +12,7 @@ from ai_doc.domain.proposals import CandidateProposal
 from ai_doc.optimizer.generator import GenerationStrategyName
 from ai_doc.optimizer.invariants import Invariant, InvariantImportance, InvariantSemanticStatus
 from ai_doc.optimizer.prompt_suboptimizer import PromptArtifact, PromptOptimizationResult
-from ai_doc.providers.semantic import ProviderUsage, SemanticProvider
+from ai_doc.providers.semantic import ProviderUsage, SemanticBudgetExceeded, SemanticProvider
 
 SEMANTIC_INVARIANT_CONFIDENCE = 0.8
 SEMANTIC_CRITICAL_CUE_RE = re.compile(
@@ -59,10 +59,15 @@ class ProviderSemanticInvariantService:
         self.provider = provider
         self.last_usage = ProviderUsage(requests=0)
         self.usage_history: list[ProviderUsage] = []
+        self.budget_exhausted = False
 
     def discover(self, snapshot: DocumentationSnapshot) -> list[Invariant]:
         documents = {document.relative_path: document.text for document in snapshot.documents}
-        response = self.provider.invoke("discover_invariants", {"documents": documents})
+        try:
+            response = self.provider.invoke("discover_invariants", {"documents": documents})
+        except SemanticBudgetExceeded:
+            self.budget_exhausted = True
+            return []
         self._record(response.usage)
         result: list[Invariant] = []
         for raw in cast(list[dict[str, object]], response.data.get("invariants", [])):
@@ -72,14 +77,18 @@ class ProviderSemanticInvariantService:
         return result
 
     def verify(self, invariant: Invariant, candidate: DocumentationSnapshot) -> InvariantSemanticStatus:
-        response = self.provider.invoke(
-            "verify_invariant",
-            {
-                "invariant": invariant.model_dump(mode="json"),
-                "documents": {document.relative_path: document.text for document in candidate.documents},
-                "statuses": [status.value for status in InvariantSemanticStatus],
-            },
-        )
+        try:
+            response = self.provider.invoke(
+                "verify_invariant",
+                {
+                    "invariant": invariant.model_dump(mode="json"),
+                    "documents": {document.relative_path: document.text for document in candidate.documents},
+                    "statuses": [status.value for status in InvariantSemanticStatus],
+                },
+            )
+        except SemanticBudgetExceeded:
+            self.budget_exhausted = True
+            return InvariantSemanticStatus.UNCERTAIN
         self._record(response.usage)
         return InvariantSemanticStatus(str(response.data.get("status", "uncertain")))
 
@@ -114,6 +123,8 @@ class ProviderSemanticEvaluator:
     def __init__(self, provider: SemanticProvider) -> None:
         self.provider = provider
         self.last_usage = ProviderUsage(requests=0)
+        self.usage_history: list[ProviderUsage] = []
+        self.budget_exhausted = False
 
     def evaluate(
         self,
@@ -122,14 +133,34 @@ class ProviderSemanticEvaluator:
         suite: EvaluationSuite,
     ) -> EvaluationResult:
         effective = candidate or baseline
-        response = self.provider.invoke(
-            "evaluate",
-            {
-                "documents": {document.relative_path: document.text for document in effective.documents},
-                "scenarios": [scenario.model_dump(mode="json") for scenario in suite.scenarios],
-            },
-        )
+        try:
+            response = self.provider.invoke(
+                "evaluate",
+                {
+                    "documents": {document.relative_path: document.text for document in effective.documents},
+                    "scenarios": [scenario.model_dump(mode="json") for scenario in suite.scenarios],
+                },
+            )
+        except SemanticBudgetExceeded:
+            self.budget_exhausted = True
+            self.last_usage = ProviderUsage(requests=0)
+            cases = [
+                EvaluationCaseResult(
+                    id=scenario.id,
+                    passed=False,
+                    score=None,
+                    message="semantic provider budget exhausted before evaluation",
+                )
+                for scenario in suite.scenarios
+            ]
+            return EvaluationResult(
+                engine="semantic-provider",
+                passed=False,
+                cases=cases,
+                raw_summary={"semantic": True, "budget_exhausted": True},
+            )
         self.last_usage = response.usage
+        self.usage_history.append(response.usage)
         cases = [
             EvaluationCaseResult.model_validate(item)
             for item in cast(list[dict[str, object]], response.data.get("cases", []))
@@ -140,6 +171,11 @@ class ProviderSemanticEvaluator:
             cases=cases,
             raw_summary={"semantic": True, "usage": response.usage.model_dump(mode="json")},
         )
+
+    def drain_usage(self) -> ProviderUsage:
+        usage = _combine_usage(self.usage_history)
+        self.usage_history.clear()
+        return usage
 
 
 class ProviderPromptSubOptimizer:
