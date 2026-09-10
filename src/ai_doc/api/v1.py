@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from ai_doc.analyzers.base import AnalysisContext, Analyzer
+from ai_doc.benchmark.models import BenchmarkReport, BenchmarkSuite
+from ai_doc.benchmark.runner import evaluate_benchmark
 from ai_doc.domain.documents import Document, DocumentationSnapshot, DocumentProfile
 from ai_doc.domain.evaluations import EvaluationResult, Evaluator
 from ai_doc.domain.findings import Finding, FindingCategory, FindingSeverity
@@ -13,6 +15,8 @@ from ai_doc.tokens.counter import TokenCounter
 __all__ = [
     "AnalysisContext",
     "Analyzer",
+    "BenchmarkReport",
+    "BenchmarkSuite",
     "Candidate",
     "Document",
     "DocumentProfile",
@@ -27,4 +31,5 @@ __all__ = [
     "ObjectiveVector",
     "RecommendationPolicy",
     "TokenCounter",
+    "evaluate_benchmark",
 ]
