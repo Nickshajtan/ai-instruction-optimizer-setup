@@ -46,7 +46,8 @@ MIN_INVARIANT_SENTENCE_LENGTH = 12
 
 
 def extract_invariants(
-    snapshot: DocumentationSnapshot, semantic_discoverer: SemanticInvariantDiscoverer | None = None
+    snapshot: DocumentationSnapshot,
+    semantic_discoverer: SemanticInvariantDiscoverer | None = None,
 ) -> list[Invariant]:
     invariants: list[Invariant] = []
     counter = 1
@@ -63,26 +64,40 @@ def extract_invariants(
                     importance = InvariantImportance.IMPORTANT
                     confidence = 0.8
                 if importance:
-                    invariants.append(Invariant(id=f"inv-{counter}", source_path=document.relative_path,
-                        source_section=section_name, text=sentence.strip(), importance=importance, confidence=confidence))
+                    invariants.append(
+                        Invariant(
+                            id=f"inv-{counter}",
+                            source_path=document.relative_path,
+                            source_section=section_name,
+                            text=sentence.strip(),
+                            importance=importance,
+                            confidence=confidence,
+                        )
+                    )
                     counter += 1
     if semantic_discoverer is not None:
         existing = {_normalize(item.text) for item in invariants}
         for item in semantic_discoverer.discover(snapshot):
-            if _normalize(item.text) not in existing:
+            normalized = _normalize(item.text)
+            if normalized not in existing:
                 invariants.append(item)
-                existing.add(_normalize(item.text))
+                existing.add(normalized)
     return invariants
 
 
 def verify_invariants(invariants: list[Invariant], documents: list[Document]) -> list[str]:
-    candidate_text = "\n".join(document.text for document in documents).lower()
-    return [item.id for item in invariants if item.importance == InvariantImportance.CRITICAL
-            and _normalize(item.text) not in _normalize(candidate_text)]
+    candidate_text = _normalize("\n".join(document.text for document in documents))
+    return [
+        item.id
+        for item in invariants
+        if item.importance == InvariantImportance.CRITICAL and _normalize(item.text) not in candidate_text
+    ]
 
 
 def verify_invariants_with_evidence(
-    invariants: list[Invariant], candidate: DocumentationSnapshot, semantic_verifier: SemanticInvariantVerifier | None,
+    invariants: list[Invariant],
+    candidate: DocumentationSnapshot,
+    semantic_verifier: SemanticInvariantVerifier | None,
 ) -> tuple[list[str], list[InvariantDecision]]:
     literal_missing = set(verify_invariants(invariants, list(candidate.documents)))
     unsafe: list[str] = []
@@ -106,7 +121,9 @@ def verify_invariants_with_evidence(
 
 
 def verify_invariants_with_semantics(
-    invariants: list[Invariant], candidate: DocumentationSnapshot, semantic_verifier: SemanticInvariantVerifier | None,
+    invariants: list[Invariant],
+    candidate: DocumentationSnapshot,
+    semantic_verifier: SemanticInvariantVerifier | None,
 ) -> list[str]:
     return verify_invariants_with_evidence(invariants, candidate, semantic_verifier)[0]
 
