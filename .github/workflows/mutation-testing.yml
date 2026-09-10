@@ -44,24 +44,51 @@ jobs:
           set +e
           python -m mutmut run
           mutation_exit=$?
+          python -m mutmut results > mutation-results.txt 2>&1
+          results_exit=$?
+          python -m mutmut export-cicd-stats > mutation-stats.json 2> mutation-stats.stderr
+          stats_exit=$?
           set -e
-          python -m mutmut export-cicd-stats > mutation-stats.json
+
+          printf '%s\n' "${mutation_exit}" > mutation-exit-code.txt
+          printf '%s\n' "${results_exit}" > mutation-results-exit-code.txt
+          printf '%s\n' "${stats_exit}" > mutation-stats-exit-code.txt
+
+          echo "mutmut run exit code: ${mutation_exit}"
+          echo "mutmut results exit code: ${results_exit}"
+          echo "mutmut export-cicd-stats exit code: ${stats_exit}"
+          cat mutation-results.txt || true
+          cat mutation-stats.json || true
+          cat mutation-stats.stderr || true
+      - name: Upload mutation baseline
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: mutation-baseline
+          path: |
+            mutation-stats.json
+            mutation-stats.stderr
+            mutation-results.txt
+            mutation-exit-code.txt
+            mutation-results-exit-code.txt
+            mutation-stats-exit-code.txt
+          if-no-files-found: error
+      - name: Validate mutation baseline
+        shell: bash
+        run: |
           python - <<'PY'
           import json
           from pathlib import Path
+
+          stats_exit = int(Path("mutation-stats-exit-code.txt").read_text(encoding="utf-8").strip())
+          if stats_exit != 0:
+              stderr = Path("mutation-stats.stderr").read_text(encoding="utf-8")
+              raise SystemExit(f"mutmut export-cicd-stats failed with {stats_exit}:\n{stderr}")
 
           path = Path("mutation-stats.json")
           data = json.loads(path.read_text(encoding="utf-8"))
           if not isinstance(data, dict) or not data:
               raise SystemExit("mutation baseline did not produce a non-empty JSON object")
           PY
-          echo "mutmut exit code: ${mutation_exit}"
-          cat mutation-stats.json
           # v0.1 establishes and exposes a baseline; surviving mutants are reviewed
           # rather than converted into a repository-wide score gate immediately.
-      - name: Upload mutation baseline
-        uses: actions/upload-artifact@v6
-        with:
-          name: mutation-baseline
-          path: mutation-stats.json
-          if-no-files-found: error
