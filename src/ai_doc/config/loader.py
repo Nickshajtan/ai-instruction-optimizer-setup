@@ -113,16 +113,14 @@ class DictUpdateMergeRule:
     def __init__(self, field_name: str) -> None:
         self.field_name = field_name
 
-    def merge(self, context: NestedConfigMergeContext, nested: AiDocConfig, relative_dir: str, path: Path) -> None:
-        del relative_dir, path
+    def merge(self, context: NestedConfigMergeContext, nested: AiDocConfig, _relative_dir: str, _path: Path) -> None:
         getattr(context.merged, self.field_name).update(getattr(nested, self.field_name))
 
 
 class OptimizationMergeRule:
     field_name = "optimization"
 
-    def merge(self, context: NestedConfigMergeContext, nested: AiDocConfig, relative_dir: str, path: Path) -> None:
-        del relative_dir, path
+    def merge(self, context: NestedConfigMergeContext, nested: AiDocConfig, _relative_dir: str, _path: Path) -> None:
         context.merged.optimization = nested.optimization
 
 

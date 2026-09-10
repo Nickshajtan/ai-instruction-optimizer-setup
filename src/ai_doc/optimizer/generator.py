@@ -11,6 +11,7 @@ from ai_doc.domain.proposals import CandidateProposal, OperationType, ProposalOp
 from ai_doc.optimizer.invariants import Invariant, InvariantImportance
 
 EXAMPLES_MIN_TOKENS = 350
+MIN_DEDUPLICATION_LINE_LENGTH = 20
 EXTRACTED_DOCS_DIR = "docs/ai-doc-extracted"
 EXAMPLE_HEADING_KEYWORD = "example"
 STRENGTHEN_FEEDBACK_KEYWORD = "strengthen"
@@ -33,11 +34,23 @@ class CandidateGenerationStrategy(Protocol):
     name: GenerationStrategyName
 
     def generate(
+        self, snapshot: DocumentationSnapshot, invariants: list[Invariant]
+    ) -> tuple[CandidateProposal, dict[str, str]]: ...
+
+
+class SemanticCandidateGenerator(Protocol):
+    """Provider boundary for model-backed candidate generation."""
+
+    def generate(
         self,
         snapshot: DocumentationSnapshot,
         invariants: list[Invariant],
-    ) -> tuple[CandidateProposal, dict[str, str]]:
-        ...
+        strategy: GenerationStrategyName,
+        previous_summaries: list[str],
+        explored_transformations: list[str],
+        feedback: OptimizationFeedback | None,
+        memory: SearchMemory,
+    ) -> tuple[CandidateProposal, dict[str, str]]: ...
 
 
 def _operation(
@@ -68,14 +81,10 @@ class ConservativeCandidateGenerator:
     name = GenerationStrategyName.CONSERVATIVE
 
     def generate(
-        self,
-        snapshot: DocumentationSnapshot,
-        invariants: list[Invariant],
+        self, snapshot: DocumentationSnapshot, invariants: list[Invariant]
     ) -> tuple[CandidateProposal, dict[str, str]]:
         invariant_texts = {
-            invariant.text.strip()
-            for invariant in invariants
-            if invariant.importance == InvariantImportance.CRITICAL
+            invariant.text.strip() for invariant in invariants if invariant.importance == InvariantImportance.CRITICAL
         }
         operations: list[ProposalOperation] = []
         rendered: dict[str, str] = {}
@@ -86,12 +95,12 @@ class ConservativeCandidateGenerator:
             if deduped:
                 operations.append(
                     _operation(
-                        operation_type="deduplicate",
+                        "deduplicate",
+                        "Repeated bullets or paragraphs were found in the same document.",
+                        "Reduces repeated instructions while retaining the first occurrence.",
+                        "Lowers repeated always-loaded tokens.",
+                        LOW_RISK,
                         target=document.relative_path,
-                        reason="Repeated bullets or paragraphs were found in the same document.",
-                        expected_clarity_effect="Reduces repeated instructions while retaining the first occurrence.",
-                        expected_finops_effect="Lowers repeated always-loaded tokens.",
-                        risk=LOW_RISK,
                     )
                 )
             if document.profile == DocumentProfile.INSTRUCTION:
@@ -103,11 +112,11 @@ class ConservativeCandidateGenerator:
         if not operations:
             operations.append(
                 _operation(
-                    operation_type="retain",
-                    reason="No low-risk deterministic optimization was found.",
-                    expected_clarity_effect="Preserves current structure.",
-                    expected_finops_effect="No material token change.",
-                    risk=LOW_RISK,
+                    "retain",
+                    "No low-risk deterministic optimization was found.",
+                    "Preserves current structure.",
+                    "No material token change.",
+                    LOW_RISK,
                 )
             )
         return CandidateProposal(operations=operations), rendered
@@ -117,13 +126,11 @@ class ClarityCandidateGenerator:
     name = GenerationStrategyName.CLARITY
 
     def generate(
-        self,
-        snapshot: DocumentationSnapshot,
-        invariants: list[Invariant],
+        self, snapshot: DocumentationSnapshot, invariants: list[Invariant]
     ) -> tuple[CandidateProposal, dict[str, str]]:
-        del invariants
         rendered = {document.relative_path: document.text for document in snapshot.documents}
-        return _clarity_from_rendered(snapshot, rendered)
+        protected = {invariant.text for invariant in invariants if invariant.importance == InvariantImportance.CRITICAL}
+        return _clarity_from_rendered(snapshot, rendered, protected)
 
 
 class FinOpsCandidateGenerator:
@@ -133,9 +140,7 @@ class FinOpsCandidateGenerator:
         self.conservative = conservative or ConservativeCandidateGenerator()
 
     def generate(
-        self,
-        snapshot: DocumentationSnapshot,
-        invariants: list[Invariant],
+        self, snapshot: DocumentationSnapshot, invariants: list[Invariant]
     ) -> tuple[CandidateProposal, dict[str, str]]:
         proposal, rendered = self.conservative.generate(snapshot, invariants)
         operations = list(proposal.operations)
@@ -149,12 +154,12 @@ class FinOpsCandidateGenerator:
                 rendered[document.relative_path] = compressed
                 operations.append(
                     _operation(
-                        operation_type="compress",
+                        "compress",
+                        "Instruction file still contains verbose example prose.",
+                        "Keeps examples scannable as bullets.",
+                        "Reduces always-loaded wording.",
+                        MEDIUM_RISK,
                         target=document.relative_path,
-                        reason="Instruction file still contains verbose example prose.",
-                        expected_clarity_effect="Keeps examples scannable as bullets.",
-                        expected_finops_effect="Reduces always-loaded wording.",
-                        risk=MEDIUM_RISK,
                         objective=[OBJECTIVE_CONTEXT_COST],
                     )
                 )
@@ -164,32 +169,23 @@ class FinOpsCandidateGenerator:
 class BalancedCandidateGenerator:
     name = GenerationStrategyName.BALANCED
 
-    def __init__(
-        self,
-        conservative: CandidateGenerationStrategy | None = None,
-    ) -> None:
+    def __init__(self, conservative: CandidateGenerationStrategy | None = None) -> None:
         self.conservative = conservative or ConservativeCandidateGenerator()
 
     def generate(
-        self,
-        snapshot: DocumentationSnapshot,
-        invariants: list[Invariant],
+        self, snapshot: DocumentationSnapshot, invariants: list[Invariant]
     ) -> tuple[CandidateProposal, dict[str, str]]:
         proposal, rendered = self.conservative.generate(snapshot, invariants)
-        clarity_proposal, clarity_rendered = _clarity_from_rendered(snapshot, rendered)
-        return (
-            CandidateProposal(operations=[*proposal.operations, *clarity_proposal.operations]),
-            clarity_rendered,
-        )
+        protected = {invariant.text for invariant in invariants if invariant.importance == InvariantImportance.CRITICAL}
+        clarity_proposal, clarity_rendered = _clarity_from_rendered(snapshot, rendered, protected)
+        return CandidateProposal(operations=[*proposal.operations, *clarity_proposal.operations]), clarity_rendered
 
 
 class FeedbackRepairCandidateGenerator:
     name = GenerationStrategyName.BALANCED
 
     def generate_from_feedback(
-        self,
-        snapshot: DocumentationSnapshot,
-        feedback: OptimizationFeedback,
+        self, snapshot: DocumentationSnapshot, feedback: OptimizationFeedback
     ) -> tuple[CandidateProposal, dict[str, str]]:
         rendered = {document.relative_path: document.text for document in snapshot.documents}
         operations: list[ProposalOperation] = []
@@ -208,23 +204,23 @@ class FeedbackRepairCandidateGenerator:
                 rendered[document.relative_path] = updated
                 operations.append(
                     _operation(
-                        operation_type="strengthen_router",
+                        "strengthen_router",
+                        "Parent evaluation showed that the extracted reference router was too weak.",
+                        "Makes the trigger explicit without restoring the full section.",
+                        "Preserves extraction savings with a short stronger router.",
+                        LOW_RISK,
                         target=document.relative_path,
-                        reason="Parent feedback indicated the extracted reference router was too weak.",
-                        expected_clarity_effect="Makes the trigger explicit without restoring the full section.",
-                        expected_finops_effect="Preserves extraction savings with a short stronger router.",
-                        risk=LOW_RISK,
                         objective=[OBJECTIVE_RELIABILITY, OBJECTIVE_CLARITY],
                     )
                 )
         if not operations:
             operations.append(
                 _operation(
-                    operation_type="retain",
-                    reason=f"Feedback for {feedback.candidate_id} did not identify a deterministic mutation.",
-                    expected_clarity_effect="Preserves parent behavior.",
-                    expected_finops_effect="No additional savings.",
-                    risk=LOW_RISK,
+                    "retain",
+                    f"Feedback for {feedback.candidate_id} did not identify a deterministic mutation.",
+                    "Preserves parent behavior.",
+                    "No additional savings.",
+                    LOW_RISK,
                 )
             )
         return CandidateProposal(operations=operations), rendered
@@ -236,6 +232,7 @@ class StrategyCandidateGenerator:
         strategies: dict[GenerationStrategyName, CandidateGenerationStrategy] | None = None,
         fallback: CandidateGenerationStrategy | None = None,
         feedback_strategy: FeedbackRepairCandidateGenerator | None = None,
+        semantic: SemanticCandidateGenerator | None = None,
     ) -> None:
         conservative = ConservativeCandidateGenerator()
         self.strategies = strategies or {
@@ -246,6 +243,7 @@ class StrategyCandidateGenerator:
         }
         self.fallback = fallback or conservative
         self.feedback_strategy = feedback_strategy or FeedbackRepairCandidateGenerator()
+        self.semantic = semantic
 
     def generate(
         self,
@@ -257,10 +255,16 @@ class StrategyCandidateGenerator:
         feedback: OptimizationFeedback | None = None,
         memory: SearchMemory | None = None,
     ) -> tuple[CandidateProposal, dict[str, str]]:
-        del previous_summaries, explored_transformations, memory
+        strategy_name = _strategy_name(strategy)
+        summaries = previous_summaries or []
+        explored = explored_transformations or []
+        search_memory = memory or SearchMemory()
+        if self.semantic is not None and strategy_name != GenerationStrategyName.CONSERVATIVE:
+            return self.semantic.generate(
+                snapshot, invariants, strategy_name, summaries, explored, feedback, search_memory
+            )
         if feedback:
             return self.feedback_strategy.generate_from_feedback(snapshot, feedback)
-        strategy_name = _strategy_name(strategy)
         selected = self.strategies.get(strategy_name, self.fallback)
         return selected.generate(snapshot, invariants)
 
@@ -275,44 +279,48 @@ def _strategy_name(strategy: str | GenerationStrategyName) -> GenerationStrategy
 
 
 def _clarity_from_rendered(
-    snapshot: DocumentationSnapshot,
-    rendered: dict[str, str],
+    snapshot: DocumentationSnapshot, rendered: dict[str, str], protected: set[str]
 ) -> tuple[CandidateProposal, dict[str, str]]:
     operations: list[ProposalOperation] = []
     for document in snapshot.documents:
         if document.profile not in INSTRUCTION_PROFILES:
             continue
         text = rendered[document.relative_path]
-        updated = re.sub(
-            r"\bUse best practices\b",
-            "Follow the concrete validation, testing, and routing rules documented here",
-            text,
-            flags=re.IGNORECASE,
-        )
-        updated = re.sub(r"\bshould\b", "SHOULD", updated)
-        updated = re.sub(r"\bmust\b", "MUST", updated)
-        updated = re.sub(r"\bmay\b", "MAY", updated)
+        updated = text
+        for segment in re.split(r"(?<=[.!?])\s+", text):
+            if segment.strip() in protected:
+                continue
+            replacement = re.sub(
+                r"\bUse best practices\b",
+                "Follow the concrete validation, testing, and routing rules documented here",
+                segment,
+                flags=re.IGNORECASE,
+            )
+            replacement = re.sub(r"\bshould\b", "SHOULD", replacement)
+            replacement = re.sub(r"\bmust\b", "MUST", replacement)
+            replacement = re.sub(r"\bmay\b", "MAY", replacement)
+            updated = updated.replace(segment, replacement, 1)
         if updated != text:
             rendered[document.relative_path] = updated
             operations.append(
                 _operation(
-                    operation_type="rewrite",
+                    "rewrite",
+                    "Ambiguous or inconsistent instruction wording was detected.",
+                    "Makes rules more explicit and terminology more consistent.",
+                    "May slightly change tokens depending on wording.",
+                    LOW_RISK,
                     target=document.relative_path,
-                    reason="Ambiguous or inconsistent instruction wording was detected.",
-                    expected_clarity_effect="Makes rules more explicit and terminology more consistent.",
-                    expected_finops_effect="May slightly change tokens depending on wording.",
-                    risk=LOW_RISK,
                     objective=[OBJECTIVE_CLARITY],
                 )
             )
     if not operations:
         operations.append(
             _operation(
-                operation_type="retain",
-                reason="No deterministic clarity rewrite was available.",
-                expected_clarity_effect="Preserves existing clarity.",
-                expected_finops_effect="No context change.",
-                risk=LOW_RISK,
+                "retain",
+                "No deterministic clarity rewrite was available.",
+                "Preserves existing clarity.",
+                "No context change.",
+                LOW_RISK,
             )
         )
     return CandidateProposal(operations=operations), rendered
@@ -324,7 +332,7 @@ def _deduplicate_lines(text: str, invariant_texts: set[str]) -> tuple[str, bool]
     output: list[str] = []
     for line in text.splitlines():
         normalized = re.sub(r"\s+", " ", line.strip().lower())
-        is_candidate = line.lstrip().startswith(("-", "*")) and len(normalized) > 20
+        is_candidate = line.lstrip().startswith(("-", "*")) and len(normalized) > MIN_DEDUPLICATION_LINE_LENGTH
         if is_candidate and normalized in seen and line.strip(" -*") not in invariant_texts:
             changed = True
             continue
@@ -334,10 +342,7 @@ def _deduplicate_lines(text: str, invariant_texts: set[str]) -> tuple[str, bool]
     return "\n".join(output) + ("\n" if text.endswith("\n") else ""), changed
 
 
-def _extract_large_examples(
-    document: Document,
-    text: str,
-) -> tuple[str, dict[str, str], list[ProposalOperation]]:
+def _extract_large_examples(document: Document, text: str) -> tuple[str, dict[str, str], list[ProposalOperation]]:
     lines = text.splitlines()
     new_files: dict[str, str] = {}
     operations: list[ProposalOperation] = []
@@ -352,34 +357,32 @@ def _extract_large_examples(
         end = section.end_line
         slug = re.sub(r"[^a-z0-9]+", "-", section.heading.title.lower()).strip("-") or "examples"
         target = f"{EXTRACTED_DOCS_DIR}/{Path(document.relative_path).stem}-{slug}.md"
-        extracted = "\n".join(lines[start:end]).rstrip() + "\n"
-        new_files[target] = extracted
+        new_files[target] = "\n".join(lines[start:end]).rstrip() + "\n"
         heading_prefix = "#" * section.heading.level
-        replacement = [
+        lines[start:end] = [
             f"{heading_prefix} {section.heading.title}",
             "",
             f"When detailed examples are needed, read [{section.heading.title}]({target}).",
         ]
-        lines[start:end] = replacement
         operations.extend(
             [
                 _operation(
-                    operation_type="extract",
-                    sources=[f"{document.relative_path}#{section.heading.title}"],
+                    "extract",
+                    "Large examples are low-frequency detail for an instruction profile.",
+                    "Keeps the instruction file focused while preserving examples.",
+                    "Moves verbose material out of always-loaded context.",
+                    MEDIUM_RISK,
                     target=target,
-                    reason="Large examples are low-frequency detail for an instruction profile.",
-                    expected_clarity_effect="Keeps the instruction file focused while preserving examples.",
-                    expected_finops_effect="Moves verbose material out of always-loaded context.",
-                    risk=MEDIUM_RISK,
+                    sources=[f"{document.relative_path}#{section.heading.title}"],
                 ),
                 _operation(
-                    operation_type="add_router",
+                    "add_router",
+                    "Extracted material needs a discoverable route.",
+                    "Makes on-demand reference discovery explicit.",
+                    "Keeps only a short router in always-loaded context.",
+                    LOW_RISK,
                     target=document.relative_path,
                     trigger=f"When detailed {section.heading.title.lower()} are needed",
-                    reason="Extracted material needs a discoverable route.",
-                    expected_clarity_effect="Makes on-demand reference discovery explicit.",
-                    expected_finops_effect="Keeps only a short router in always-loaded context.",
-                    risk=LOW_RISK,
                 ),
             ]
         )

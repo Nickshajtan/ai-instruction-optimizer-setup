@@ -52,9 +52,7 @@ def objective_from_report(
     if invariant_count:
         critical_recall = max(0.0, 1.0 - (len(invariant_regressions) / invariant_count))
     clarity_errors = sum(
-        1
-        for finding in report.findings
-        if finding.category == CLARITY_CATEGORY and finding.severity == ERROR_SEVERITY
+        1 for finding in report.findings if finding.category == CLARITY_CATEGORY and finding.severity == ERROR_SEVERITY
     )
     clarity_warnings = sum(
         1
@@ -65,7 +63,7 @@ def objective_from_report(
         0.0,
         1.0 - clarity_errors * CLARITY_ERROR_WEIGHT - clarity_warnings * CLARITY_WARNING_WEIGHT,
     )
-    reliability = min(critical_recall, passed_evaluation_score(evaluation))
+    reliability = passed_evaluation_score(evaluation)
     return ObjectiveVector(
         reliability=reliability,
         clarity=clarity,
@@ -91,9 +89,7 @@ def hard_constraint_failures(
     if baseline_report:
         baseline_errors = {(finding.code, finding.path, finding.section) for finding in baseline_report.findings}
         new_errors = [
-            finding
-            for finding in static_errors
-            if (finding.code, finding.path, finding.section) not in baseline_errors
+            finding for finding in static_errors if (finding.code, finding.path, finding.section) not in baseline_errors
         ]
         if new_errors:
             failures.append(NEW_STATIC_ERROR_FAILURE)

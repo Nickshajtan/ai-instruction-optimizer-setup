@@ -42,9 +42,7 @@ def render_optimize_console(report: OptimizeReport) -> str:
     return "\n".join(lines) + "\n"
 
 
-def render_search_optimize_console(
-    report: SearchOptimizeReport, show_frontier: bool = False
-) -> str:
+def render_search_optimize_console(report: SearchOptimizeReport, show_frontier: bool = False) -> str:
     baseline_vector = _baseline_objective_vector(report)
     lines = [
         "AI Documentation Optimization",
@@ -68,9 +66,9 @@ def render_search_optimize_console(
                     *_objective_vector_lines(entry.objective_vector),
                 ]
             )
-    lines.extend(["", "Recommended:", f"  {report.run.recommended_candidate_id or 'none'}"])
-    lines.append("")
-    lines.append("Source repository unchanged.")
+    lines.extend(
+        ["", "Recommended:", f"  {report.run.recommended_candidate_id or 'none'}", "", "Source repository unchanged."]
+    )
     return "\n".join(lines) + "\n"
 
 
@@ -86,10 +84,7 @@ def _check_summary_lines(report: CheckReport) -> list[str]:
     ]
 
 
-def _finding_summary_lines(
-    by_category: Counter[FindingCategory],
-    by_severity: Counter[FindingSeverity],
-) -> list[str]:
+def _finding_summary_lines(by_category: Counter[FindingCategory], by_severity: Counter[FindingSeverity]) -> list[str]:
     return [
         "Findings",
         f"  Errors: {by_severity[FindingSeverity.ERROR]}",
@@ -120,11 +115,7 @@ def _top_finding_lines(findings: list[Finding]) -> list[str]:
 def _evaluation_lines(report: CheckReport) -> list[str]:
     if report.evaluation is None:
         return []
-    return [
-        "Evaluation",
-        f"  Engine: {report.evaluation.engine}",
-        f"  Passed: {report.evaluation.passed}",
-    ]
+    return ["Evaluation", f"  Engine: {report.evaluation.engine}", f"  Passed: {report.evaluation.passed}"]
 
 
 def _baseline_objective_vector(report: SearchOptimizeReport) -> ObjectiveVector:
@@ -135,13 +126,11 @@ def _baseline_objective_vector(report: SearchOptimizeReport) -> ObjectiveVector:
     )
 
 
-def _objective_vector_lines(
-    vector: ObjectiveVector,
-    include_token_unit: bool = False,
-) -> list[str]:
+def _objective_vector_lines(vector: ObjectiveVector, include_token_unit: bool = False) -> list[str]:
     token_suffix = " tokens" if include_token_unit else ""
+    reliability = "not evaluated" if vector.reliability is None else f"{vector.reliability:.2f}"
     return [
-        f"  reliability:         {vector.reliability:.2f}",
+        f"  reliability:         {reliability}",
         f"  clarity:             {vector.clarity:.2f}",
         f"  always-loaded:       {vector.always_loaded_tokens:,}{token_suffix}",
     ]

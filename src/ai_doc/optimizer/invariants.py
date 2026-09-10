@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 from enum import StrEnum
+from typing import Protocol
 
 from pydantic import BaseModel, Field
 
@@ -14,6 +15,13 @@ class InvariantImportance(StrEnum):
     NORMAL = "normal"
 
 
+class InvariantSemanticStatus(StrEnum):
+    PRESERVED = "preserved"
+    WEAKENED = "weakened"
+    REMOVED = "removed"
+    UNCERTAIN = "uncertain"
+
+
 class Invariant(BaseModel):
     id: str
     source_path: str
@@ -23,8 +31,13 @@ class Invariant(BaseModel):
     confidence: float = Field(ge=0, le=1)
 
 
+class SemanticInvariantVerifier(Protocol):
+    def verify(self, invariant: Invariant, candidate: DocumentationSnapshot) -> InvariantSemanticStatus: ...
+
+
 CRITICAL_RE = re.compile(r"\b(MUST|NEVER|REQUIRED|FORBIDDEN)\b", re.IGNORECASE)
 IMPORTANT_RE = re.compile(r"\b(SHOULD|IMPORTANT|WARNING)\b", re.IGNORECASE)
+MIN_INVARIANT_SENTENCE_LENGTH = 12
 
 
 def extract_invariants(snapshot: DocumentationSnapshot) -> list[Invariant]:
@@ -69,9 +82,26 @@ def verify_invariants(invariants: list[Invariant], documents: list[Document]) ->
     return missing
 
 
+def verify_invariants_with_semantics(
+    invariants: list[Invariant],
+    candidate: DocumentationSnapshot,
+    semantic_verifier: SemanticInvariantVerifier | None,
+) -> list[str]:
+    literal_missing = set(verify_invariants(invariants, list(candidate.documents)))
+    if not literal_missing or semantic_verifier is None:
+        return sorted(literal_missing)
+    unsafe: list[str] = []
+    by_id = {invariant.id: invariant for invariant in invariants}
+    for invariant_id in sorted(literal_missing):
+        status = semantic_verifier.verify(by_id[invariant_id], candidate)
+        if status != InvariantSemanticStatus.PRESERVED:
+            unsafe.append(invariant_id)
+    return unsafe
+
+
 def _sentences(text: str) -> list[str]:
     parts = re.split(r"(?<=[.!?])\s+|\n(?=\s*(?:[-*]|\d+\.|\w))", text)
-    return [part.strip(" -*\t\r\n") for part in parts if len(part.strip()) > 12]
+    return [part.strip(" -*\t\r\n") for part in parts if len(part.strip()) > MIN_INVARIANT_SENTENCE_LENGTH]
 
 
 def _normalize(text: str) -> str:

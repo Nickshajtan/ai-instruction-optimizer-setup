@@ -9,19 +9,16 @@ from pathlib import Path
 import yaml
 
 from ai_doc.domain.documents import DocumentationSnapshot
-from ai_doc.domain.evaluations import (
-    EvaluationCaseResult,
-    EvaluationResult,
-    EvaluationSuite,
-)
+from ai_doc.domain.evaluations import EvaluationCaseResult, EvaluationResult, EvaluationSuite
 
-PROMPTFOO_ENGINE = "promptfoo"
+PROMPTFOO_ENGINE = "promptfoo-lexical"
 PROMPTFOO_EXECUTABLE = "promptfoo"
 PROMPTFOO_CONFIG_FILE = "promptfooconfig.yaml"
 PROMPTFOO_RESULTS_FILE = "results.json"
 PROMPTFOO_PROMPT_TEMPLATE = "{{documentation}}\n\nTask:\n{{task}}"
 PROMPTFOO_ECHO_PROVIDER = "echo"
 PROMPTFOO_CONTAINS_ASSERTION = "contains"
+PROMPTFOO_NOT_CONTAINS_ASSERTION = "not-contains"
 PROMPTFOO_RESULTS_KEY = "results"
 PROMPTFOO_SUCCESS_KEY = "success"
 PROMPTFOO_PASS_KEY = "pass"
@@ -36,11 +33,9 @@ class PromptfooUnavailableError(RuntimeError):
 
 
 class PromptfooEvaluator:
-    """Promptfoo subprocess adapter.
+    """Deterministic lexical Promptfoo adapter using echo + contains assertions.
 
-    Current Promptfoo CLI supports machine-readable exports through
-    `promptfoo eval --output results.json`; raw Promptfoo result structures are
-    normalized before returning to the domain layer.
+    This adapter is intentionally not classified as semantic evaluation.
     """
 
     def __init__(self, debug: bool = False, runner: PromptfooRunner | None = None) -> None:
@@ -57,12 +52,10 @@ class PromptfooEvaluator:
             return EvaluationResult(
                 engine=PROMPTFOO_ENGINE,
                 passed=True,
-                raw_summary={SKIPPED_REASON_KEY: NO_SCENARIOS_REASON},
+                raw_summary={SKIPPED_REASON_KEY: NO_SCENARIOS_REASON, "semantic": False},
             )
         if not self.runner.available():
-            raise PromptfooUnavailableError(
-                "Promptfoo is unavailable. Install it with npm or run without --deep."
-            )
+            raise PromptfooUnavailableError("Promptfoo is unavailable. Install it with npm to use lexical evaluation.")
         temp = Path(tempfile.mkdtemp(prefix="ai-doc-promptfoo-"))
         try:
             config_path = temp / PROMPTFOO_CONFIG_FILE
@@ -76,11 +69,13 @@ class PromptfooEvaluator:
                 return EvaluationResult(
                     engine=PROMPTFOO_ENGINE,
                     passed=False,
-                    raw_summary={"stderr": completed.stderr, "returncode": completed.returncode},
+                    raw_summary={
+                        "stderr": completed.stderr,
+                        "returncode": completed.returncode,
+                        "semantic": False,
+                    },
                 )
-            raw = (
-                json.loads(output_path.read_text(encoding="utf-8")) if output_path.exists() else {}
-            )
+            raw = json.loads(output_path.read_text(encoding="utf-8")) if output_path.exists() else {}
             return _normalize(raw, suite)
         finally:
             if not self.debug:
@@ -108,19 +103,18 @@ class SubprocessPromptfooRunner(PromptfooRunner):
         )
 
 
+def _scenario_assertions(required: list[str], forbidden: list[str]) -> list[dict[str, str]]:
+    assertions = [{"type": PROMPTFOO_CONTAINS_ASSERTION, "value": value} for value in required]
+    assertions.extend({"type": PROMPTFOO_NOT_CONTAINS_ASSERTION, "value": value} for value in forbidden)
+    return assertions or [{"type": PROMPTFOO_CONTAINS_ASSERTION, "value": ""}]
+
+
 def _promptfoo_config(
     baseline: DocumentationSnapshot,
     candidate: DocumentationSnapshot | None,
     suite: EvaluationSuite,
 ) -> dict[str, object]:
     candidate_text = "\n\n".join(doc.text for doc in (candidate or baseline).documents)
-    assertions = [
-        {"type": PROMPTFOO_CONTAINS_ASSERTION, "value": required}
-        for scenario in suite.scenarios
-        for required in scenario.expected_required
-    ]
-    if not assertions:
-        assertions = [{"type": PROMPTFOO_CONTAINS_ASSERTION, "value": ""}]
     return {
         "prompts": [PROMPTFOO_PROMPT_TEMPLATE],
         "providers": [PROMPTFOO_ECHO_PROVIDER],
@@ -128,7 +122,7 @@ def _promptfoo_config(
             {
                 "description": scenario.id,
                 "vars": {"documentation": candidate_text, "task": scenario.task},
-                "assert": assertions,
+                "assert": _scenario_assertions(scenario.expected_required, scenario.expected_forbidden),
             }
             for scenario in suite.scenarios
         ],
@@ -156,5 +150,5 @@ def _normalize(raw: dict[str, object], suite: EvaluationSuite) -> EvaluationResu
         engine=PROMPTFOO_ENGINE,
         passed=all(case.passed for case in cases),
         cases=cases,
-        raw_summary={PROMPTFOO_RESULT_COUNT_KEY: len(cases)},
+        raw_summary={PROMPTFOO_RESULT_COUNT_KEY: len(cases), "semantic": False},
     )

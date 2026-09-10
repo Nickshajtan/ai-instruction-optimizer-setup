@@ -83,8 +83,7 @@ def write_diff(snapshot: DocumentationSnapshot, rendered: dict[str, str], run_di
     return diff_path
 
 
-def copy_untracked_context(root: Path, candidate_dir: Path, include: list[str]) -> None:
-    del include
+def copy_untracked_context(root: Path, candidate_dir: Path) -> None:
     for name in [".ai-doc.yaml", ".ai-doc"]:
         source = root / name
         destination = candidate_dir / name

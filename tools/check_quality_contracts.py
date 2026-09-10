@@ -10,10 +10,7 @@ SOURCE_ROOT = Path("src")
 
 def _function_parameters(node: ast.FunctionDef | ast.AsyncFunctionDef) -> set[str]:
     args = node.args
-    parameters = {
-        argument.arg
-        for argument in (*args.posonlyargs, *args.args, *args.kwonlyargs)
-    }
+    parameters = {argument.arg for argument in (*args.posonlyargs, *args.args, *args.kwonlyargs)}
     if args.vararg is not None:
         parameters.add(args.vararg.arg)
     if args.kwarg is not None:

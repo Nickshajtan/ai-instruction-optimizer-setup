@@ -12,6 +12,8 @@ from ai_doc.app import load_suite, run_static_check
 from ai_doc.config.loader import ConfigError, load_config
 from ai_doc.config.search import OptimizeMode, RuntimeSearchConfig
 from ai_doc.discovery.markdown_discovery import discover_markdown
+from ai_doc.evaluators.context import ScenarioContextEvaluator
+from ai_doc.evaluators.deepeval import DeepEvalEvaluator, DeepEvalUnavailableError
 from ai_doc.optimizer.search import SearchController
 from ai_doc.plugins.loader import ExtensionError, load_extensions
 from ai_doc.reporting.console import render_search_optimize_console
@@ -30,34 +32,28 @@ def optimize_command(
     path: Annotated[Path, typer.Argument(help="Repository root to optimize.")] = Path("."),
     root: Annotated[Path | None, typer.Option("--root", help="Explicit project root.")] = None,
     config: Annotated[Path | None, typer.Option("--config", help="Path to .ai-doc.yaml.")] = None,
-    output_format: Annotated[
-        OutputFormat, typer.Option("--format", help="Output format.")
-    ] = OutputFormat.CONSOLE,
-    output: Annotated[Path, typer.Option("--output", help="Output directory.")] = Path(
-        ".ai-doc-output"
-    ),
+    output_format: Annotated[OutputFormat, typer.Option("--format", help="Output format.")] = OutputFormat.CONSOLE,
+    output: Annotated[Path, typer.Option("--output", help="Output directory.")] = Path(".ai-doc-output"),
     candidates: Annotated[int | None, typer.Option("--candidates", help="Initial candidates.")] = None,
     generations: Annotated[int | None, typer.Option("--generations", help="Search generations.")] = None,
     max_candidates: Annotated[
         int | None, typer.Option("--max-candidates", help="Maximum generated candidates.")
     ] = None,
     max_cost: Annotated[float | None, typer.Option("--max-cost", help="Maximum optimizer cost USD.")] = None,
-    max_requests: Annotated[int | None, typer.Option("--max-requests", help="Maximum requests.")] = None,
+    max_requests: Annotated[int | None, typer.Option("--max-requests", help="Maximum external model requests.")] = None,
     strategy: Annotated[OptimizeMode | None, typer.Option("--strategy", help="Optimization mode.")] = None,
+    deep: Annotated[
+        bool, typer.Option("--deep", help="Run semantic DeepEval evaluation on task-selected context.")
+    ] = False,
     gepa: Annotated[bool, typer.Option("--gepa", help="Enable GEPA prompt sub-optimizer.")] = False,
     seed: Annotated[int | None, typer.Option("--seed", help="Random seed.")] = None,
-    show_frontier: Annotated[
-        bool, typer.Option("--show-frontier", help="Print all frontier candidates.")
-    ] = False,
+    show_frontier: Annotated[bool, typer.Option("--show-frontier", help="Print all frontier candidates.")] = False,
     non_interactive: Annotated[
         bool, typer.Option("--non-interactive", help="Do not prompt before external calls.")
     ] = False,
     debug: Annotated[bool, typer.Option("--debug", help="Keep adapter temporary files.")] = False,
-    experimental_gepa: Annotated[
-        bool, typer.Option("--experimental-gepa", help="Alias for --gepa.")
-    ] = False,
+    experimental_gepa: Annotated[bool, typer.Option("--experimental-gepa", help="Alias for --gepa.")] = False,
 ) -> None:
-    del non_interactive
     project_root = discover_project_root(path, root)
     try:
         loaded = load_config(project_root, config)
@@ -92,15 +88,23 @@ def optimize_command(
         runtime.search.generations = 1
 
     suite = load_suite(project_root)
+    evaluator = ScenarioContextEvaluator(DeepEvalEvaluator()) if deep else None
+    if deep:
+        mode = "non-interactive" if non_interactive else "interactive"
+        typer.echo(f"Semantic evaluation enabled ({mode}); external model calls may occur.", err=True)
+    elif runtime.gepa.enabled:
+        typer.echo("GEPA requested; search will report whether an eligible prompt optimizer was available.", err=True)
+
     output_root = (project_root / output).resolve() if not output.is_absolute() else output
-    result = SearchController(loaded, runtime, output_root, extensions=extensions).optimize(
-        baseline_snapshot,
-        suite,
-        baseline_report,
-    )
+    try:
+        result = SearchController(loaded, runtime, output_root, extensions=extensions, evaluator=evaluator).optimize(
+            baseline_snapshot, suite, baseline_report
+        )
+    except DeepEvalUnavailableError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(1) from exc
     recommended = next(
-        (candidate for candidate in result.run.candidates if candidate.id == result.run.recommended_candidate_id),
-        None,
+        (candidate for candidate in result.run.candidates if candidate.id == result.run.recommended_candidate_id), None
     )
     report = SearchOptimizeReport(
         baseline=baseline_report,
@@ -147,7 +151,5 @@ def _write_run_artifacts(run_dir: Path, report: SearchOptimizeReport) -> None:
     (run_dir / "frontier.json").write_text(run.frontier.model_dump_json(indent=2), encoding="utf-8")
     lineage = {candidate.id: candidate.parent_ids for candidate in run.candidates}
     (run_dir / "lineage.json").write_text(json.dumps(lineage, indent=2), encoding="utf-8")
-    (run_dir / "search-memory.json").write_text(
-        run.search_memory.model_dump_json(indent=2), encoding="utf-8"
-    )
+    (run_dir / "search-memory.json").write_text(run.search_memory.model_dump_json(indent=2), encoding="utf-8")
     (run_dir / "report.json").write_text(report.model_dump_json(indent=2), encoding="utf-8")
