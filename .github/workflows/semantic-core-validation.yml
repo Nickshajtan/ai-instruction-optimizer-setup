@@ -6,7 +6,7 @@ on:
       - feat/semantic-optimizer-core-v0.3
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: semantic-core-pre-pr-${{ github.ref }}
@@ -23,49 +23,6 @@ jobs:
           cache: pip
       - run: python -m pip install --upgrade pip
       - run: python -m pip install -e ".[dev]"
-      - name: Apply remaining lint cleanup
-        run: |
-          python - <<'PY'
-          from pathlib import Path
-
-          generator = Path("src/ai_doc/optimizer/generator.py")
-          text = generator.read_text(encoding="utf-8")
-          text = text.replace(
-              'EXAMPLES_MIN_TOKENS = 350\n',
-              'EXAMPLES_MIN_TOKENS = 350\nMIN_DEDUPLICATION_LINE_LENGTH = 20\n',
-          )
-          text = text.replace('len(normalized) > 20', 'len(normalized) > MIN_DEDUPLICATION_LINE_LENGTH')
-          generator.write_text(text, encoding="utf-8")
-
-          invariants = Path("src/ai_doc/optimizer/invariants.py")
-          text = invariants.read_text(encoding="utf-8")
-          marker = 'IMPORTANT_RE = re.compile(r"\\b(SHOULD|IMPORTANT|WARNING)\\b", re.IGNORECASE)\n'
-          text = text.replace(marker, marker + 'MIN_INVARIANT_SENTENCE_LENGTH = 12\n')
-          text = text.replace('len(part.strip()) > 12', 'len(part.strip()) > MIN_INVARIANT_SENTENCE_LENGTH')
-          invariants.write_text(text, encoding="utf-8")
-
-          console = Path("src/ai_doc/reporting/console.py")
-          text = console.read_text(encoding="utf-8")
-          text = text.replace(
-              '        f"Always-loaded tokens: {comparison.baseline.always_loaded_tokens:,} -> {comparison.candidate.always_loaded_tokens:,}",\n',
-              '        (\n'
-              '            f"Always-loaded tokens: {comparison.baseline.always_loaded_tokens:,} -> "\n'
-              '            f"{comparison.candidate.always_loaded_tokens:,}"\n'
-              '        ),\n',
-          )
-          console.write_text(text, encoding="utf-8")
-          PY
-          python -m ruff format src/ai_doc/optimizer/generator.py src/ai_doc/optimizer/invariants.py src/ai_doc/reporting/console.py
-      - name: Commit cleanup
-        run: |
-          if ! git diff --quiet; then
-            git config user.name "github-actions[bot]"
-            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git add src
-            git commit -m "style: satisfy semantic core lint rules"
-            git push
-            exit 0
-          fi
       - name: Ruff
         run: python -m ruff check .
       - name: Quality contracts
