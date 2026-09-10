@@ -82,9 +82,11 @@ def test_literal_critical_wording_does_not_bypass_semantic_contradiction_check(t
     (tmp_path / "AGENTS.md").write_text(f"# Rules\n\n{original}\n", encoding="utf-8")
     baseline = discover_markdown(tmp_path, DEFAULT_CONFIG, ApproximateTokenCounter())
     invariants = extract_invariants(baseline)
-    candidate_doc = baseline.documents[0].model_copy(
-        update={"text": f"# Rules\n\n{original}\n\nFor migration-only changes, validation is optional and may be skipped.\n"}
+    contradictory = (
+        f"# Rules\n\n{original}\n\n"
+        "For migration-only changes, validation is optional and may be skipped.\n"
     )
+    candidate_doc = baseline.documents[0].model_copy(update={"text": contradictory})
     candidate = baseline.model_copy(update={"documents": (candidate_doc,)})
     calls = 0
 
