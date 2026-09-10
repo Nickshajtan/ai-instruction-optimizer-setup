@@ -28,7 +28,10 @@ class OutputFormat(StrEnum):
     JSON = "json"
 
 
-def optimize_command(
+# Typer maps this signature directly to the public CLI. Keeping one typed parameter
+# per option is clearer than hiding the command contract in a DTO solely to satisfy
+# generic function-arity heuristics.
+def optimize_command(  # pylint: disable=too-many-arguments,too-many-positional-arguments
     path: Annotated[Path, typer.Argument(help="Repository root to optimize.")] = Path("."),
     root: Annotated[Path | None, typer.Option("--root", help="Explicit project root.")] = None,
     config: Annotated[Path | None, typer.Option("--config", help="Path to .ai-doc.yaml.")] = None,
