@@ -52,6 +52,37 @@ select = ["E", "F", "I", "UP", "B", "SIM", "ARG", "PLR2004", "RUF100"]
 "tests/integration/test_extensions_and_cli.py" = ["ARG002", "ARG005"]
 "tests/unit/test_invariants_optimizer.py" = ["ARG002"]
 
+[tool.pylint.main]
+# Ruff owns formatting/import style; public API documentation is maintained in docs/
+# rather than requiring a docstring on every small protocol, model, and strategy.
+disable = [
+  "missing-module-docstring",
+  "missing-class-docstring",
+  "missing-function-docstring",
+  "trailing-newlines",
+  "too-few-public-methods",
+  "duplicate-code",
+]
+
+[tool.pylint.format]
+max-line-length = 120
+
+[tool.pylint.design]
+# Ratchet the current architecture instead of accepting Pylint's generic defaults.
+# New code may not exceed the largest intentional orchestration objects/functions
+# already present; reductions can tighten these limits later.
+max-args = 14
+max-positional-arguments = 14
+max-attributes = 11
+max-locals = 37
+max-branches = 15
+max-statements = 61
+
+[tool.pylint.typecheck]
+# Pylint can infer Pydantic model fields as FieldInfo descriptors even though mypy
+# and Pydantic resolve the instance attributes correctly at runtime.
+ignored-classes = ["FieldInfo"]
+
 [tool.mypy]
 python_version = "3.12"
 strict = true
