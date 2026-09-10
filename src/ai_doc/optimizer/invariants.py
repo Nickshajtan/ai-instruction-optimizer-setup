@@ -114,12 +114,13 @@ def verify_invariants_with_evidence(
         literal_preserved = invariant.id not in literal_missing
         if semantic_verifier is None:
             status = InvariantSemanticStatus.PRESERVED if literal_preserved else InvariantSemanticStatus.REMOVED
+            detail = "Exact critical wording preserved." if literal_preserved else "Exact critical wording removed."
             decisions.append(
                 InvariantDecision(
                     invariant_id=invariant.id,
                     status=status.value,
                     source="literal",
-                    detail="Exact critical wording preserved." if literal_preserved else "Exact critical wording removed.",
+                    detail=detail,
                 )
             )
             if status != InvariantSemanticStatus.PRESERVED:
