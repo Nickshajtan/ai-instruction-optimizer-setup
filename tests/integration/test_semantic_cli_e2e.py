@@ -91,13 +91,14 @@ def test_cli_uses_production_semantic_command_and_writes_real_usage(tmp_path: Pa
         app,
         ["optimize", str(tmp_path), "--strategy", "balanced", "--deep", "--non-interactive"],
     )
-    assert result.exit_code in {0, 4}
+    assert result.exit_code == 4
     run = _run_json(tmp_path)
     total_cost = run["total_cost"]
     assert isinstance(total_cost, dict)
     assert int(total_cost["generation_requests"]) >= 1
     assert int(total_cost["evaluation_requests"]) >= 1
     assert _serialized_input_tokens(total_cost) > 0
+    assert run["recommended_candidate_id"] is None
     assert (tmp_path / ".ai-doc-output").exists()
 
 
