@@ -46,9 +46,43 @@ jobs:
           mutation_exit=$?
           python -m mutmut results > mutation-results.txt 2>&1
           results_exit=$?
-          python -m mutmut export-cicd-stats > mutation-stats.json 2> mutation-stats.stderr
+          python -m mutmut export-cicd-stats > mutation-export.txt 2> mutation-stats.stderr
           stats_exit=$?
           set -e
+
+          if [ -f mutants/mutmut-cicd-stats.json ]; then
+            cp mutants/mutmut-cicd-stats.json mutation-stats.json
+          else
+            printf '{}\n' > mutation-stats.json
+          fi
+
+          python - <<'PY'
+          from pathlib import Path
+          import subprocess
+
+          results = Path("mutation-results.txt").read_text(encoding="utf-8").splitlines()
+          survivors = []
+          for raw in results:
+              line = raw.strip()
+              if not line.endswith(": survived"):
+                  continue
+              survivors.append(line.removesuffix(": survived"))
+
+          with Path("mutation-survivor-diffs.txt").open("w", encoding="utf-8") as handle:
+              for mutant in survivors:
+                  handle.write(f"===== {mutant} =====\n")
+                  completed = subprocess.run(
+                      ["python", "-m", "mutmut", "show", mutant],
+                      check=False,
+                      text=True,
+                      capture_output=True,
+                  )
+                  handle.write(completed.stdout)
+                  if completed.stderr:
+                      handle.write("\n[stderr]\n")
+                      handle.write(completed.stderr)
+                  handle.write("\n\n")
+          PY
 
           printf '%s\n' "${mutation_exit}" > mutation-exit-code.txt
           printf '%s\n' "${results_exit}" > mutation-results-exit-code.txt
@@ -57,6 +91,7 @@ jobs:
           echo "mutmut run exit code: ${mutation_exit}"
           echo "mutmut results exit code: ${results_exit}"
           echo "mutmut export-cicd-stats exit code: ${stats_exit}"
+          cat mutation-export.txt || true
           cat mutation-results.txt || true
           cat mutation-stats.json || true
           cat mutation-stats.stderr || true
@@ -68,7 +103,9 @@ jobs:
           path: |
             mutation-stats.json
             mutation-stats.stderr
+            mutation-export.txt
             mutation-results.txt
+            mutation-survivor-diffs.txt
             mutation-exit-code.txt
             mutation-results-exit-code.txt
             mutation-stats-exit-code.txt
@@ -85,8 +122,7 @@ jobs:
               stderr = Path("mutation-stats.stderr").read_text(encoding="utf-8")
               raise SystemExit(f"mutmut export-cicd-stats failed with {stats_exit}:\n{stderr}")
 
-          path = Path("mutation-stats.json")
-          data = json.loads(path.read_text(encoding="utf-8"))
+          data = json.loads(Path("mutation-stats.json").read_text(encoding="utf-8"))
           if not isinstance(data, dict) or not data:
               raise SystemExit("mutation baseline did not produce a non-empty JSON object")
           PY
