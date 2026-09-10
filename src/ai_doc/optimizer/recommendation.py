@@ -51,7 +51,11 @@ def _reliability_eligible(candidate: ObjectiveVector, baseline: ObjectiveVector,
 
 def _material_improvement(candidate: ObjectiveVector, baseline: ObjectiveVector) -> bool:
     """Require evidence that replacing the baseline improves at least one optimization objective."""
-    if candidate.reliability is not None and baseline.reliability is not None and candidate.reliability > baseline.reliability:
+    if (
+        candidate.reliability is not None
+        and baseline.reliability is not None
+        and candidate.reliability > baseline.reliability
+    ):
         return True
     return any(
         (
