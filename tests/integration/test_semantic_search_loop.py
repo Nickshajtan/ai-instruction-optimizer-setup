@@ -46,7 +46,12 @@ def test_search_evaluates_failure_builds_feedback_and_repairs_child(tmp_path: Pa
                 engine="fake-semantic",
                 passed=passed,
                 cases=[
-                    EvaluationCaseResult(id=scenario_id, passed=passed, score=1.0 if passed else 0.2, message=message)
+                    EvaluationCaseResult(
+                        id=scenario_id,
+                        passed=passed,
+                        score=1.0 if passed else 0.2,
+                        message=message,
+                    )
                 ],
                 raw_summary={"semantic": True},
             )
@@ -69,9 +74,16 @@ def test_search_evaluates_failure_builds_feedback_and_repairs_child(tmp_path: Pa
     assert parent.evaluation is not None and parent.evaluation.passed is False
     assert "required evaluation failed" in parent.rejection_reasons
     assert child.parent_ids == [parent.id]
+    assert child.evidence.feedback is not None
+    assert child.evidence.feedback.failed_evals[0].scenario_id == "migration"
     assert any(operation.type == "strengthen_router" for operation in child.proposal.operations)
     assert child.evaluation is not None and child.evaluation.passed is True
     assert child.objective_vector is not None and child.objective_vector.reliability == 1.0
+    assert child.objective_vector.always_loaded_tokens < baseline.total_tokens
+    child_tree = Path(child.artifact_dir) / "candidate"
+    child_agent = (child_tree / "AGENTS.md").read_text(encoding="utf-8")
+    assert "MUST read" in child_agent
+    assert any(path.name.endswith("examples.md") for path in (child_tree / "docs").glob("*.md"))
     assert child.creation_cost.evaluation_requests == 1
     assert result.run.total_cost.generation_requests == 0
     assert result.run.recommended_candidate_id == child.id
