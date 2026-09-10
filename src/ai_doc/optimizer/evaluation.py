@@ -65,7 +65,7 @@ def objective_from_report(
         0.0,
         1.0 - clarity_errors * CLARITY_ERROR_WEIGHT - clarity_warnings * CLARITY_WARNING_WEIGHT,
     )
-    reliability = min(critical_recall, passed_evaluation_score(evaluation))
+    reliability = passed_evaluation_score(evaluation)
     return ObjectiveVector(
         reliability=reliability,
         clarity=clarity,
