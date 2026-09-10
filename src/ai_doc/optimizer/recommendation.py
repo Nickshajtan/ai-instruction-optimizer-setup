@@ -86,9 +86,12 @@ def _selection_reason(
 
 def _improved_objectives(candidate: ObjectiveVector, baseline: ObjectiveVector) -> list[str]:
     improved: list[str] = []
-    if candidate.reliability is not None and baseline.reliability is not None:
-        if candidate.reliability > baseline.reliability:
-            improved.append("reliability")
+    if (
+        candidate.reliability is not None
+        and baseline.reliability is not None
+        and candidate.reliability > baseline.reliability
+    ):
+        improved.append("reliability")
     if candidate.clarity > baseline.clarity:
         improved.append("clarity")
     if candidate.always_loaded_tokens < baseline.always_loaded_tokens:
