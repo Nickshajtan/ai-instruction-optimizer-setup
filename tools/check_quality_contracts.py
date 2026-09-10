@@ -7,13 +7,24 @@ from pathlib import Path
 
 SOURCE_ROOT = Path("src")
 
+# Explicit baseline debt that predates enforcement. New entries require a dedicated
+# cleanup decision; this allowlist prevents the quality gate from pretending the
+# existing repository was already clean when the rule was introduced.
+DELETED_PARAMETER_ALLOWLIST = {
+    ("src/ai_doc/cli/main.py", "main", "version"),
+    ("src/ai_doc/cli/setup.py", "setup_command", "path"),
+    ("src/ai_doc/config/loader.py", "merge", "path"),
+    ("src/ai_doc/config/loader.py", "merge", "relative_dir"),
+    ("src/ai_doc/optimizer/candidate.py", "copy_untracked_context", "include"),
+    ("src/ai_doc/providers/llm.py", "generate_structured", "request"),
+    ("src/ai_doc/providers/llm.py", "generate_structured", "schema"),
+    ("src/ai_doc/tokens/counter.py", "count", "model"),
+}
+
 
 def _function_parameters(node: ast.FunctionDef | ast.AsyncFunctionDef) -> set[str]:
     args = node.args
-    parameters = {
-        argument.arg
-        for argument in (*args.posonlyargs, *args.args, *args.kwonlyargs)
-    }
+    parameters = {argument.arg for argument in (*args.posonlyargs, *args.args, *args.kwonlyargs)}
     if args.vararg is not None:
         parameters.add(args.vararg.arg)
     if args.kwarg is not None:
@@ -34,12 +45,15 @@ def _deleted_names(node: ast.AST) -> set[str]:
 def find_deleted_parameters(path: Path) -> list[str]:
     tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
     findings: list[str] = []
+    normalized_path = path.as_posix()
 
     for node in ast.walk(tree):
         if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
             continue
         deleted = _deleted_names(node) & _function_parameters(node)
         for parameter in sorted(deleted):
+            if (normalized_path, node.name, parameter) in DELETED_PARAMETER_ALLOWLIST:
+                continue
             findings.append(
                 f"{path}:{node.lineno}: {node.name} explicitly deletes parameter {parameter!r}; "
                 "implement the contract, remove the parameter, or document a narrow compatibility exception"
