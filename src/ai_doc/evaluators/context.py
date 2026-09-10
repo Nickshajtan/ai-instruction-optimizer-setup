@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 from typing import Protocol
 
-from ai_doc.domain.documents import DocumentationSnapshot, DocumentProfile
+from ai_doc.domain.documents import Document, DocumentationSnapshot, DocumentProfile
 from ai_doc.domain.evaluations import (
     EvaluationCaseResult,
     EvaluationResult,
@@ -42,7 +42,13 @@ class DeterministicContextSelector:
         selected = tuple(document for document in snapshot.documents if document.relative_path in selected_paths)
         return DocumentationSnapshot(root=snapshot.root, documents=selected)
 
-    def _linked_routes(self, document, lines, task_terms, by_path) -> set[str]:
+    def _linked_routes(
+        self,
+        document: Document,
+        lines: list[str],
+        task_terms: set[str],
+        by_path: dict[str, Document],
+    ) -> set[str]:
         routed: set[str] = set()
         for link in document.links:
             target = link.resolved_path or link.target.split("#", 1)[0]
@@ -51,10 +57,15 @@ class DeterministicContextSelector:
                 routed.add(target)
         return routed
 
-    def _plain_text_routes(self, lines: list[str], task_terms: set[str], by_path: dict) -> set[str]:
+    def _plain_text_routes(
+        self,
+        lines: list[str],
+        task_terms: set[str],
+        by_path: dict[str, Document],
+    ) -> set[str]:
         routed: set[str] = set()
         for line in lines:
-            if not ROUTER_RE.search(line) or not (task_terms & _terms(line)):
+            if not ROUTER_RE.search(line) or not task_terms & _terms(line):
                 continue
             for target in by_path:
                 if target in line:
@@ -70,7 +81,10 @@ class ScenarioContextEvaluator:
         self.selector = selector or DeterministicContextSelector()
 
     def evaluate(
-        self, baseline: DocumentationSnapshot, candidate: DocumentationSnapshot | None, suite: EvaluationSuite
+        self,
+        baseline: DocumentationSnapshot,
+        candidate: DocumentationSnapshot | None,
+        suite: EvaluationSuite,
     ) -> EvaluationResult:
         cases: list[EvaluationCaseResult] = []
         engines: set[str] = set()
@@ -82,7 +96,9 @@ class ScenarioContextEvaluator:
             effective = selected_candidate or selected_baseline
             context_paths[scenario.id] = [document.relative_path for document in effective.documents]
             result = self.evaluator.evaluate(
-                selected_baseline, selected_candidate, EvaluationSuite(scenarios=[scenario])
+                selected_baseline,
+                selected_candidate,
+                EvaluationSuite(scenarios=[scenario]),
             )
             engines.add(result.engine)
             semantic = semantic and bool(result.raw_summary.get("semantic", True))
