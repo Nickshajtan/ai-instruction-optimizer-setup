@@ -1,0 +1,59 @@
+name: mutation-testing
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "src/ai_doc/optimizer/**"
+      - "src/ai_doc/evaluators/**"
+      - "src/ai_doc/providers/semantic.py"
+      - "tests/**"
+      - "pyproject.toml"
+      - ".github/workflows/mutation-testing.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  baseline:
+    name: Critical-path mutation baseline
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Upgrade pip
+        run: python -m pip install --upgrade pip
+      - name: Install dependencies
+        run: python -m pip install -e ".[dev]"
+      - name: Verify tests before mutation
+        run: python -m pytest tests/unit tests/integration
+      - name: Run focused mutation baseline
+        shell: bash
+        run: |
+          set +e
+          python -m mutmut run
+          mutation_exit=$?
+          set -e
+          python -m mutmut export-cicd-stats > mutation-stats.json
+          echo "mutmut exit code: ${mutation_exit}"
+          cat mutation-stats.json
+          # v0.1 establishes and exposes a baseline; survivors are reviewed rather
+          # than converted into a repository-wide score gate immediately.
+          exit 0
+      - name: Upload mutation baseline
+        uses: actions/upload-artifact@v6
+        with:
+          name: mutation-baseline
+          path: mutation-stats.json
+          if-no-files-found: error
