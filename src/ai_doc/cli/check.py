@@ -9,6 +9,7 @@ import typer
 from ai_doc.app import load_suite, run_static_check
 from ai_doc.config.loader import ConfigError, load_config
 from ai_doc.config.models import EvaluationEngine, EvaluationModeConfig
+from ai_doc.discovery.markdown_discovery import discover_markdown
 from ai_doc.domain.documents import DocumentationSnapshot, DocumentProfile
 from ai_doc.domain.evaluations import EvaluationResult, EvaluationSuite
 from ai_doc.evaluators.deepeval import DeepEvalEvaluator, DeepEvalUnavailableError
@@ -24,6 +25,7 @@ from ai_doc.reporting.console import render_check_console
 from ai_doc.reporting.json import render_json
 from ai_doc.reporting.models import CheckReport
 from ai_doc.root import discover_project_root
+from ai_doc.tokens.counter import ApproximateTokenCounter
 
 
 class OutputFormat(StrEnum):
@@ -84,9 +86,6 @@ def check_command(
         try:
             evaluator = _deep_evaluator(engine, debug)
             snapshot_report = report
-            from ai_doc.discovery.markdown_discovery import discover_markdown
-            from ai_doc.tokens.counter import ApproximateTokenCounter
-
             snapshot = discover_markdown(project_root, loaded, ApproximateTokenCounter())
             report.evaluation = evaluator.evaluate(snapshot, None, suite)
         except (PromptfooUnavailableError, DeepEvalUnavailableError) as exc:

@@ -2,9 +2,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from ai_doc.analyzers.base import AnalysisContext, run_analyzers, sort_findings
+from ai_doc.analyzers.base import AnalysisContext, sort_findings
 from ai_doc.analyzers.duplication import estimate_duplicate_tokens
 from ai_doc.analyzers.finops import calculate_context_cost
+from ai_doc.analyzers.suite import run_analyzers
 from ai_doc.config.models import AiDocConfig
 from ai_doc.discovery.markdown_discovery import discover_markdown
 from ai_doc.domain.documents import DocumentProfile

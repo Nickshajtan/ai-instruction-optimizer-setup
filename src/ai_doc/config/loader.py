@@ -147,7 +147,7 @@ class NestedConfigMergeStrategy:
         self.rules = tuple(rules)
 
     def merge(self, root: Path, config: AiDocConfig) -> AiDocConfig:
-        nested_paths = [path for path in _iter_nested_config_paths(root, config.exclude)]
+        nested_paths = list(_iter_nested_config_paths(root, config.exclude))
         if not nested_paths:
             return config
 
