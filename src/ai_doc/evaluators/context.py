@@ -4,7 +4,13 @@ import re
 from typing import Protocol
 
 from ai_doc.domain.documents import DocumentationSnapshot, DocumentProfile
-from ai_doc.domain.evaluations import EvaluationCaseResult, EvaluationResult, EvaluationScenario, EvaluationSuite, Evaluator
+from ai_doc.domain.evaluations import (
+    EvaluationCaseResult,
+    EvaluationResult,
+    EvaluationScenario,
+    EvaluationSuite,
+    Evaluator,
+)
 
 WORD_RE = re.compile(r"[a-z0-9][a-z0-9_-]{2,}", re.IGNORECASE)
 ROUTER_RE = re.compile(r"\b(read|load|consult|see|follow|use|open|refer)\b", re.IGNORECASE)
@@ -24,24 +30,36 @@ class DeterministicContextSelector:
         selected_paths = {document.relative_path for document in always}
         task_terms = _terms(scenario.task)
         by_path = snapshot.by_relative_path()
-
-        # References are reachable only through an explicit task-relevant route from already-loaded context.
         queue = list(always)
         while queue:
             document = queue.pop(0)
             lines = document.text.splitlines()
-            for link in document.links:
-                target = link.resolved_path or link.target.split("#", 1)[0]
-                if target not in by_path or target in selected_paths:
-                    continue
-                route_text = _link_context(lines, link.line)
-                route_terms = _terms(f"{link.label} {route_text}")
-                if ROUTER_RE.search(route_text) and task_terms & route_terms:
-                    selected_paths.add(target)
-                    queue.append(by_path[target])
-
+            routed = self._linked_routes(document, lines, task_terms, by_path)
+            routed.update(self._plain_text_routes(lines, task_terms, by_path))
+            for target in sorted(routed - selected_paths):
+                selected_paths.add(target)
+                queue.append(by_path[target])
         selected = tuple(document for document in snapshot.documents if document.relative_path in selected_paths)
         return DocumentationSnapshot(root=snapshot.root, documents=selected)
+
+    def _linked_routes(self, document, lines, task_terms, by_path) -> set[str]:
+        routed: set[str] = set()
+        for link in document.links:
+            target = link.resolved_path or link.target.split("#", 1)[0]
+            route_text = _link_context(lines, link.line)
+            if target in by_path and ROUTER_RE.search(route_text) and task_terms & _terms(f"{link.label} {route_text}"):
+                routed.add(target)
+        return routed
+
+    def _plain_text_routes(self, lines: list[str], task_terms: set[str], by_path: dict) -> set[str]:
+        routed: set[str] = set()
+        for line in lines:
+            if not ROUTER_RE.search(line) or not (task_terms & _terms(line)):
+                continue
+            for target in by_path:
+                if target in line:
+                    routed.add(target)
+        return routed
 
 
 class ScenarioContextEvaluator:
@@ -51,8 +69,9 @@ class ScenarioContextEvaluator:
         self.evaluator = evaluator
         self.selector = selector or DeterministicContextSelector()
 
-    def evaluate(self, baseline: DocumentationSnapshot, candidate: DocumentationSnapshot | None,
-                 suite: EvaluationSuite) -> EvaluationResult:
+    def evaluate(
+        self, baseline: DocumentationSnapshot, candidate: DocumentationSnapshot | None, suite: EvaluationSuite
+    ) -> EvaluationResult:
         cases: list[EvaluationCaseResult] = []
         engines: set[str] = set()
         context_paths: dict[str, list[str]] = {}
@@ -62,12 +81,18 @@ class ScenarioContextEvaluator:
             selected_candidate = self.selector.select(candidate, scenario) if candidate is not None else None
             effective = selected_candidate or selected_baseline
             context_paths[scenario.id] = [document.relative_path for document in effective.documents]
-            result = self.evaluator.evaluate(selected_baseline, selected_candidate, EvaluationSuite(scenarios=[scenario]))
+            result = self.evaluator.evaluate(
+                selected_baseline, selected_candidate, EvaluationSuite(scenarios=[scenario])
+            )
             engines.add(result.engine)
             semantic = semantic and bool(result.raw_summary.get("semantic", True))
             cases.extend(result.cases or [EvaluationCaseResult(id=scenario.id, passed=result.passed)])
-        return EvaluationResult(engine="+".join(sorted(engines)) or "none", passed=all(case.passed for case in cases),
-            cases=cases, raw_summary={"semantic": semantic, "effective_context": context_paths})
+        return EvaluationResult(
+            engine="+".join(sorted(engines)) or "none",
+            passed=all(case.passed for case in cases),
+            cases=cases,
+            raw_summary={"semantic": semantic, "effective_context": context_paths},
+        )
 
 
 def _link_context(lines: list[str], line: int) -> str:
