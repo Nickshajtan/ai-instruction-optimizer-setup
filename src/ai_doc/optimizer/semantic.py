@@ -64,8 +64,10 @@ class ProviderSemanticInvariantService:
             if (
                 item.importance == InvariantImportance.CRITICAL
                 and item.confidence >= SEMANTIC_INVARIANT_CONFIDENCE
+                and item.rationale
+                and item.evidence
             ):
-                result.append(item)
+                result.append(item.model_copy(update={"discovery_source": "semantic"}))
         return result
 
     def verify(self, invariant: Invariant, candidate: DocumentationSnapshot) -> InvariantSemanticStatus:
