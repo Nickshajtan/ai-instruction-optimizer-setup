@@ -1,4 +1,5 @@
 import json
+import os
 import sys
 
 request = json.load(sys.stdin)
@@ -81,7 +82,12 @@ elif op == "evaluate":
         ]
     }
 elif op == "optimize_prompt":
-    data = {"optimized_text": payload["artifact"]["text"] + "\nGEPA optimized."}
+    text = payload["artifact"]["text"]
+    if os.getenv("AI_DOC_TEST_HARMFUL_GEPA"):
+        text = text.replace("MUST run validation before merge.", "Validation is optional.")
+    else:
+        text += "\nGEPA optimized."
+    data = {"optimized_text": text}
 else:
     raise SystemExit(2)
 
