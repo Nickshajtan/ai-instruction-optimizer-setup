@@ -104,6 +104,22 @@ def test_provider_cannot_promote_ordinary_description_without_critical_source_cu
     assert service.discover(snapshot) == []
 
 
+def test_temporal_description_is_not_a_criticality_cue(tmp_path: Path) -> None:
+    evidence = "The migration guide existed before the release."
+    snapshot = _snapshot(tmp_path, evidence)
+    service = ProviderSemanticInvariantService(
+        DiscoveryProvider(
+            [
+                _raw_invariant(
+                    text="The migration guide MUST remain available.",
+                    evidence=evidence,
+                )
+            ]
+        )
+    )
+    assert service.discover(snapshot) == []
+
+
 def test_semantic_discovery_rejects_nonexistent_source_path(tmp_path: Path) -> None:
     snapshot = _snapshot(tmp_path, "Validate migrations before completion.")
     service = ProviderSemanticInvariantService(
