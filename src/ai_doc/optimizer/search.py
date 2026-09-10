@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import random
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from decimal import Decimal
 from pathlib import Path
 from typing import cast
@@ -47,7 +47,7 @@ from ai_doc.optimizer.pareto import ParetoArchiveBuilder, ParetoSelector
 from ai_doc.optimizer.prompt_suboptimizer import PromptArtifact, PromptSubOptimizer
 from ai_doc.optimizer.recommendation import RecommendationPolicy
 from ai_doc.plugins.registry import ExtensionRegistry
-from ai_doc.providers.semantic import ProviderUsage
+from ai_doc.providers.semantic import ProviderUsage, UsageDrainer
 from ai_doc.reporting.models import CheckReport
 from ai_doc.tokens.counter import ApproximateTokenCounter
 
@@ -61,6 +61,41 @@ class SearchResult:
     run_dir: Path
     baseline_report: CheckReport
     reports: dict[str, CheckReport]
+
+
+@dataclass
+class SearchState:
+    candidates: list[Candidate]
+    reports: dict[str, CheckReport]
+    fingerprints: set[str] = field(default_factory=set)
+    memory: SearchMemory = field(default_factory=SearchMemory)
+    generated_count: int = 0
+    stagnant: int = 0
+    gepa_performed: bool = False
+
+
+@dataclass(frozen=True)
+class EvaluationContext:
+    baseline: DocumentationSnapshot
+    suite: EvaluationSuite
+    baseline_report: CheckReport
+    invariants: list[Invariant]
+    critical_count: int
+    run_dir: Path
+
+
+@dataclass(frozen=True)
+class CandidateDraft:
+    candidate_id: str
+    generation: int
+    parent: Candidate
+    strategy: str
+    proposal: CandidateProposal
+    rendered: dict[str, str]
+    source: DocumentationSnapshot
+    feedback: OptimizationFeedback | None
+    generation_usage: ProviderUsage
+    gepa_usage: ProviderUsage
 
 
 class SearchController:  # pylint: disable=too-many-instance-attributes
@@ -99,98 +134,173 @@ class SearchController:  # pylint: disable=too-many-instance-attributes
         discovery_usage = self._drain_invariant_usage()
         critical_count = sum(item.importance == InvariantImportance.CRITICAL for item in invariants)
         baseline_evaluation, baseline_eval_usage = self._semantic_evaluate(baseline, None, suite)
-        baseline_usage = _combine_usage(discovery_usage, baseline_eval_usage)
         baseline_candidate = self._baseline_candidate(
-            baseline_report, critical_count, baseline_evaluation, baseline_usage
+            baseline_report,
+            critical_count,
+            baseline_evaluation,
+            _combine_usage(discovery_usage, baseline_eval_usage),
         )
-        candidates = [baseline_candidate]
-        reports = {BASELINE_CANDIDATE_ID: baseline_report}
-        fingerprints: set[str] = set()
-        memory = SearchMemory()
-        stop_reason = StopReason.GENERATION_COMPLETE
-        generation = 1
-        generated_count = 0
-        stagnant = 0
-        gepa_performed = False
+        state = SearchState(
+            candidates=[baseline_candidate],
+            reports={BASELINE_CANDIDATE_ID: baseline_report},
+        )
+        context = EvaluationContext(baseline, suite, baseline_report, invariants, critical_count, run_dir)
+        stop_reason = self._search_generations(state, context, baseline_candidate)
+        run = self._build_run(state, baseline_candidate, stop_reason, run_dir)
+        return SearchResult(run=run, run_dir=run_dir, baseline_report=baseline_report, reports=state.reports)
 
+    def _search_generations(
+        self, state: SearchState, context: EvaluationContext, baseline_candidate: Candidate
+    ) -> StopReason:
+        generation = 1
         while generation <= self._max_generations():
             strategies = self._strategies(generation)
-            parents = self._parents(generation, strategies, candidates, baseline_candidate)
+            parents = self._parents(generation, strategies, state.candidates, baseline_candidate)
             entered = False
             for index, strategy in enumerate(strategies):
-                if generated_count >= self.runtime.search.max_candidates:
-                    stop_reason = StopReason.CANDIDATE_BUDGET
-                    break
-                if self._budget_exhausted(candidates):
-                    stop_reason = self._budget_stop_reason(candidates)
-                    break
+                stop_reason = self._pre_candidate_stop(state)
+                if stop_reason is not None:
+                    return stop_reason
                 parent = parents[index] if index < len(parents) else baseline_candidate
-                feedback = self._feedback(generation, parent, reports, baseline_report, candidates)
-                source = self._source_snapshot(parent, baseline)
+                feedback = self._feedback(
+                    generation, parent, state.reports, context.baseline_report, state.candidates
+                )
+                source = self._source_snapshot(parent, context.baseline)
                 proposal, rendered = self.generator.generate(
                     source,
-                    invariants,
+                    context.invariants,
                     strategy,
-                    previous_summaries=[self._candidate_summary(item) for item in candidates],
-                    explored_transformations=sorted(fingerprints),
+                    previous_summaries=[self._candidate_summary(item) for item in state.candidates],
+                    explored_transformations=sorted(state.fingerprints),
                     feedback=feedback,
-                    memory=memory,
+                    memory=state.memory,
                 )
                 generation_usage = self._last_usage(self.generator.semantic)
                 gepa_usage = ProviderUsage(requests=0)
                 if self.runtime.gepa.enabled:
-                    proposal, rendered, gepa_usage, performed = self._apply_gepa(source, proposal, rendered, suite)
-                    gepa_performed = gepa_performed or performed
-                candidate, report = self._evaluate_candidate(
-                    f"C{generated_count + 1:03d}", generation, parent, str(strategy), proposal, rendered, source,
-                    baseline, suite, baseline_report, invariants, critical_count, fingerprints, run_dir, feedback,
-                    generation_usage, gepa_usage,
+                    proposal, rendered, gepa_usage, performed = self._apply_gepa(
+                        source, proposal, rendered, context.suite
+                    )
+                    state.gepa_performed = state.gepa_performed or performed
+                draft = CandidateDraft(
+                    candidate_id=f"C{state.generated_count + 1:03d}",
+                    generation=generation,
+                    parent=parent,
+                    strategy=str(strategy),
+                    proposal=proposal,
+                    rendered=rendered,
+                    source=source,
+                    feedback=feedback,
+                    generation_usage=generation_usage,
+                    gepa_usage=gepa_usage,
                 )
-                candidates.append(candidate)
-                reports[candidate.id] = report
-                generated_count += 1
-                frontier_ids = {item.id for item in self.selector.frontier(candidates)}
+                candidate, report = self._evaluate_candidate(draft, context, state.fingerprints)
+                state.candidates.append(candidate)
+                state.reports[candidate.id] = report
+                state.generated_count += 1
+                frontier_ids = {item.id for item in self.selector.frontier(state.candidates)}
                 entered = entered or (candidate.id in frontier_ids and candidate.status != CandidateStatus.REJECTED)
-                self._update_statuses(candidates, frontier_ids)
+                self._update_statuses(state.candidates, frontier_ids)
                 if feedback:
-                    memory = update_search_memory(memory, feedback, candidate.id in frontier_ids)
-            if stop_reason != StopReason.GENERATION_COMPLETE:
-                break
-            stagnant = 0 if entered else stagnant + 1
-            if self.runtime.search.patience and stagnant >= self.runtime.search.patience:
-                stop_reason = StopReason.PATIENCE
-                break
+                    state.memory = update_search_memory(state.memory, feedback, candidate.id in frontier_ids)
+            state.stagnant = 0 if entered else state.stagnant + 1
+            if self.runtime.search.patience and state.stagnant >= self.runtime.search.patience:
+                return StopReason.PATIENCE
             generation += 1
+        return StopReason.GENERATION_COMPLETE
 
-        frontier = self.selector.frontier(candidates)
+    def _evaluate_candidate(
+        self, draft: CandidateDraft, context: EvaluationContext, fingerprints: set[str]
+    ) -> tuple[Candidate, CheckReport]:
+        candidate_dir = context.run_dir / "candidates" / draft.candidate_id
+        candidate_dir.mkdir(parents=True)
+        write_proposal(draft.proposal, candidate_dir)
+        tree = write_candidate_tree(draft.source, draft.rendered, candidate_dir)
+        copy_untracked_context(context.baseline.root, tree)
+        diff_path = write_diff(draft.source, draft.rendered, candidate_dir)
+        report = run_static_check(tree, self.config, extensions=self.extensions)
+        snapshot = discover_markdown(tree, self.config, ApproximateTokenCounter())
+        regressions, decisions = verify_invariants_with_evidence(
+            context.invariants, snapshot, self.semantic_invariant_verifier
+        )
+        invariant_usage = self._drain_invariant_usage()
+        fingerprint = fingerprint_candidate(
+            draft.rendered, [operation.type for operation in draft.proposal.operations]
+        )
+        duplicate = fingerprint.content_hash in fingerprints
+        fingerprints.add(fingerprint.content_hash)
+        tier0 = hard_constraint_failures(report, regressions, None, context.baseline_report)
+        if tier0 or duplicate:
+            evaluation = None
+            semantic_usage = ProviderUsage(requests=0)
+        else:
+            evaluation, semantic_usage = self._semantic_evaluate(context.baseline, snapshot, context.suite)
+        evaluation_usage = _combine_usage(invariant_usage, semantic_usage)
+        failures = hard_constraint_failures(report, regressions, evaluation, context.baseline_report)
+        if duplicate:
+            failures.append("duplicate candidate fingerprint")
+        cost = self._candidate_cost(draft.proposal, draft.generation_usage, evaluation_usage, draft.gepa_usage)
+        evidence = CandidateEvidence(
+            generation_reason="; ".join(operation.reason for operation in draft.proposal.operations),
+            feedback=draft.feedback,
+            invariant_decisions=decisions,
+            effective_context=self._effective_context(evaluation),
+        )
+        candidate = Candidate(
+            id=draft.candidate_id,
+            parent_ids=[draft.parent.id],
+            strategy=draft.strategy,
+            proposal=draft.proposal,
+            objective_vector=objective_from_report(report, regressions, context.critical_count, evaluation),
+            evaluation=evaluation,
+            status=CandidateStatus.REJECTED if failures else CandidateStatus.VALID,
+            generation=draft.generation,
+            creation_cost=cost,
+            fingerprint=fingerprint,
+            rejection_reasons=failures,
+            artifact_dir=str(candidate_dir),
+            evidence=evidence,
+        )
+        eval_evidence = evaluation or EvaluationResult(
+            engine="tier0-static",
+            passed=not failures,
+            raw_summary={"diff": str(diff_path), "semantic": False},
+        )
+        (candidate_dir / "evaluation.json").write_text(eval_evidence.model_dump_json(indent=2), encoding="utf-8")
+        (candidate_dir / "evidence.json").write_text(evidence.model_dump_json(indent=2), encoding="utf-8")
+        return candidate, report
+
+    def _build_run(
+        self, state: SearchState, baseline_candidate: Candidate, stop_reason: StopReason, run_dir: Path
+    ) -> OptimizationRun:
+        frontier = self.selector.frontier(state.candidates)
         recommended = self.recommendation.choose(baseline_candidate, frontier)
         reason = (
             f"recommended {recommended.id}: non-dominated and policy-qualified"
             if recommended
             else "baseline/no-change retained: no candidate satisfied recommendation policy"
         )
-        run = OptimizationRun(
+        return OptimizationRun(
             run_id=run_dir.name,
             strategy=self.runtime.mode.value,
             seed=self.runtime.seed,
-            candidates=candidates,
-            frontier=self.archive_builder.build(candidates),
+            candidates=state.candidates,
+            frontier=self.archive_builder.build(state.candidates),
             recommended_candidate_id=recommended.id if recommended else None,
             recommendation_reason=reason,
-            search_memory=memory,
+            search_memory=state.memory,
             stopped_reason=stop_reason,
-            total_cost=self._total_cost(candidates),
+            total_cost=self._total_cost(state.candidates),
             metadata={
                 "baseline_in_frontier": any(item.id == BASELINE_CANDIDATE_ID for item in frontier),
                 "semantic_evaluation": self.evaluator is not None,
                 "gepa": {
                     **self.runtime.gepa.model_dump(),
-                    "performed": gepa_performed,
-                    "reason": self._gepa_reason(gepa_performed),
+                    "performed": state.gepa_performed,
+                    "reason": self._gepa_reason(state.gepa_performed),
                 },
             },
         )
-        return SearchResult(run=run, run_dir=run_dir, baseline_report=baseline_report, reports=reports)
 
     def _baseline_candidate(
         self, report: CheckReport, critical_count: int, evaluation: EvaluationResult | None, usage: ProviderUsage
@@ -207,82 +317,12 @@ class SearchController:  # pylint: disable=too-many-instance-attributes
             evidence=CandidateEvidence(effective_context=self._effective_context(evaluation)),
         )
 
-    def _evaluate_candidate(  # pylint: disable=too-many-arguments,too-many-locals
+    def _apply_gepa(
         self,
-        candidate_id: str,
-        generation: int,
-        parent: Candidate,
-        strategy: str,
+        source: DocumentationSnapshot,
         proposal: CandidateProposal,
         rendered: dict[str, str],
-        source: DocumentationSnapshot,
-        baseline: DocumentationSnapshot,
         suite: EvaluationSuite,
-        baseline_report: CheckReport,
-        invariants: list[Invariant],
-        critical_count: int,
-        fingerprints: set[str],
-        run_dir: Path,
-        feedback: OptimizationFeedback | None,
-        generation_usage: ProviderUsage,
-        gepa_usage: ProviderUsage,
-    ) -> tuple[Candidate, CheckReport]:
-        candidate_dir = run_dir / "candidates" / candidate_id
-        candidate_dir.mkdir(parents=True)
-        write_proposal(proposal, candidate_dir)
-        tree = write_candidate_tree(source, rendered, candidate_dir)
-        copy_untracked_context(baseline.root, tree)
-        diff_path = write_diff(source, rendered, candidate_dir)
-        report = run_static_check(tree, self.config, extensions=self.extensions)
-        snapshot = discover_markdown(tree, self.config, ApproximateTokenCounter())
-        regressions, decisions = verify_invariants_with_evidence(
-            invariants, snapshot, self.semantic_invariant_verifier
-        )
-        invariant_usage = self._drain_invariant_usage()
-        fingerprint = fingerprint_candidate(rendered, [operation.type for operation in proposal.operations])
-        duplicate = fingerprint.content_hash in fingerprints
-        fingerprints.add(fingerprint.content_hash)
-        tier0 = hard_constraint_failures(report, regressions, None, baseline_report)
-        if tier0 or duplicate:
-            evaluation = None
-            semantic_usage = ProviderUsage(requests=0)
-        else:
-            evaluation, semantic_usage = self._semantic_evaluate(baseline, snapshot, suite)
-        evaluation_usage = _combine_usage(invariant_usage, semantic_usage)
-        failures = hard_constraint_failures(report, regressions, evaluation, baseline_report)
-        if duplicate:
-            failures.append("duplicate candidate fingerprint")
-        cost = self._candidate_cost(proposal, generation_usage, evaluation_usage, gepa_usage)
-        evidence = CandidateEvidence(
-            generation_reason="; ".join(operation.reason for operation in proposal.operations),
-            feedback=feedback,
-            invariant_decisions=decisions,
-            effective_context=self._effective_context(evaluation),
-        )
-        candidate = Candidate(
-            id=candidate_id,
-            parent_ids=[parent.id],
-            strategy=strategy,
-            proposal=proposal,
-            objective_vector=objective_from_report(report, regressions, critical_count, evaluation),
-            evaluation=evaluation,
-            status=CandidateStatus.REJECTED if failures else CandidateStatus.VALID,
-            generation=generation,
-            creation_cost=cost,
-            fingerprint=fingerprint,
-            rejection_reasons=failures,
-            artifact_dir=str(candidate_dir),
-            evidence=evidence,
-        )
-        eval_evidence = evaluation or EvaluationResult(
-            engine="tier0-static", passed=not failures, raw_summary={"diff": str(diff_path), "semantic": False}
-        )
-        (candidate_dir / "evaluation.json").write_text(eval_evidence.model_dump_json(indent=2), encoding="utf-8")
-        (candidate_dir / "evidence.json").write_text(evidence.model_dump_json(indent=2), encoding="utf-8")
-        return candidate, report
-
-    def _apply_gepa(
-        self, source: DocumentationSnapshot, proposal: CandidateProposal, rendered: dict[str, str], suite: EvaluationSuite
     ) -> tuple[CandidateProposal, dict[str, str], ProviderUsage, bool]:
         if self.prompt_suboptimizer is None:
             return proposal, rendered, ProviderUsage(requests=0), False
@@ -321,15 +361,15 @@ class SearchController:  # pylint: disable=too-many-instance-attributes
         return result, usage
 
     def _drain_invariant_usage(self) -> ProviderUsage:
-        drain = getattr(self.semantic_invariant_verifier, "drain_usage", None)
-        if callable(drain):
-            usage = drain()
-            if isinstance(usage, ProviderUsage):
-                return usage
-        return ProviderUsage(requests=0)
+        verifier = self.semantic_invariant_verifier
+        return verifier.drain_usage() if isinstance(verifier, UsageDrainer) else ProviderUsage(requests=0)
 
     def _candidate_cost(
-        self, proposal: CandidateProposal, generation: ProviderUsage, evaluation: ProviderUsage, gepa: ProviderUsage
+        self,
+        proposal: CandidateProposal,
+        generation: ProviderUsage,
+        evaluation: ProviderUsage,
+        gepa: ProviderUsage,
     ) -> CandidateCost:
         return CandidateCost(
             deterministic_operations=len(proposal.operations),
@@ -377,7 +417,11 @@ class SearchController:  # pylint: disable=too-many-instance-attributes
         return [self.random.choice(pool) for _ in strategies] if pool else []
 
     def _feedback(
-        self, generation: int, parent: Candidate, reports: dict[str, CheckReport], baseline_report: CheckReport,
+        self,
+        generation: int,
+        parent: Candidate,
+        reports: dict[str, CheckReport],
+        baseline_report: CheckReport,
         candidates: list[Candidate],
     ) -> OptimizationFeedback | None:
         if generation <= 1 or parent.id not in reports:
@@ -394,6 +438,13 @@ class SearchController:  # pylint: disable=too-many-instance-attributes
         for item in candidates:
             if item.status != CandidateStatus.REJECTED:
                 item.status = CandidateStatus.FRONTIER if item.id in frontier_ids else CandidateStatus.DOMINATED
+
+    def _pre_candidate_stop(self, state: SearchState) -> StopReason | None:
+        if state.generated_count >= self.runtime.search.max_candidates:
+            return StopReason.CANDIDATE_BUDGET
+        if self._budget_exhausted(state.candidates):
+            return self._budget_stop_reason(state.candidates)
+        return None
 
     def _max_generations(self) -> int:
         return 1 if self.runtime.mode != OptimizeMode.SEARCH else self.runtime.search.generations
@@ -421,9 +472,15 @@ class SearchController:  # pylint: disable=too-many-instance-attributes
         )
 
     def _external_capability_enabled(self) -> bool:
-        return any((self.generator.semantic is not None, self.evaluator is not None,
-                    self.semantic_invariant_discoverer is not None, self.semantic_invariant_verifier is not None,
-                    self.prompt_suboptimizer is not None))
+        return any(
+            (
+                self.generator.semantic is not None,
+                self.evaluator is not None,
+                self.semantic_invariant_discoverer is not None,
+                self.semantic_invariant_verifier is not None,
+                self.prompt_suboptimizer is not None,
+            )
+        )
 
     def _budget_exhausted(self, candidates: list[Candidate]) -> bool:
         if not self._external_capability_enabled():
