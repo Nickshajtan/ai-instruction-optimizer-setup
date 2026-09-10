@@ -116,7 +116,9 @@ class ProviderSemanticInvariantService:
         normalized_evidence = _normalize(item.evidence)
         if normalized_evidence not in normalized_source:
             return False
-        return bool(SEMANTIC_CRITICAL_CUE_RE.search(f"{item.evidence}\n{item.text}"))
+        # Criticality must be grounded in repository-owned evidence. Provider-authored
+        # summary text or confidence cannot manufacture a hard constraint by itself.
+        return bool(SEMANTIC_CRITICAL_CUE_RE.search(item.evidence))
 
 
 class ProviderSemanticEvaluator:
