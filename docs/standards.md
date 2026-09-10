@@ -84,6 +84,42 @@ Stable exit codes:
 - Prefer `subprocess.run([...], shell=False)`.
 - Keep optional imports inside adapters when dependencies are optional.
 - Add comments only where they clarify non-obvious behavior.
+- Do not accept meaningful-looking domain/API parameters and immediately discard them.
+  If a third-party callback requires an unused argument, make the compatibility reason
+  explicit and narrowly scoped.
+- Do not keep fake contract inputs for planned behavior. Wire them into behavior or remove
+  them until the behavior exists.
+- Domain-significant repeated strings (statuses, stop reasons, engine IDs, modes, severity
+  values, protocol artifact names, cross-module metadata keys) must use typed/named domain
+  values rather than scattered literals.
+- Domain-policy numbers (thresholds, weights, tolerances, confidence cutoffs, extraction
+  sizes, similarity limits, retry/generation limits) must be named or configured. Do not
+  create constants for obvious indexes, zero/one structural values, or literals that are
+  clearer inline.
+- Broad text/regex transformations that encode product policy must have focused adversarial
+  tests proving they do not corrupt unrelated Markdown structures.
+- Do not introduce speculative Protocol/service/factory/strategy layers without a real
+  external boundary, testing seam, domain dependency boundary, or multiple real behaviors.
+- Broad `except Exception` handling belongs only at intentional plugin/provider/process
+  boundaries and must preserve the original cause and actionable diagnostics.
+- Comments, names, types, and reports must not claim semantic/deep/adaptive behavior that
+  the implementation does not actually perform.
+
+## Static Analysis Standards
+
+- Ruff and strict mypy are required quality gates.
+- Ruff configuration should incrementally enforce unused arguments (`ARG`), magic-value
+  comparisons (`PLR2004`), and unused suppressions (`RUF100`) in addition to the existing
+  rule set, with narrow per-file/local exceptions where an external interface requires it.
+- Production optimizer/domain code must be checked for explicit deletion of meaningful
+  function parameters (`del parameter`); use a small AST-based repository check rather
+  than regex when generic lint rules cannot detect the misleading contract.
+- Do not silence lint/type failures with broad repository-wide ignores. Exceptions must be
+  local and justified by a concrete boundary or false positive.
+- Dynamic optional-dependency adapters may use narrow `Any`/`cast` boundaries when the
+  dynamic API cannot be represented safely and the boundary is tested.
+- Static-analysis rules must target a demonstrated defect class; do not enable rules only
+  to increase formal strictness.
 
 ## Analyzer Standards
 
@@ -116,11 +152,30 @@ Stable exit codes:
 ## Testing Standards
 
 - Unit tests must not require live API credentials.
-- External LLM, Promptfoo, DeepEval, and GEPA calls must be mockable.
+- External LLM, Promptfoo, DeepEval, and GEPA calls must be replaceable with deterministic
+  fakes at their boundary.
 - Default test suite should be fast and deterministic.
 - Heavy wheel/executable smoke tests may be opt-in but must be documented.
 - Tests should cover Windows-style paths, POSIX-style assumptions where possible,
   spaces/unicode paths, root discovery, extension loading, resources, and runtime mode.
+- Integration tests that claim optimizer correctness must assert domain outcomes, not only
+  exit codes, file existence, candidate counts, or schema presence.
+- A regression-test fixture must be capable of exposing the defect it claims to prevent.
+  For example, baseline propagation needs non-empty baseline content and scenario isolation
+  needs multiple scenarios with different expectations.
+- Critical workflows require causal assertions showing that changing a meaningful input
+  changes the downstream decision.
+- Important happy paths should have negative/adversarial counterparts, especially around
+  semantic evaluation, invariants, routing, budgets, and recommendation.
+- Mock external boundaries rather than the implementation under test. Prefer deterministic
+  fake providers over deep monkeypatch chains.
+- Measure statement and branch coverage in CI. Coverage percentage is a guardrail, not
+  proof of semantic correctness.
+- Use a conservative repository-wide coverage threshold as a ratchet and prioritize
+  stronger behavioral tests for optimizer/search, evaluators, invariants, generation,
+  recommendation, budgets, and context routing.
+- Mutation testing should target critical decision paths after the semantic-core vertical
+  slice is implemented; do not optimize tests for a vanity mutation score.
 
 ## Documentation Standards
 
