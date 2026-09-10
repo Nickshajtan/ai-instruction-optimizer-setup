@@ -46,11 +46,19 @@ jobs:
           mutation_exit=$?
           set -e
           python -m mutmut export-cicd-stats > mutation-stats.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          path = Path("mutation-stats.json")
+          data = json.loads(path.read_text(encoding="utf-8"))
+          if not isinstance(data, dict) or not data:
+              raise SystemExit("mutation baseline did not produce a non-empty JSON object")
+          PY
           echo "mutmut exit code: ${mutation_exit}"
           cat mutation-stats.json
-          # v0.1 establishes and exposes a baseline; survivors are reviewed rather
-          # than converted into a repository-wide score gate immediately.
-          exit 0
+          # v0.1 establishes and exposes a baseline; surviving mutants are reviewed
+          # rather than converted into a repository-wide score gate immediately.
       - name: Upload mutation baseline
         uses: actions/upload-artifact@v6
         with:
