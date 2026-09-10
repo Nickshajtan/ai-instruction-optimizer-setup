@@ -4,302 +4,229 @@ Status: implementation specification — remaining work only
 
 ## 1. Purpose
 
-The first implementation pass made the central semantic search loop causally real. This document no longer repeats requirements that are already implemented and covered by tests. It defines only the work still required before the semantic-core milestone can be called complete.
+This document contains only the work that still blocks completion of the Semantic Core v0.3 milestone.
 
-Human-facing documentation for the implemented behavior lives in [`docs/guides/semantic-optimization.md`](../docs/guides/semantic-optimization.md). Architecture-level context lives in [`docs/design/architecture.md`](../docs/design/architecture.md).
+Implemented behavior belongs in human and agent documentation, not in this specification:
 
-The product goal remains:
+- [`docs/guides/semantic-optimization.md`](../docs/guides/semantic-optimization.md) — human-facing behavior and operating model;
+- [`docs/design/architecture.md`](../docs/design/architecture.md) — implementation boundaries and causal flow;
+- [`.ai/skills/semantic-optimization-review/SKILL.md`](../.ai/skills/semantic-optimization-review/SKILL.md) — agent review procedure.
 
-> Given AI-facing repository documentation, produce candidate documentation changes that reduce context cost and/or improve clarity while preserving required behavior, evaluate those candidates against the baseline, reject unsafe regressions, and recommend a non-dominated candidate only when evidence supports the recommendation.
+The milestone is not complete merely because CI is green. A capability counts only when the normal product path wires it, it causally affects behavior, and the acceptance coverage can detect a plausible regression.
 
-## 2. Already implemented — preserve, do not rebuild
-
-The following capabilities are accepted as implemented for this milestone and MUST NOT be redesigned merely to make this specification look more complete:
-
-- `SearchController` consumes `EvaluationSuite` and evaluation evidence affects candidate status and objectives;
-- deterministic Tier-0 gates run before semantic evaluation;
-- DeepEval evaluates baseline content when no candidate is supplied;
-- Promptfoo assertions are isolated per scenario and the lexical adapter does not claim semantic evaluation;
-- evaluation-derived feedback can drive a child repair and the child is re-evaluated;
-- an end-to-end fake-semantic integration test exercises fail → feedback → repair → re-evaluate → recommend;
-- baseline participates in Pareto comparison and the recommendation policy may return no change;
-- effective task context is distinguished from the full documentation corpus through a context-selection boundary;
-- deterministic candidate operations do not consume LLM-request budget;
-- GEPA currently reports truthfully when no eligible prompt artifact is wired instead of pretending optimization occurred;
-- run, frontier, lineage, search-memory, report, candidate proposal/diff/evaluation artifacts already exist.
-
-These are documented for humans rather than repeated below as unfinished implementation tasks.
-
-## 3. Guiding rule
-
-A capability counts as complete only when it exists in a production execution path and causally affects behavior. A Protocol, injected fake, config field, metadata field, or unit test proving an extension seam is not by itself a product capability.
-
-Prefer completing an existing path over introducing another abstraction.
-
-## 4. Remaining Work A — production semantic candidate generation
+## 2. Remaining Work A — make all active budgets truthful at the provider boundary
 
 ### Problem
 
-The optimizer has a semantic-generation boundary, and tests prove a semantic generator can receive strategy, previous summaries, explored transformations, feedback, and search memory. The normal CLI path does not currently wire a production semantic generator. Adaptive modes therefore still rely on deterministic/regex mutation providers unless a generator is injected programmatically.
+The production CLI now wires `CommandSemanticProvider` through `BudgetedSemanticProvider`, and request usage is bounded before another provider invocation is started. However the CLI currently passes only `max_llm_requests` into that provider wrapper.
+
+`max_input_tokens`, `max_output_tokens`, and `max_cost_usd` remain active configuration controls but are enforced only after accumulated candidate/run usage is observed. A single candidate cycle can therefore perform generation, prompt suboptimization, invariant verification, and scenario evaluation that crosses one of those limits before the next search-level check.
 
 ### Required behavior
 
-At least one production semantic candidate-generation implementation MUST be wired into an adaptive mode (`balanced` and/or `search`). It MUST be able to change candidate content based on semantic reasoning rather than only predefined regex transformations.
+The normal CLI semantic stack MUST pass every active provider budget into the production budget wrapper:
 
-The generator MUST receive and meaningfully use, when available:
+- maximum external requests;
+- maximum input tokens;
+- maximum output tokens;
+- maximum USD cost.
 
-- current/baseline documentation;
-- extracted invariants;
-- strategy/objective weaknesses;
-- previous candidate summaries;
-- explored transformations/fingerprints;
-- structured parent feedback;
-- search memory.
+Known accumulated usage MUST prevent a later provider invocation after a configured limit has been reached.
 
-Provider-specific SDK objects MUST remain outside optimizer domain models. The generator returns the existing proposal/rendered-document representation.
+If a provider can provide a trustworthy next-call estimate, the adapter SHOULD reject a call that is expected to exceed the remaining token or USD budget. If no trustworthy pre-call estimate exists, post-call provider-reported usage may cross the boundary once, but the run MUST report that overrun truthfully and MUST perform no further external work.
 
-Deterministic generators MUST remain usable for conservative/offline/no-model operation.
+Do not claim a strict pre-call token/USD guarantee when only post-call usage is available.
+
+Deterministic/offline operation MUST continue to consume zero external request/token/USD budget.
 
 ### Acceptance tests
 
-- a production-wiring test proves the CLI/runtime can select a semantic generator rather than only an injected unit-test fake;
-- a deterministic fake provider may stand in for the network/model in CI, but it MUST exercise the same production adapter and wiring;
-- changing feedback/search memory changes the request or resulting semantic generation behavior in a testable way;
-- request accounting records the external generation request.
+- CLI/runtime wiring passes request, input-token, output-token, and USD limits to the production budget wrapper;
+- provider-reported generation/evaluation/suboptimizer usage remains separately aggregated;
+- reaching the request limit prevents another external call;
+- reaching the input-token limit prevents another external call;
+- reaching the output-token limit prevents another external call;
+- reaching the USD limit prevents another external call;
+- a provider-reported one-call overrun is persisted truthfully and stops all subsequent external work;
+- deterministic operation consumes zero external usage.
 
-## 5. Remaining Work B — semantic invariant discovery and verification
+## 3. Remaining Work B — make critical invariant verification contradiction-safe
 
 ### Problem
 
-Literal invariant extraction is a useful Tier-0 guard. A semantic verifier boundary also exists, and tests prove it can accept a meaning-preserving rewrite or reject a weakened invariant. The normal production path does not wire a concrete semantic verifier. In addition, semantic verification can only protect invariants that were first discovered by the current mostly keyword-oriented extraction logic.
+Semantic invariant discovery and verification are now wired into the production search path. High-confidence semantic discoveries can protect critical behavior that lacks MUST/NEVER-style keywords.
+
+The remaining safety flaw is verification short-circuiting: if the original invariant sentence is still present literally, the current verifier records it as preserved without asking the semantic layer whether another part of the candidate contradicts or weakens it.
+
+For example, this must not pass merely because the first sentence survived:
+
+```md
+MUST run validation before merge.
+
+For migration-only changes, validation is optional and may be skipped.
+```
 
 ### Required behavior
 
-Critical behavior MUST have two complementary safety layers:
+Deterministic literal preservation remains useful cheap evidence, but it MUST NOT be treated as sufficient proof that a critical invariant is globally preserved when production semantic verification is available.
 
-1. deterministic extraction/verification for obvious normative language such as MUST, NEVER, REQUIRED, and FORBIDDEN;
-2. semantic discovery/verification capable of protecting critical behavior even when the baseline does not use those exact keywords.
-
-The production semantic layer MUST distinguish at least:
+The critical-invariant decision model MUST distinguish at least:
 
 - preserved exactly;
 - preserved semantically with different wording;
 - weakened;
 - removed;
-- uncertain.
+- uncertain/contradicted.
 
-For critical behavior, weakened, removed, and uncertain MUST reject the candidate unless an explicit repository-owned policy says otherwise.
+A contradiction elsewhere in the effective candidate documentation MUST produce weakened/uncertain/rejected behavior rather than a literal-preserved success.
 
-The implementation MUST avoid converting every ordinary sentence into a critical invariant. Semantic discovery therefore needs evidence/severity rules and explainable output.
+Weakened, removed, contradicted, and uncertain critical behavior MUST reject the candidate unless a future explicit repository-owned policy says otherwise.
 
 ### Acceptance tests
 
-- a production-wiring test exercises the concrete semantic verifier through the normal search path;
-- a meaning-preserving paraphrase passes;
+- exact critical wording plus a contradictory exception elsewhere is rejected or marked uncertain;
+- meaning-preserving paraphrase passes;
 - MUST → SHOULD/recommended weakening fails;
 - removal fails;
-- contradiction elsewhere in the candidate fails or becomes uncertain/rejected;
-- a critical baseline instruction without magic normative keywords is discovered and protected;
-- an ordinary descriptive sentence is not falsely promoted to a critical invariant.
+- a critical baseline instruction without normative magic keywords is discovered and protected.
 
-## 6. Remaining Work C — real token and USD telemetry
+## 4. Remaining Work C — make semantic invariant discovery explainable and conservative
 
 ### Problem
 
-Request counters now distinguish deterministic work from external generation/evaluation/suboptimizer calls. Token and USD fields exist, but they are not yet consistently populated from actual provider work. Consequently request budgets are meaningful while token/cost budgets are not yet fully evidence-backed.
+Production semantic discovery currently filters provider results to high-confidence critical invariants. This is a useful guard against promoting every sentence, but `critical + confidence >= threshold` is not enough evidence for post-run explanation and does not itself prove a low false-positive rate.
 
 ### Required behavior
 
-External adapters MUST return normalized usage telemetry where the provider exposes it, or a documented estimate where exact usage is unavailable.
+Semantic invariant discoveries MUST preserve explainable provenance sufficient to answer why a statement became a critical invariant. Prefer extending the existing `Invariant`/evidence model rather than adding a parallel artifact system.
 
-Track separately where possible:
+At minimum, a semantic critical invariant SHOULD retain:
 
-- generation requests;
-- semantic evaluation requests;
-- prompt-suboptimizer requests;
-- input tokens;
-- output tokens;
-- provider-reported or estimated USD cost;
-- deterministic operations;
-- cache hits, if a provider exposes them.
+- source path/section;
+- source statement or evidence fragment;
+- provider/domain rationale for criticality;
+- confidence;
+- discovery source (`literal` or `semantic`).
 
-`max_llm_requests` MUST continue to bound actual external requests.
-
-`max_input_tokens` and `max_output_tokens` MUST either be enforced against real/estimated external usage or be removed from the active configuration contract until they can be truthful.
-
-`max_cost_usd` MUST stop additional paid work once known/estimated cost reaches the configured limit. When a next-call estimate is available, the budget SHOULD be checked before the call.
-
-A zero-cost deterministic run MUST remain possible.
+The core MUST remain conservative: ordinary descriptive text must not become a critical invariant only because it is semantically related to the task domain.
 
 ### Acceptance tests
 
-- deterministic transformations consume zero external requests/tokens/USD;
-- fake production providers return usage and it is aggregated into candidate/run telemetry;
-- generation and evaluation usage remain distinguishable;
-- request budget stops further external work;
-- cost budget stops further external work;
-- token budgets are either demonstrably enforced or no longer advertised as active controls;
-- reports identify estimated versus provider-reported cost where that distinction exists.
+- a semantic critical invariant persists rationale/provenance that can be inspected after the run;
+- an ordinary descriptive sentence is not promoted to a critical invariant;
+- duplicate literal/semantic discoveries do not create duplicate hard constraints.
 
-## 7. Remaining Work D — behaviorally effective GEPA integration
+## 5. Remaining Work D — close production-wiring acceptance gaps
 
 ### Problem
 
-GEPA configuration is currently truthful: when no eligible prompt artifact is wired, the run reports that nothing was optimized and why. This satisfies truthfulness but not behavioral integration.
+The production semantic adapter classes are exercised together in integration tests, but the strongest test currently constructs those classes and injects them directly into `SearchController`. This proves adapter interoperability but does not prove the actual CLI stack configuration.
+
+The semantic generator request also contains feedback and search memory, but current fake-provider coverage mainly proves their presence rather than demonstrating that changed contents are observable by the production adapter.
 
 ### Required behavior
 
-When GEPA is enabled and an eligible prompt artifact exists, the production path MUST invoke the prompt suboptimizer and use its output in the optimization workflow.
+Add a focused CLI/runtime acceptance test that exercises the same path an operator uses:
 
-GEPA remains a suboptimizer, not the outer documentation search controller. Its output MUST pass through the same applicable invariant, evaluation, budget, and Pareto/recommendation gates as other changes.
+```text
+AI_DOC_SEMANTIC_COMMAND
+  -> CLI semantic stack construction
+  -> budget wrapper
+  -> semantic generation/invariant service/evaluation/GEPA as enabled
+  -> SearchController
+```
 
-When no eligible artifact exists, the existing explicit no-op explanation remains valid and MUST be preserved.
+CI may continue to use the deterministic command fixture and MUST NOT make paid network calls.
+
+Changing meaningful feedback or search-memory contents MUST change the provider request payload and/or the resulting semantic generation in a testable way. Merely serializing an always-present object is insufficient evidence.
 
 ### Acceptance tests
 
-- enabled + eligible invokes the production prompt-suboptimizer boundary;
-- the optimized artifact causally affects a candidate/evaluation path;
-- suboptimizer requests/tokens/cost are accounted separately;
-- enabled + ineligible remains an explicit truthful no-op;
-- a GEPA-produced regression can still be rejected by normal safety/evaluation gates.
+- normal CLI/runtime selects the production semantic stack from `AI_DOC_SEMANTIC_COMMAND`;
+- the production adapter, not an injected fake domain implementation, receives the request;
+- changed feedback contents are visible to or affect semantic generation;
+- changed search-memory contents are visible to or affect semantic generation;
+- external request accounting from that CLI path matches provider usage.
 
-## 8. Remaining Work E — evidence and explainability artifacts
+## 6. Remaining Work E — prove GEPA regressions are rejected
 
 ### Problem
 
-Current artifacts preserve candidate files, proposal, diff, evaluation, run state, frontier, lineage, search memory, and report. They do not yet preserve enough structured evidence to reconstruct every important semantic decision after the run.
+Enabled GEPA with an eligible `<!-- ai-doc:gepa -->` artifact now invokes the production prompt-suboptimizer and its output enters the normal candidate pipeline. Usage is accounted separately and ineligible/no-provider behavior remains a truthful no-op.
+
+The remaining gap is acceptance coverage: there is no focused regression proving a harmful GEPA rewrite is rejected by the same invariant/evaluation gates as another candidate mutation.
 
 ### Required behavior
 
-Persist enough structured evidence to answer, without rerunning the optimizer:
+Add an end-to-end regression test where the production prompt-suboptimizer changes an eligible artifact in a way that violates required behavior and the candidate is rejected by the normal safety/evaluation path.
 
-- why was this candidate generated and from which parent(s)?
-- which feedback was used to create a repair child?
-- which scenarios passed or failed and with what evidence?
-- which deterministic and semantic invariants were checked, and what was each result?
-- which documents formed the effective context for each scenario?
-- what static/context-cost metrics changed relative to baseline/parent?
-- what external requests, tokens, and USD cost were consumed?
-- why was the candidate rejected, retained on the frontier, or recommended?
-- why did baseline/no-change win when no candidate was recommended?
-
-Prefer extending existing JSON artifacts/models rather than inventing a parallel artifact system.
+Do not add a GEPA-specific bypass or safety mechanism. The purpose of the test is to prove that the existing common gates are causal.
 
 ### Acceptance tests
 
-- the repair integration scenario persists the feedback used by the child;
-- semantic invariant decisions are inspectable after the run;
-- effective-context evidence is persisted per scenario;
-- recommendation/no-recommendation has an inspectable reason;
-- telemetry in artifacts matches the run counters.
+- enabled + eligible invokes prompt suboptimization;
+- a safe GEPA rewrite can proceed through normal evaluation;
+- a GEPA-produced critical or behavioral regression is rejected;
+- GEPA request/token/USD usage remains separately inspectable;
+- enabled + ineligible remains an explicit truthful no-op.
 
-## 9. Remaining Work F — strengthen context-selection adversarial safety
+## 7. Remaining Work F — strengthen recommendation/evidence explanation
 
 ### Problem
 
-The current deterministic context selector correctly distinguishes always-loaded/root instructions from task-selected reference documents. It is intentionally approximate. Keyword overlap can still overestimate whether a weak router would cause a real agent to discover a referenced document.
+Run artifacts now persist repair feedback, invariant decisions, effective context, normalized usage, candidate status/rejection reasons, lineage, frontier state, and run-level recommendation/no-change reasoning.
+
+The current recommendation reason is still coarse (for example, `non-dominated and policy-qualified`). A reviewer can reconstruct the decision from `run.json`, but the artifact does not directly explain which objective improvements and policy thresholds justified replacement of the baseline.
 
 ### Required behavior
 
-Do not replace the context-selection boundary. Harden it so the optimizer cannot cheaply game evaluation by preserving task keywords while weakening actual routing/discoverability.
+Recommendation/no-change evidence SHOULD be explicit enough to answer without recomputing the policy:
 
-The model SHOULD distinguish, where practical:
+- which candidate, if any, beat the baseline recommendation policy;
+- which objective(s) materially improved;
+- which allowed regressions/tolerances were used;
+- why baseline/no-change won when no candidate qualified.
 
-- a document merely mentioning task vocabulary;
-- an explicit route/link/trigger telling the agent when to load another document;
-- whether the selected document is reachable from always-loaded context;
-- ordering of selected context;
-- a route that is present but too weak/ambiguous to satisfy required behavior.
-
-Perfect simulation of Claude, Codex, Copilot, or every coding agent remains a non-goal.
+Prefer extending the existing run/candidate evidence models. Do not create a second reporting subsystem.
 
 ### Acceptance tests
 
-- extraction reduces always-loaded tokens while the relevant detail remains reachable;
-- weakening the router cannot pass merely because root and target documents share keywords;
-- unrelated references are not selected;
-- the parent-fail/child-repair scenario asserts that the child preserves the parent's context saving as well as restoring behavior.
+- recommended candidate persists concrete recommendation factors rather than only a generic label;
+- baseline/no-change persists the concrete blocking factors for the best attempted candidates;
+- persisted recommendation evidence agrees with objective vectors and configured policy.
 
-## 10. Remaining Work G — close explicit acceptance-test gaps
+This work is lower risk than Sections 2–4 but remains part of the v0.3 explainability goal.
 
-Add the following focused regression tests even where the underlying code already appears capable:
+## 8. Tier-0 provider-call semantics — clarification
 
-1. baseline legitimately remains best and produces no recommended change after semantic candidates were evaluated;
-2. the router-repair child preserves the parent's useful context-cost improvement;
-3. extracted documentation remains reachable after repair;
-4. semantic reliability remains unavailable rather than fabricated when no semantic evaluator ran;
-5. Tier-0 rejection proves no semantic/provider call was made;
-6. production semantic generation/verifier adapters are exercised with deterministic fake providers, not only injected fake domain implementations.
+The previous wording "Tier-0 rejection proves no semantic/provider call was made" is too broad now that semantic invariant verification itself is part of the safety gate.
 
-Normal CI MUST NOT require paid network calls.
+The intended contract is:
 
-## 11. Implementation order
+- deterministic static/literal failures SHOULD prevent unnecessary downstream semantic evaluation and generation-dependent work;
+- semantic invariant calls ARE allowed when they are necessary to determine whether a critical invariant is preserved;
+- once a candidate is rejected by an already-known hard constraint, no additional semantic evaluation or suboptimization should run for that candidate.
 
-Implement remaining work in this order unless a concrete dependency justifies changing it:
+Acceptance tests SHOULD assert call types/counts rather than the impossible blanket rule that every Tier-0 rejection performs zero provider calls.
 
-### Phase 1 — semantic production path
+## 9. Definition of Done
 
-- wire production semantic candidate generation;
-- wire semantic invariant discovery/verification;
-- add production-adapter tests with deterministic fake providers.
+Semantic Core v0.3 is complete when all of the following are true:
 
-### Phase 2 — FinOps truthfulness
-
-- normalize provider usage telemetry;
-- aggregate request/token/USD usage;
-- enforce request/cost/token contracts truthfully.
-
-### Phase 3 — evidence
-
-- persist feedback used for repair;
-- persist invariant decisions and recommendation reasoning;
-- make telemetry/effective-context evidence easy to inspect.
-
-### Phase 4 — GEPA
-
-- connect eligible prompt artifacts to the existing suboptimizer boundary;
-- account for GEPA work;
-- route its result through normal safety/evaluation gates.
-
-### Phase 5 — adversarial context hardening
-
-- strengthen router/discoverability simulation;
-- add anti-gaming tests;
-- run the planned independent adversarial review against the completed semantic path.
-
-## 12. Non-goals
-
-This remaining-work milestone does not require:
-
-- replacing the existing Pareto algorithm;
-- replacing deterministic analyzers/generators;
-- redesigning packaging or the `.tools` consumption model;
-- broad new CLI surface;
-- a generic autonomous coding agent;
-- a hosted SaaS control plane;
-- vector databases/RAG infrastructure;
-- fine-tuning;
-- support for every LLM provider;
-- perfect simulation of every coding agent;
-- 100% semantic automation with no deterministic safety layer.
-
-## 13. Definition of Done
-
-The semantic-core milestone is complete when all of the following remaining conditions are true:
-
-- a production semantic generation path can affect candidate content in adaptive mode;
-- semantic invariant discovery/verification is wired into the production search path and protects critical behavior beyond magic keywords;
-- request/token/USD telemetry represents real or explicitly estimated external work;
-- configured cost/request/token limits are truthful and enforced, or unsupported limits are removed from the active contract;
-- GEPA performs real suboptimization when enabled and eligible, while retaining truthful no-op behavior when ineligible;
-- artifacts persist feedback, semantic invariant decisions, effective context, telemetry, and recommendation/no-change reasoning sufficiently for post-run explanation;
-- context-selection tests prevent trivial keyword-based routing games and prove useful context savings survive repair;
-- the explicit regression tests in section 10 pass;
+- all active request/token/USD limits are wired and enforced truthfully at the production provider boundary, with any unavoidable one-call post-report overrun explicitly represented;
+- critical invariant verification cannot be bypassed by retaining literal wording while adding a contradiction elsewhere;
+- semantic invariant discovery persists explainable provenance and has regression coverage against ordinary-sentence overclassification;
+- the real CLI semantic-stack wiring is covered with the deterministic production command adapter;
+- feedback and search-memory contents demonstrably reach/affect production semantic generation;
+- a GEPA-produced regression is demonstrably rejected by the common safety/evaluation path;
+- recommendation/no-change evidence is sufficiently concrete for post-run explanation without recomputing policy decisions;
 - cross-platform CI remains green;
-- normal CI uses fake providers and makes no paid network calls.
+- normal CI makes no paid network calls.
 
-## 14. Final engineering constraint
+## 10. Engineering constraints
 
-Do not reopen already completed semantic-loop work without evidence of a defect.
+Do not reopen already completed semantic-loop, Pareto, packaging, context-routing, baseline-selection, or artifact-system work without evidence of a defect.
 
-The remaining problem is not to make the architecture larger. It is to turn the remaining extension seams and telemetry fields into truthful production behavior, preserve evidence, and make the optimizer harder to game.
+Do not add new provider SDK coupling to optimizer domain models. Keep the provider-neutral command boundary and deterministic offline path.
+
+Prefer a small number of adversarial acceptance tests over new abstractions. The remaining work is primarily truthfulness and safety hardening, not architecture expansion.
