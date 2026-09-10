@@ -1,12 +1,19 @@
 from __future__ import annotations
 
 from decimal import Decimal
-from typing import Literal, Protocol
+from enum import StrEnum
+from typing import Protocol
 
 from pydantic import BaseModel, Field
 
 from ai_doc.domain.documents import DocumentationSnapshot
 from ai_doc.domain.scores import ScoreSet
+
+
+class RecommendationDecision(StrEnum):
+    ACCEPT = "accept"
+    REVIEW = "review"
+    REJECT = "reject"
 
 
 class EvaluationScenario(BaseModel):
@@ -55,4 +62,4 @@ class CandidateComparison(BaseModel):
     expected_context_delta: float | None = None
     estimated_cost_delta: Decimal | None = None
     invariant_regressions: list[str] = Field(default_factory=list)
-    recommendation: Literal["accept", "review", "reject"]
+    recommendation: RecommendationDecision

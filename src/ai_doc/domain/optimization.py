@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from decimal import Decimal
+from enum import StrEnum
 from typing import Literal
 
 from pydantic import BaseModel, Field
@@ -8,6 +9,32 @@ from pydantic import BaseModel, Field
 from ai_doc.domain.evaluations import EvaluationCaseResult, EvaluationResult
 from ai_doc.domain.findings import Finding
 from ai_doc.domain.proposals import CandidateProposal
+
+ObjectiveName = Literal[
+    "reliability",
+    "clarity",
+    "always_loaded_tokens",
+    "expected_context_tokens",
+    "estimated_context_cost",
+    "critical_invariant_recall",
+]
+
+
+class CandidateStatus(StrEnum):
+    GENERATED = "generated"
+    EVALUATING = "evaluating"
+    VALID = "valid"
+    DOMINATED = "dominated"
+    REJECTED = "rejected"
+    FRONTIER = "frontier"
+
+
+class StopReason(StrEnum):
+    GENERATION_COMPLETE = "stopped_generation"
+    CANDIDATE_BUDGET = "stopped_candidate_budget"
+    REQUEST_BUDGET = "stopped_request_budget"
+    COST_BUDGET = "stopped_budget"
+    PATIENCE = "stopped_patience"
 
 
 class ObjectiveVector(BaseModel):
@@ -46,14 +73,7 @@ class Candidate(BaseModel):
     proposal: CandidateProposal
     objective_vector: ObjectiveVector | None = None
     evaluation: EvaluationResult | None = None
-    status: Literal[
-        "generated",
-        "evaluating",
-        "valid",
-        "dominated",
-        "rejected",
-        "frontier",
-    ] = "generated"
+    status: CandidateStatus = CandidateStatus.GENERATED
     generation: int
     creation_cost: RunCost = Field(default_factory=RunCost)
     fingerprint: CandidateFingerprint | None = None
@@ -105,10 +125,6 @@ class SearchMemory(BaseModel):
     unexplored_opportunities: list[str] = Field(default_factory=list)
 
 
-class StopReason(str):
-    pass
-
-
 class OptimizationRun(BaseModel):
     run_id: str
     strategy: str
@@ -118,7 +134,7 @@ class OptimizationRun(BaseModel):
     frontier: ParetoArchive = Field(default_factory=ParetoArchive)
     recommended_candidate_id: str | None = None
     search_memory: SearchMemory = Field(default_factory=SearchMemory)
-    stopped_reason: str
+    stopped_reason: StopReason | str
     total_cost: RunCost = Field(default_factory=RunCost)
     metadata: dict[str, object] = Field(default_factory=dict)
 
