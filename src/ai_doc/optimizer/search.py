@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import random
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from decimal import Decimal
 from pathlib import Path
 from typing import cast
@@ -37,6 +37,7 @@ from ai_doc.optimizer.feedback import FeedbackBuilder, update_search_memory
 from ai_doc.optimizer.generator import GenerationStrategyName, SemanticCandidateGenerator, StrategyCandidateGenerator
 from ai_doc.optimizer.invariants import (
     Invariant,
+    InvariantDecision,
     InvariantImportance,
     SemanticInvariantDiscoverer,
     SemanticInvariantVerifier,
@@ -47,12 +48,13 @@ from ai_doc.optimizer.pareto import ParetoArchiveBuilder, ParetoSelector
 from ai_doc.optimizer.prompt_suboptimizer import PromptArtifact, PromptSubOptimizer
 from ai_doc.optimizer.recommendation import RecommendationPolicy
 from ai_doc.plugins.registry import ExtensionRegistry
-from ai_doc.providers.semantic import ProviderUsage, UsageDrainer
+from ai_doc.providers.semantic import ProviderUsage, SemanticBudgetExceeded, UsageDrainer
 from ai_doc.reporting.models import CheckReport
 from ai_doc.tokens.counter import ApproximateTokenCounter
 
 BASELINE_CANDIDATE_ID = "baseline"
 GEPA_MARKER = "<!-- ai-doc:gepa -->"
+BUDGET_REJECTION = "external budget exhausted before required candidate evaluation"
 
 
 @dataclass
@@ -72,6 +74,7 @@ class SearchState:
     generated_count: int = 0
     stagnant: int = 0
     gepa_performed: bool = False
+    budget_stop_stage: str | None = None
 
 
 @dataclass(frozen=True)
@@ -96,6 +99,14 @@ class CandidateDraft:
     feedback: OptimizationFeedback | None
     generation_usage: ProviderUsage
     gepa_usage: ProviderUsage
+
+
+@dataclass(frozen=True)
+class CandidateWorkspace:
+    candidate_dir: Path
+    diff_path: Path
+    report: CheckReport
+    snapshot: DocumentationSnapshot
 
 
 class SearchController:  # pylint: disable=too-many-instance-attributes
@@ -133,18 +144,34 @@ class SearchController:  # pylint: disable=too-many-instance-attributes
         invariants = extract_invariants(baseline, self.semantic_invariant_discoverer)
         discovery_usage = self._drain_invariant_usage()
         critical_count = sum(item.importance == InvariantImportance.CRITICAL for item in invariants)
-        baseline_evaluation, baseline_eval_usage = self._semantic_evaluate(baseline, None, suite)
-        baseline_candidate = self._baseline_candidate(
-            baseline_report,
-            critical_count,
-            baseline_evaluation,
-            _combine_usage(discovery_usage, baseline_eval_usage),
-        )
+        baseline_candidate = self._baseline_candidate(baseline_report, critical_count, None, discovery_usage)
         state = SearchState(
             candidates=[baseline_candidate],
             reports={BASELINE_CANDIDATE_ID: baseline_report},
         )
         context = EvaluationContext(baseline, suite, baseline_report, invariants, critical_count, run_dir)
+        initial_stop = self._budget_stop_for_candidates(state.candidates)
+        if initial_stop is not None:
+            state.budget_stop_stage = "semantic invariant discovery"
+            run = self._build_run(state, baseline_candidate, initial_stop, run_dir)
+            return SearchResult(run=run, run_dir=run_dir, baseline_report=baseline_report, reports=state.reports)
+
+        baseline_evaluation, baseline_eval_usage = self._semantic_evaluate(baseline, None, suite)
+        baseline_candidate.evaluation = baseline_evaluation
+        baseline_candidate.objective_vector = objective_from_report(
+            baseline_report,
+            [],
+            critical_count,
+            baseline_evaluation,
+        )
+        baseline_candidate.creation_cost = self._evaluation_cost(_combine_usage(discovery_usage, baseline_eval_usage))
+        baseline_candidate.evidence.effective_context = self._effective_context(baseline_evaluation)
+        baseline_stop = self._budget_stop_for_candidates(state.candidates)
+        if baseline_stop is not None:
+            state.budget_stop_stage = "baseline semantic evaluation"
+            run = self._build_run(state, baseline_candidate, baseline_stop, run_dir)
+            return SearchResult(run=run, run_dir=run_dir, baseline_report=baseline_report, reports=state.reports)
+
         stop_reason = self._search_generations(state, context, baseline_candidate)
         run = self._build_run(state, baseline_candidate, stop_reason, run_dir)
         return SearchResult(run=run, run_dir=run_dir, baseline_report=baseline_report, reports=state.reports)
@@ -166,22 +193,20 @@ class SearchController:  # pylint: disable=too-many-instance-attributes
                     generation, parent, state.reports, context.baseline_report, state.candidates
                 )
                 source = self._source_snapshot(parent, context.baseline)
-                proposal, rendered = self.generator.generate(
-                    source,
-                    context.invariants,
-                    strategy,
-                    previous_summaries=[self._candidate_summary(item) for item in state.candidates],
-                    explored_transformations=sorted(state.fingerprints),
-                    feedback=feedback,
-                    memory=state.memory,
-                )
-                generation_usage = self._last_usage(self.generator.semantic)
-                gepa_usage = ProviderUsage(requests=0)
-                if self.runtime.gepa.enabled:
-                    proposal, rendered, gepa_usage, performed = self._apply_gepa(
-                        source, proposal, rendered, context.suite
+                try:
+                    proposal, rendered = self.generator.generate(
+                        source,
+                        context.invariants,
+                        strategy,
+                        previous_summaries=[self._candidate_summary(item) for item in state.candidates],
+                        explored_transformations=sorted(state.fingerprints),
+                        feedback=feedback,
+                        memory=state.memory,
                     )
-                    state.gepa_performed = state.gepa_performed or performed
+                except SemanticBudgetExceeded:
+                    state.budget_stop_stage = "semantic candidate generation"
+                    return self._budget_stop_for_candidates(state.candidates) or StopReason.REQUEST_BUDGET
+                generation_usage = self._last_usage(self.generator.semantic)
                 draft = CandidateDraft(
                     candidate_id=f"C{state.generated_count + 1:03d}",
                     generation=generation,
@@ -192,86 +217,272 @@ class SearchController:  # pylint: disable=too-many-instance-attributes
                     source=source,
                     feedback=feedback,
                     generation_usage=generation_usage,
-                    gepa_usage=gepa_usage,
+                    gepa_usage=ProviderUsage(requests=0),
                 )
-                candidate, report = self._evaluate_candidate(draft, context, state.fingerprints)
-                state.candidates.append(candidate)
-                state.reports[candidate.id] = report
-                state.generated_count += 1
+                workspace = self._materialize_candidate(draft, context)
+                cheap_failures = hard_constraint_failures(workspace.report, [], None, context.baseline_report)
+                if cheap_failures:
+                    candidate = self._static_rejected_candidate(draft, context, workspace, cheap_failures)
+                    self._record_candidate(state, candidate, workspace.report, feedback)
+                    continue
+
+                generation_stop = self._budget_stop_with_extra(state.candidates, self._draft_cost(draft))
+                if generation_stop is not None:
+                    candidate = self._static_rejected_candidate(
+                        draft,
+                        context,
+                        workspace,
+                        [BUDGET_REJECTION],
+                    )
+                    self._record_candidate(state, candidate, workspace.report, feedback)
+                    state.budget_stop_stage = "semantic candidate generation"
+                    return generation_stop
+
+                if self.runtime.gepa.enabled:
+                    try:
+                        proposal, rendered, gepa_usage, performed = self._apply_gepa(
+                            source,
+                            proposal,
+                            rendered,
+                            context.suite,
+                        )
+                    except SemanticBudgetExceeded:
+                        candidate = self._static_rejected_candidate(
+                            draft,
+                            context,
+                            workspace,
+                            [BUDGET_REJECTION],
+                        )
+                        self._record_candidate(state, candidate, workspace.report, feedback)
+                        state.budget_stop_stage = "prompt suboptimization"
+                        return self._budget_stop_for_candidates(state.candidates) or StopReason.REQUEST_BUDGET
+                    state.gepa_performed = state.gepa_performed or performed
+                    draft = replace(draft, proposal=proposal, rendered=rendered, gepa_usage=gepa_usage)
+                    workspace = self._materialize_candidate(draft, context)
+                    post_gepa_failures = hard_constraint_failures(
+                        workspace.report,
+                        [],
+                        None,
+                        context.baseline_report,
+                    )
+                    if post_gepa_failures:
+                        candidate = self._static_rejected_candidate(
+                            draft,
+                            context,
+                            workspace,
+                            post_gepa_failures,
+                        )
+                        self._record_candidate(state, candidate, workspace.report, feedback)
+                        continue
+                    gepa_stop = self._budget_stop_with_extra(state.candidates, self._draft_cost(draft))
+                    if gepa_stop is not None:
+                        candidate = self._static_rejected_candidate(
+                            draft,
+                            context,
+                            workspace,
+                            [BUDGET_REJECTION],
+                        )
+                        self._record_candidate(state, candidate, workspace.report, feedback)
+                        state.budget_stop_stage = "prompt suboptimization"
+                        return gepa_stop
+
+                candidate, report, candidate_stop = self._evaluate_candidate(
+                    draft,
+                    context,
+                    state.fingerprints,
+                    workspace,
+                    state.candidates,
+                )
+                self._record_candidate(state, candidate, report, feedback)
                 frontier_ids = {item.id for item in self.selector.frontier(state.candidates)}
                 entered = entered or (candidate.id in frontier_ids and candidate.status != CandidateStatus.REJECTED)
                 self._update_statuses(state.candidates, frontier_ids)
-                if feedback:
-                    state.memory = update_search_memory(state.memory, feedback, candidate.id in frontier_ids)
+                if candidate_stop is not None:
+                    state.budget_stop_stage = "candidate safety/evaluation"
+                    return candidate_stop
             state.stagnant = 0 if entered else state.stagnant + 1
             if self.runtime.search.patience and state.stagnant >= self.runtime.search.patience:
                 return StopReason.PATIENCE
             generation += 1
         return StopReason.GENERATION_COMPLETE
 
-    def _evaluate_candidate(
-        self, draft: CandidateDraft, context: EvaluationContext, fingerprints: set[str]
-    ) -> tuple[Candidate, CheckReport]:
+    def _materialize_candidate(self, draft: CandidateDraft, context: EvaluationContext) -> CandidateWorkspace:
         candidate_dir = context.run_dir / "candidates" / draft.candidate_id
-        candidate_dir.mkdir(parents=True)
+        candidate_dir.mkdir(parents=True, exist_ok=True)
         write_proposal(draft.proposal, candidate_dir)
         tree = write_candidate_tree(draft.source, draft.rendered, candidate_dir)
         copy_untracked_context(context.baseline.root, tree)
         diff_path = write_diff(draft.source, draft.rendered, candidate_dir)
         report = run_static_check(tree, self.config, extensions=self.extensions)
         snapshot = discover_markdown(tree, self.config, ApproximateTokenCounter())
+        return CandidateWorkspace(candidate_dir, diff_path, report, snapshot)
+
+    def _static_rejected_candidate(
+        self,
+        draft: CandidateDraft,
+        context: EvaluationContext,
+        workspace: CandidateWorkspace,
+        failures: list[str],
+    ) -> Candidate:
+        regressions, decisions = verify_invariants_with_evidence(context.invariants, workspace.snapshot, None)
+        all_failures = list(dict.fromkeys([*failures, *hard_constraint_failures(
+            workspace.report,
+            regressions,
+            None,
+            context.baseline_report,
+        )]))
+        candidate = self._make_candidate(
+            draft,
+            context,
+            workspace,
+            regressions,
+            decisions,
+            None,
+            ProviderUsage(requests=0),
+            all_failures,
+        )
+        self._write_candidate_evidence(candidate, workspace, evaluation=None)
+        return candidate
+
+    def _evaluate_candidate(
+        self,
+        draft: CandidateDraft,
+        context: EvaluationContext,
+        fingerprints: set[str],
+        workspace: CandidateWorkspace,
+        prior_candidates: list[Candidate],
+    ) -> tuple[Candidate, CheckReport, StopReason | None]:
         regressions, decisions = verify_invariants_with_evidence(
-            context.invariants, snapshot, self.semantic_invariant_verifier
+            context.invariants,
+            workspace.snapshot,
+            self.semantic_invariant_verifier,
         )
         invariant_usage = self._drain_invariant_usage()
         fingerprint = fingerprint_candidate(
-            draft.rendered, [operation.type for operation in draft.proposal.operations]
+            draft.rendered,
+            [operation.type for operation in draft.proposal.operations],
         )
         duplicate = fingerprint.content_hash in fingerprints
         fingerprints.add(fingerprint.content_hash)
-        tier0 = hard_constraint_failures(report, regressions, None, context.baseline_report)
-        if tier0 or duplicate:
+        tier0 = hard_constraint_failures(workspace.report, regressions, None, context.baseline_report)
+        partial_cost = self._candidate_cost(
+            draft.proposal,
+            draft.generation_usage,
+            invariant_usage,
+            draft.gepa_usage,
+        )
+        budget_stop = self._budget_stop_with_extra(prior_candidates, partial_cost)
+        if tier0 or duplicate or budget_stop is not None:
             evaluation = None
             semantic_usage = ProviderUsage(requests=0)
         else:
-            evaluation, semantic_usage = self._semantic_evaluate(context.baseline, snapshot, context.suite)
+            evaluation, semantic_usage = self._semantic_evaluate(context.baseline, workspace.snapshot, context.suite)
         evaluation_usage = _combine_usage(invariant_usage, semantic_usage)
-        failures = hard_constraint_failures(report, regressions, evaluation, context.baseline_report)
+        failures = hard_constraint_failures(workspace.report, regressions, evaluation, context.baseline_report)
         if duplicate:
             failures.append("duplicate candidate fingerprint")
-        cost = self._candidate_cost(draft.proposal, draft.generation_usage, evaluation_usage, draft.gepa_usage)
+        if budget_stop is not None:
+            failures.append(BUDGET_REJECTION)
+        candidate = self._make_candidate(
+            draft,
+            context,
+            workspace,
+            regressions,
+            decisions,
+            evaluation,
+            evaluation_usage,
+            failures,
+            fingerprint=fingerprint,
+        )
+        self._write_candidate_evidence(candidate, workspace, evaluation)
+        full_stop = self._budget_stop_with_extra(prior_candidates, candidate.creation_cost)
+        return candidate, workspace.report, full_stop
+
+    def _make_candidate(
+        self,
+        draft: CandidateDraft,
+        context: EvaluationContext,
+        workspace: CandidateWorkspace,
+        regressions: list[str],
+        decisions: list[InvariantDecision],
+        evaluation: EvaluationResult | None,
+        evaluation_usage: ProviderUsage,
+        failures: list[str],
+        fingerprint=None,
+    ) -> Candidate:
+        cost = self._candidate_cost(
+            draft.proposal,
+            draft.generation_usage,
+            evaluation_usage,
+            draft.gepa_usage,
+        )
         evidence = CandidateEvidence(
             generation_reason="; ".join(operation.reason for operation in draft.proposal.operations),
             feedback=draft.feedback,
             invariant_decisions=decisions,
             effective_context=self._effective_context(evaluation),
         )
-        candidate = Candidate(
+        return Candidate(
             id=draft.candidate_id,
             parent_ids=[draft.parent.id],
             strategy=draft.strategy,
             proposal=draft.proposal,
-            objective_vector=objective_from_report(report, regressions, context.critical_count, evaluation),
+            objective_vector=objective_from_report(
+                workspace.report,
+                regressions,
+                context.critical_count,
+                evaluation,
+            ),
             evaluation=evaluation,
             status=CandidateStatus.REJECTED if failures else CandidateStatus.VALID,
             generation=draft.generation,
             creation_cost=cost,
             fingerprint=fingerprint,
-            rejection_reasons=failures,
-            artifact_dir=str(candidate_dir),
+            rejection_reasons=list(dict.fromkeys(failures)),
+            artifact_dir=str(workspace.candidate_dir),
             evidence=evidence,
         )
+
+    def _write_candidate_evidence(
+        self,
+        candidate: Candidate,
+        workspace: CandidateWorkspace,
+        evaluation: EvaluationResult | None,
+    ) -> None:
         eval_evidence = evaluation or EvaluationResult(
             engine="tier0-static",
-            passed=not failures,
-            raw_summary={"diff": str(diff_path), "semantic": False},
+            passed=candidate.status != CandidateStatus.REJECTED,
+            raw_summary={"diff": str(workspace.diff_path), "semantic": False},
         )
-        (candidate_dir / "evaluation.json").write_text(eval_evidence.model_dump_json(indent=2), encoding="utf-8")
-        (candidate_dir / "evidence.json").write_text(evidence.model_dump_json(indent=2), encoding="utf-8")
-        return candidate, report
+        (workspace.candidate_dir / "evaluation.json").write_text(
+            eval_evidence.model_dump_json(indent=2),
+            encoding="utf-8",
+        )
+        (workspace.candidate_dir / "evidence.json").write_text(
+            candidate.evidence.model_dump_json(indent=2),
+            encoding="utf-8",
+        )
+
+    def _record_candidate(
+        self,
+        state: SearchState,
+        candidate: Candidate,
+        report: CheckReport,
+        feedback: OptimizationFeedback | None,
+    ) -> None:
+        state.candidates.append(candidate)
+        state.reports[candidate.id] = report
+        state.generated_count += 1
+        if feedback:
+            frontier_ids = {item.id for item in self.selector.frontier(state.candidates)}
+            state.memory = update_search_memory(state.memory, feedback, candidate.id in frontier_ids)
 
     def _build_run(
-        self, state: SearchState, baseline_candidate: Candidate, stop_reason: StopReason, run_dir: Path
+        self,
+        state: SearchState,
+        baseline_candidate: Candidate,
+        stop_reason: StopReason,
+        run_dir: Path,
     ) -> OptimizationRun:
         frontier = self.selector.frontier(state.candidates)
         recommended = self.recommendation.choose(baseline_candidate, frontier)
@@ -294,6 +505,7 @@ class SearchController:  # pylint: disable=too-many-instance-attributes
             metadata={
                 "baseline_in_frontier": any(item.id == BASELINE_CANDIDATE_ID for item in frontier),
                 "semantic_evaluation": self.evaluator is not None,
+                "budget_stop_stage": state.budget_stop_stage,
                 "gepa": {
                     **self.runtime.gepa.model_dump(),
                     "performed": state.gepa_performed,
@@ -303,7 +515,11 @@ class SearchController:  # pylint: disable=too-many-instance-attributes
         )
 
     def _baseline_candidate(
-        self, report: CheckReport, critical_count: int, evaluation: EvaluationResult | None, usage: ProviderUsage
+        self,
+        report: CheckReport,
+        critical_count: int,
+        evaluation: EvaluationResult | None,
+        usage: ProviderUsage,
     ) -> Candidate:
         return Candidate(
             id=BASELINE_CANDIDATE_ID,
@@ -331,7 +547,9 @@ class SearchController:  # pylint: disable=too-many-instance-attributes
             return proposal, rendered, ProviderUsage(requests=0), False
         current = rendered.get(eligible.relative_path, eligible.text)
         result = self.prompt_suboptimizer.optimize(
-            PromptArtifact(id=eligible.relative_path, text=current), suite, self.runtime.search
+            PromptArtifact(id=eligible.relative_path, text=current),
+            suite,
+            self.runtime.search,
         )
         usage = self._last_usage(self.prompt_suboptimizer)
         if not result.changed:
@@ -350,18 +568,25 @@ class SearchController:  # pylint: disable=too-many-instance-attributes
         return CandidateProposal(operations=[*proposal.operations, operation]), updated, usage, True
 
     def _semantic_evaluate(
-        self, baseline: DocumentationSnapshot, candidate: DocumentationSnapshot | None, suite: EvaluationSuite
+        self,
+        baseline: DocumentationSnapshot,
+        candidate: DocumentationSnapshot | None,
+        suite: EvaluationSuite,
     ) -> tuple[EvaluationResult | None, ProviderUsage]:
         if self.evaluator is None or not suite.scenarios:
             return None, ProviderUsage(requests=0)
         result = self.evaluator.evaluate(baseline, candidate, suite)
-        usage = self._last_usage(getattr(self.evaluator, "evaluator", self.evaluator))
-        if not usage.requests:
-            usage = ProviderUsage(requests=len(suite.scenarios))
+        component = getattr(self.evaluator, "evaluator", self.evaluator)
+        if isinstance(component, UsageDrainer):
+            usage = component.drain_usage()
+        else:
+            usage = self._last_usage(component)
+            if not usage.requests:
+                usage = ProviderUsage(requests=len(suite.scenarios))
         return result, usage
 
     def _drain_invariant_usage(self) -> ProviderUsage:
-        verifier = self.semantic_invariant_verifier
+        verifier = self.semantic_invariant_verifier or self.semantic_invariant_discoverer
         return verifier.drain_usage() if isinstance(verifier, UsageDrainer) else ProviderUsage(requests=0)
 
     def _candidate_cost(
@@ -385,6 +610,14 @@ class SearchController:  # pylint: disable=too-many-instance-attributes
             cache_hits=generation.cache_hits + evaluation.cache_hits + gepa.cache_hits,
             total_cost=generation.cost_usd + evaluation.cost_usd + gepa.cost_usd,
             cost_sources=sorted({item.cost_source for item in (generation, evaluation, gepa) if item.requests}),
+        )
+
+    def _draft_cost(self, draft: CandidateDraft) -> CandidateCost:
+        return self._candidate_cost(
+            draft.proposal,
+            draft.generation_usage,
+            ProviderUsage(requests=0),
+            draft.gepa_usage,
         )
 
     def _strategies(self, generation: int) -> list[GenerationStrategyName]:
@@ -442,9 +675,7 @@ class SearchController:  # pylint: disable=too-many-instance-attributes
     def _pre_candidate_stop(self, state: SearchState) -> StopReason | None:
         if state.generated_count >= self.runtime.search.max_candidates:
             return StopReason.CANDIDATE_BUDGET
-        if self._budget_exhausted(state.candidates):
-            return self._budget_stop_reason(state.candidates)
-        return None
+        return self._budget_stop_for_candidates(state.candidates)
 
     def _max_generations(self) -> int:
         return 1 if self.runtime.mode != OptimizeMode.SEARCH else self.runtime.search.generations
@@ -482,29 +713,36 @@ class SearchController:  # pylint: disable=too-many-instance-attributes
             )
         )
 
-    def _budget_exhausted(self, candidates: list[Candidate]) -> bool:
+    def _budget_stop_for_candidates(self, candidates: list[Candidate]) -> StopReason | None:
         if not self._external_capability_enabled():
-            return False
-        total = self._total_cost(candidates)
-        budget = self.runtime.search
-        return (
-            total.external_requests >= budget.max_llm_requests
-            or (budget.max_cost_usd is not None and total.total_cost >= budget.max_cost_usd)
-            or (budget.max_input_tokens is not None and total.input_tokens >= budget.max_input_tokens)
-            or (budget.max_output_tokens is not None and total.output_tokens >= budget.max_output_tokens)
-        )
+            return None
+        return self._budget_stop_for_cost(self._total_cost(candidates))
 
-    def _budget_stop_reason(self, candidates: list[Candidate]) -> StopReason:
-        total = self._total_cost(candidates)
+    def _budget_stop_with_extra(
+        self,
+        candidates: list[Candidate],
+        extra: CandidateCost,
+    ) -> StopReason | None:
+        if not self._external_capability_enabled():
+            return None
+        return self._budget_stop_for_cost(self._sum_costs([self._total_cost(candidates), extra]))
+
+    def _budget_stop_for_cost(self, total: CandidateCost) -> StopReason | None:
         budget = self.runtime.search
         if total.external_requests >= budget.max_llm_requests:
             return StopReason.REQUEST_BUDGET
         if budget.max_cost_usd is not None and total.total_cost >= budget.max_cost_usd:
             return StopReason.COST_BUDGET
-        return StopReason.TOKEN_BUDGET
+        if budget.max_input_tokens is not None and total.input_tokens >= budget.max_input_tokens:
+            return StopReason.TOKEN_BUDGET
+        if budget.max_output_tokens is not None and total.output_tokens >= budget.max_output_tokens:
+            return StopReason.TOKEN_BUDGET
+        return None
 
     def _total_cost(self, candidates: list[Candidate]) -> CandidateCost:
-        costs = [candidate.creation_cost for candidate in candidates]
+        return self._sum_costs([candidate.creation_cost for candidate in candidates])
+
+    def _sum_costs(self, costs: list[CandidateCost]) -> CandidateCost:
         return CandidateCost(
             deterministic_operations=sum(cost.deterministic_operations for cost in costs),
             generation_requests=sum(cost.generation_requests for cost in costs),
