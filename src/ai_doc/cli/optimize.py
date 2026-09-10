@@ -175,7 +175,13 @@ def _build_semantic_stack(runtime: RuntimeSearchConfig, deep: bool) -> SemanticS
     if not enabled:
         evaluator = ScenarioContextEvaluator(DeepEvalEvaluator()) if deep else None
         return SemanticStack(evaluator=evaluator)
-    provider = BudgetedSemanticProvider(CommandSemanticProvider(), runtime.search.max_llm_requests)
+    provider = BudgetedSemanticProvider(
+        CommandSemanticProvider(),
+        runtime.search.max_llm_requests,
+        max_input_tokens=runtime.search.max_input_tokens,
+        max_output_tokens=runtime.search.max_output_tokens,
+        max_cost_usd=runtime.search.max_cost_usd,
+    )
     invariant_service = ProviderSemanticInvariantService(provider)
     evaluator = ScenarioContextEvaluator(ProviderSemanticEvaluator(provider)) if deep else None
     return SemanticStack(
