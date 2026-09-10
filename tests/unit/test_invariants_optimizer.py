@@ -12,6 +12,7 @@ from ai_doc.optimizer.generator import (
 )
 from ai_doc.optimizer.invariants import (
     Invariant,
+    InvariantImportance,
     InvariantSemanticStatus,
     extract_invariants,
     verify_invariants,
@@ -35,6 +36,23 @@ def test_optimizer_preserves_critical_invariants(tmp_path: Path) -> None:
     _, rendered = ConservativeCandidateGenerator().generate(snapshot, invariants)
     candidate = snapshot.documents[0].model_copy(update={"text": rendered["AGENTS.md"]})
     assert verify_invariants(invariants, [candidate]) == []
+
+
+def test_extract_invariants_preserves_section_and_confidence_policy(tmp_path: Path) -> None:
+    (tmp_path / "AGENTS.md").write_text(
+        "# Rules\n\nMUST run validation before merge.\n\n## Guidance\n\nSHOULD keep changes focused.\n",
+        encoding="utf-8",
+    )
+    snapshot = discover_markdown(tmp_path, DEFAULT_CONFIG, ApproximateTokenCounter())
+
+    invariants = extract_invariants(snapshot)
+
+    critical = next(item for item in invariants if item.importance == InvariantImportance.CRITICAL)
+    important = next(item for item in invariants if item.importance == InvariantImportance.IMPORTANT)
+    assert critical.source_section == "Rules"
+    assert critical.confidence == 0.95
+    assert important.source_section == "Guidance"
+    assert important.confidence == 0.8
 
 
 def test_missing_critical_invariant_is_rejected(tmp_path: Path) -> None:
