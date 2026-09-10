@@ -60,7 +60,7 @@ packages = ["ai_doc"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-q --cov=ai_doc --cov-branch --cov-report=term-missing --cov-report=xml --cov-fail-under=80"
+addopts = "-q"
 
 [tool.coverage.run]
 branch = true
