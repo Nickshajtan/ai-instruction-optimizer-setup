@@ -22,7 +22,11 @@ from ai_doc.tokens.counter import ApproximateTokenCounter
 
 def test_optimizer_preserves_critical_invariants(tmp_path: Path) -> None:
     (tmp_path / "AGENTS.md").write_text(
-        "# Rules\n\n- MUST run validation.\n- NEVER modify generated files.\n- Duplicate useful route.\n- Duplicate useful route.\n",
+        "# Rules\n\n"
+        "- MUST run validation.\n"
+        "- NEVER modify generated files.\n"
+        "- Duplicate useful route.\n"
+        "- Duplicate useful route.\n",
         encoding="utf-8",
     )
     snapshot = discover_markdown(tmp_path, DEFAULT_CONFIG, ApproximateTokenCounter())
