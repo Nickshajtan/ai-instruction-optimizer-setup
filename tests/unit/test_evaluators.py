@@ -58,6 +58,14 @@ def test_promptfoo_config_isolates_assertions_per_scenario() -> None:
     assert config["tests"][1]["assert"] == [{"type": PROMPTFOO_CONTAINS_ASSERTION, "value": "inspect diff"}]
 
 
+def test_promptfoo_config_keeps_valid_default_assertion_for_unconstrained_scenario() -> None:
+    suite = EvaluationSuite.model_validate({"scenarios": [{"id": "smoke", "task": "Read the docs."}]})
+
+    config = _promptfoo_config(_snapshot("Docs"), None, suite)
+
+    assert config["tests"][0]["assert"] == [{"type": PROMPTFOO_CONTAINS_ASSERTION, "value": ""}]
+
+
 def test_promptfoo_normalize_accepts_success_and_pass_keys() -> None:
     suite = EvaluationSuite.model_validate({"scenarios": [{"id": "one", "task": ""}, {"id": "two", "task": ""}]})
     result = _normalize({"results": [{"success": True}, {"pass": False, "reason": "missing route"}]}, suite)
