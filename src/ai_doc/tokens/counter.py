@@ -24,8 +24,7 @@ class TiktokenModule(Protocol):
 class ApproximateTokenCounter:
     label = "approximate"
 
-    def count(self, text: str, model: str | None = None) -> int:
-        del model
+    def count(self, text: str, _model: str | None = None) -> int:
         segments = re.findall(r"\w+|[^\w\s]", text, flags=re.UNICODE)
         return max(1, int(len(segments) * APPROXIMATE_TOKEN_RATIO)) if text.strip() else 0
 
