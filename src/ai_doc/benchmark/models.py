@@ -3,7 +3,7 @@ from __future__ import annotations
 from decimal import Decimal
 from enum import StrEnum
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class BenchmarkVariant(StrEnum):
@@ -18,6 +18,8 @@ class BenchmarkDecision(StrEnum):
 
 
 class RunMetadata(BaseModel):
+    model_config = ConfigDict(protected_namespaces=())
+
     agent: str = "generic"
     provider: str | None = None
     model: str | None = None
