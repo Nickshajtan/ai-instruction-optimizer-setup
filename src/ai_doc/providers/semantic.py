@@ -40,7 +40,7 @@ class SemanticBudgetExceeded(RuntimeError):
 
 
 class BudgetedSemanticProvider:
-    """Stop external work once reported request, token, or cost budgets are exhausted."""
+    """Stop new external work once reported request, token, or cost budgets are exhausted."""
 
     def __init__(
         self,
@@ -68,8 +68,9 @@ class BudgetedSemanticProvider:
             cost_source=response.usage.cost_source,
             cache_hits=self.usage.cache_hits + response.usage.cache_hits,
         )
-        if self.usage.requests > self.max_requests:
-            raise SemanticBudgetExceeded("semantic provider reported more requests than the configured budget permits")
+        # A completed provider call always returns its usage so the caller can persist it.
+        # If that call crossed a configured limit, the next invocation is rejected by
+        # _assert_can_start(). This keeps request/token/USD overrun semantics consistent.
         return response
 
     def _assert_can_start(self) -> None:
