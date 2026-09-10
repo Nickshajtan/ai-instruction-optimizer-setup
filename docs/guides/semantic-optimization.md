@@ -47,9 +47,9 @@ Responses have this envelope:
 }
 ```
 
-Supported operations are `generate_candidate`, `discover_invariants`, `verify_invariant`, `evaluate`, and `optimize_prompt`. The repository test fixture exercises this production command contract without network calls.
+Supported operations are `generate_candidate`, `discover_invariants`, `verify_invariant`, `evaluate`, and `optimize_prompt`. Repository tests exercise this production command contract without network calls.
 
-When the command is configured, adaptive semantic generation receives the current documents, invariants, strategy, previous candidate summaries, explored fingerprints, parent feedback, and search memory. The response returns the normal candidate proposal plus rendered documents, so semantic output goes through the same safety, evaluation, Pareto, and artifact pipeline as deterministic output.
+When the command is configured, adaptive semantic generation receives the current documents, invariants, strategy, previous candidate summaries, explored fingerprints, parent feedback, and search memory. Feedback and search-memory contents are serialized into the production provider request, not represented only by placeholder booleans. Semantic output goes through the same safety, evaluation, Pareto, and artifact pipeline as deterministic output.
 
 `conservative` intentionally remains deterministic/offline even when the environment variable exists.
 
@@ -57,11 +57,11 @@ When the command is configured, adaptive semantic generation receives the curren
 
 Critical behavior has two complementary layers. Literal extraction protects explicit normative language such as MUST, NEVER, REQUIRED, and FORBIDDEN. The configured semantic service can additionally discover high-confidence critical behavior that lacks those keywords.
 
-Semantic discoveries are currently accepted as critical when the provider classifies them as critical with confidence at least `0.8`. Candidate verification can record `preserved`, `weakened`, `removed`, or `uncertain`; non-preserved critical behavior is rejected.
+Semantic critical discoveries require confidence at least `0.8` plus evidence and rationale. Persisted invariants retain their discovery source, source location, evidence fragment, confidence, and rationale. Ordinary provider-returned descriptive statements are not promoted merely because they are domain-related.
 
-There is one important remaining v0.3 limitation: literal survival of an original critical sentence currently short-circuits semantic verification for that invariant. A contradictory exception elsewhere in the candidate can therefore evade the semantic contradiction check. Until that hardening is complete, human/agent review should inspect the candidate globally for conflicting exceptions rather than treating literal preservation as conclusive safety evidence.
+Candidate verification records `preserved`, `weakened`, `removed`, or `uncertain`; non-preserved critical behavior is rejected. When semantic verification is configured, literal survival is evidence but not conclusive proof: the verifier still checks the candidate as a whole, so retaining the original MUST sentence while adding a contradictory exception can be rejected.
 
-Semantic discovery also still needs richer persisted rationale/provenance so a reviewer can inspect why provider-classified text became a critical invariant.
+Without a semantic verifier, deterministic literal protection remains the offline fallback and cannot make claims about semantic contradictions elsewhere.
 
 ## Semantic Evaluation And Effective Context
 
@@ -79,11 +79,11 @@ A repaired router must keep extracted detail reachable while preserving the usef
 
 ## Telemetry And Budgets
 
-External work is accounted separately as generation, evaluation, and prompt-suboptimizer requests. Usage can also track input tokens, output tokens, USD cost, cache hits, and whether cost was provider-reported or estimated by the adapter.
+External work is accounted separately as generation, evaluation, and prompt-suboptimizer requests. Usage tracks input tokens, output tokens, USD cost, cache hits, and whether cost was provider-reported or estimated by the adapter.
 
-The production semantic stack currently applies the external request limit at the provider boundary. Search-level accounting also observes token and USD usage and can stop later work after limits are reached.
+The production semantic stack passes request, input-token, output-token, and USD limits to the provider budget wrapper. Once accumulated reported usage reaches a configured limit, another external invocation is not started. Search-level accounting uses the same limits to stop further candidate work.
 
-Input-token, output-token, and USD limits are not yet all passed into the production provider budget wrapper. They should therefore be read as accumulated stop controls, not strict pre-call guarantees. A single provider call/candidate cycle can report usage beyond one of those limits before subsequent work is stopped. The remaining v0.3 work tightens this behavior and requires any unavoidable post-call overrun to be reported truthfully.
+Token and USD budgets are truthful accumulated controls, not a promise that an unknown provider call can always be predicted before it runs. If no trustworthy pre-call estimate exists, one provider call may report usage beyond the remaining token/USD budget. That reported overrun is retained and subsequent external work is blocked. Provider adapters should supply estimates only when they are trustworthy rather than pretending post-call accounting is a strict reservation system.
 
 Deterministic operations remain zero external usage. The command adapter is responsible for returning truthful provider usage or an explicitly identified estimate.
 
@@ -97,24 +97,20 @@ GEPA remains a prompt suboptimizer, not the outer search algorithm. A Markdown d
 
 With GEPA enabled, a configured production semantic provider, and an eligible artifact, `optimize_prompt` is invoked. Its changed text becomes part of the candidate and then passes the normal invariant, evaluation, Pareto, and recommendation pipeline. Usage is accounted separately.
 
-If no eligible artifact/provider exists, the run records an explicit no-op reason instead of claiming that prompt optimization occurred.
-
-The production path is wired; the remaining v0.3 acceptance gap is an adversarial test proving that a harmful GEPA rewrite is actually rejected by the common safety/evaluation gates.
+There is no GEPA safety bypass: a harmful prompt rewrite can be rejected by the common critical-invariant or behavioral evaluation gates. If no eligible artifact/provider exists, the run records an explicit no-op reason instead of claiming that prompt optimization occurred.
 
 ## Evidence And Artifacts
 
 A run writes `run.json`, `report.json`, `frontier.json`, `lineage.json`, and `search-memory.json`. Each generated candidate contains its rendered tree, `proposal.json`, `diff.patch`, `evaluation.json`, and `evidence.json`.
 
-`evidence.json` records generation rationale, repair feedback when present, invariant decisions, and effective-context paths. `run.json`/`report.json` include normalized telemetry, status/rejection information, objectives, and a recommendation/no-change reason.
+Candidate evidence records generation rationale, repair feedback when present, invariant decisions, effective-context paths, and recommendation reasoning when the candidate is selected. When no generated candidate qualifies, baseline evidence records concrete blocking factors for no-change. Recommendation explanations name material objective improvements and any tolerated reliability/clarity regression instead of only saying that a candidate was policy-qualified.
 
-Most causal decisions can therefore be reconstructed without rerunning the optimizer. Two explainability areas remain intentionally called out by the v0.3 spec: semantic invariant discovery needs richer rationale/provenance, and recommendation/no-change reasoning should identify concrete objective/policy factors rather than only a generic outcome label.
+The artifacts are intended to support post-run review without rerunning the optimizer. Provider-neutral telemetry and semantic judgments are only as trustworthy as the provider contract supplying them, so reviewers should distinguish provider-reported evidence from deterministic facts.
 
 For the repeatable agent review procedure, use `.ai/skills/semantic-optimization-review/SKILL.md`.
 
 ## Current Scope
 
-Semantic Core v0.3 has production execution paths for semantic generation, semantic invariant discovery/verification, normalized usage telemetry, eligible prompt suboptimization, persisted semantic evidence, hardened explicit-route context selection, baseline-aware Pareto selection, and feedback-directed repair.
+Semantic Core v0.3 has production execution paths for semantic generation, semantic invariant discovery/verification, normalized usage telemetry and provider-boundary budgets, eligible prompt suboptimization, persisted semantic evidence, hardened explicit-route context selection, baseline-aware Pareto selection, and feedback-directed repair.
 
-The milestone is still in hardening rather than complete: provider-boundary token/USD budgets, contradiction-safe critical invariants, semantic-discovery provenance, production CLI acceptance coverage, GEPA regression coverage, and richer recommendation explanation remain open in `specs/semantic-optimizer-core-v0.3.md`.
-
-This milestone does not claim perfect agent simulation, autonomous application of generated patches, or universal model-provider support. Those are outside the v0.3 scope.
+The milestone does not claim perfect agent simulation, autonomous application of generated patches, strict pre-reservation of unknown provider token/USD cost, or universal model-provider support. Those are outside the v0.3 scope rather than hidden guarantees.
