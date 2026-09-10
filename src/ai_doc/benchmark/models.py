@@ -63,6 +63,7 @@ class BenchmarkSuite(BaseModel):
 class MetricSummary(BaseModel):
     samples: int
     mean: float
+    median: float
     stddev: float
 
 
@@ -80,6 +81,7 @@ class VariantSummary(BaseModel):
 
 class DeltaEvidence(BaseModel):
     mean_delta: float
+    median_delta: float
     stddev: float
     ci95_low: float
     ci95_high: float
@@ -90,9 +92,17 @@ class BenchmarkCaseReport(BaseModel):
     id: str
     repository: str
     task: str
+    agents: list[str]
     baseline: VariantSummary
     candidate: VariantSummary
     task_success_delta: DeltaEvidence
+    instruction_violations_delta: DeltaEvidence
+    retries_delta: DeltaEvidence
+    input_tokens_delta: DeltaEvidence
+    output_tokens_delta: DeltaEvidence
+    latency_ms_delta: DeltaEvidence | None = None
+    cost_usd_delta: DeltaEvidence | None = None
+    score_delta: DeltaEvidence | None = None
     decision: BenchmarkDecision
     decision_reason: str
 
@@ -105,3 +115,7 @@ class BenchmarkReport(BaseModel):
     improved: int
     regressed: int
     inconclusive: int
+
+    @property
+    def has_regressions(self) -> bool:
+        return self.regressed > 0
