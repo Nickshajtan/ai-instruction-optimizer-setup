@@ -80,7 +80,10 @@ def test_production_semantic_path_persists_evidence_and_usage(tmp_path: Path) ->
 
 
 def test_semantic_discovery_is_conservative_and_preserves_provenance(tmp_path: Path) -> None:
-    (tmp_path / "AGENTS.md").write_text("# Rules\n\nMigration documentation exists.\n", encoding="utf-8")
+    (tmp_path / "AGENTS.md").write_text(
+        "# Rules\n\nValidate migrations before completion.\n",
+        encoding="utf-8",
+    )
     snapshot = discover_markdown(tmp_path, DEFAULT_CONFIG, ApproximateTokenCounter())
     service = ProviderSemanticInvariantService(CommandSemanticProvider(_fixture_command()))
     discovered = service.discover(snapshot)
