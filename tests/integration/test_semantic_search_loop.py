@@ -83,7 +83,8 @@ def test_search_evaluates_failure_builds_feedback_and_repairs_child(tmp_path: Pa
     child_tree = Path(child.artifact_dir) / "candidate"
     child_agent = (child_tree / "AGENTS.md").read_text(encoding="utf-8")
     assert "MUST read" in child_agent
-    assert any(path.name.endswith("examples.md") for path in (child_tree / "docs").glob("*.md"))
+    extracted = child_tree / "docs" / "ai-doc-extracted"
+    assert any(path.name.endswith("examples.md") for path in extracted.glob("*.md"))
     assert child.creation_cost.evaluation_requests == 1
     assert result.run.total_cost.generation_requests == 0
     assert result.run.recommended_candidate_id == child.id
