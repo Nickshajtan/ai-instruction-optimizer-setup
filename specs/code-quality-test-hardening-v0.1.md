@@ -1,6 +1,6 @@
 # AI Documentation Optimizer — Code Quality and Test Hardening Specification v0.1
 
-Status: implementation specification
+Status: implementation complete
 
 ## 1. Purpose
 
@@ -400,3 +400,21 @@ This milestone does not require:
 The quality system must make misleading AI-generated code harder to merge, not merely make the repository look more formally engineered.
 
 Every new lint rule, custom guard, coverage threshold, or test category MUST be justified by a defect class it can actually detect.
+
+## 14. Completion record
+
+Implementation evidence was recorded before merge on commit `1d557f1f82702a9123d7e4bbe2cc261d0439c506`.
+
+- `ci`, `Pylint`, `Dependency compatibility`, and the focused `mutation-testing` workflow all completed successfully on that implementation commit.
+- The final focused mutation baseline covered the configured critical optimizer/evaluator/provider paths and produced 1,876 mutants: 1,478 killed, 397 survived, and 1 reported with no tests. The mutation run, results command, and CI-stats export all exited successfully.
+- Survivor review was representative across the critical categories rather than a claim that every one of the 397 residual mutants was manually classified. Meaningful survivors found during that review were converted into behavioral assertions for semantic-provider usage accounting, configured Pareto tolerances, Promptfoo fallback and full configuration contracts, and literal-invariant provenance/confidence/evidence.
+- Residual survivors are retained as the v0.1 baseline. Representative residual classes are equivalent or low-signal implementation-detail mutations, defensive/diagnostic branches, and external-boundary details whose behavior is already covered at the contract level. This milestone intentionally does not introduce a 100% mutation target or repository-wide mutation-score gate; the baseline should be revisited before a future threshold is adopted.
+- The mutation workflow preserves structured statistics, survivor listings, representative survivor diffs, stderr, and exit codes as CI artifacts so future mutation reviews are reproducible without making the full mutation suite a required score gate.
+
+### AST guard allowlist disposition
+
+No production callback or adapter currently requires deliberate deletion of a function parameter. Therefore v0.1 does not add an empty/speculative allowlist mechanism merely to satisfy a hypothetical future case. If a real third-party callback contract later requires such deletion, the guard must gain a narrow explicit exception together with a focused regression test. The conditional allowlist requirement was not activated by this milestone.
+
+### DoD disposition
+
+The v0.1 Definition of Done is satisfied by the implemented static checks, branch-coverage gate, behavioral/adversarial tests, focused mutation baseline and survivor review above, with strict/cross-platform CI green on the implementation commit. No broad aesthetic rewrite or mutation-score theatre was introduced.

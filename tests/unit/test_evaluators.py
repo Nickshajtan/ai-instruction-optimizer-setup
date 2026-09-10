@@ -10,6 +10,7 @@ from ai_doc.evaluators.promptfoo import (
     PROMPTFOO_CONTAINS_ASSERTION,
     PROMPTFOO_ENGINE,
     PROMPTFOO_NOT_CONTAINS_ASSERTION,
+    PROMPTFOO_PROMPT_TEMPLATE,
     _normalize,
     _promptfoo_config,
 )
@@ -50,12 +51,25 @@ def test_promptfoo_config_isolates_assertions_per_scenario() -> None:
 
     config = _promptfoo_config(_snapshot("Docs"), None, suite)
 
+    assert config["prompts"] == [PROMPTFOO_PROMPT_TEMPLATE]
     assert config["providers"] == ["echo"]
+    assert config["tests"][0]["description"] == "setup"
+    assert config["tests"][0]["vars"] == {"documentation": "Docs", "task": "Install the tool."}
     assert config["tests"][0]["assert"] == [
         {"type": PROMPTFOO_CONTAINS_ASSERTION, "value": "run setup"},
         {"type": PROMPTFOO_NOT_CONTAINS_ASSERTION, "value": "skip validation"},
     ]
+    assert config["tests"][1]["description"] == "review"
+    assert config["tests"][1]["vars"] == {"documentation": "Docs", "task": "Review a change."}
     assert config["tests"][1]["assert"] == [{"type": PROMPTFOO_CONTAINS_ASSERTION, "value": "inspect diff"}]
+
+
+def test_promptfoo_config_keeps_valid_default_assertion_for_unconstrained_scenario() -> None:
+    suite = EvaluationSuite.model_validate({"scenarios": [{"id": "smoke", "task": "Read the docs."}]})
+
+    config = _promptfoo_config(_snapshot("Docs"), None, suite)
+
+    assert config["tests"][0]["assert"] == [{"type": PROMPTFOO_CONTAINS_ASSERTION, "value": ""}]
 
 
 def test_promptfoo_normalize_accepts_success_and_pass_keys() -> None:
