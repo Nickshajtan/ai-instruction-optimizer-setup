@@ -53,7 +53,7 @@ elif op == "discover_invariants":
                 "importance": "critical",
                 "confidence": 0.91,
                 "discovery_source": "semantic",
-                "evidence": "Migrations require validation before completion.",
+                "evidence": "Validate migrations before completion.",
                 "rationale": "Skipping migration validation can ship an invalid migration.",
             },
             {
