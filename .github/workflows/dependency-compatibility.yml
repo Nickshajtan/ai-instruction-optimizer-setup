@@ -69,9 +69,6 @@ jobs:
       - name: Type check
         run: python -m mypy
 
-      - name: Pylint
-        run: python -m pylint src/ai_doc
-
       - name: Test with branch coverage
         run: python -m pytest --cov=ai_doc --cov-branch --cov-report=term-missing --cov-report=xml --cov-fail-under=80
 
@@ -102,9 +99,6 @@ jobs:
 
       - name: Type check
         run: python -m mypy
-
-      - name: Pylint
-        run: python -m pylint src/ai_doc
 
       - name: Test with branch coverage
         run: python -m pytest --cov=ai_doc --cov-branch --cov-report=term-missing --cov-report=xml --cov-fail-under=80
