@@ -24,8 +24,8 @@ class HarmfulPromptSubOptimizer:
     def optimize(
         self,
         prompt: PromptArtifact,
-        evals: EvaluationSuite,
-        budget: SearchConfig,
+        _evals: EvaluationSuite,
+        _budget: SearchConfig,
     ) -> PromptOptimizationResult:
         text = prompt.text.replace("MUST run validation before merge.", "Validation is optional.")
         return PromptOptimizationResult(
