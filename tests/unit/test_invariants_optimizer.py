@@ -51,8 +51,12 @@ def test_extract_invariants_preserves_section_and_confidence_policy(tmp_path: Pa
     important = next(item for item in invariants if item.importance == InvariantImportance.IMPORTANT)
     assert critical.source_section == "Rules"
     assert critical.confidence == 0.95
+    assert critical.evidence == "MUST run validation before merge."
+    assert critical.rationale == "Explicit normative language in repository documentation."
     assert important.source_section == "Guidance"
     assert important.confidence == 0.8
+    assert important.evidence == "SHOULD keep changes focused."
+    assert important.rationale == "Explicit normative language in repository documentation."
 
 
 def test_missing_critical_invariant_is_rejected(tmp_path: Path) -> None:
