@@ -25,7 +25,7 @@ dev = [
   "ruff>=0.6",
   "pylint>=3.2",
   "mypy>=1.11",
-  "types-PyYAML>=6.0",
+  "types-PyYAML>=6.0.12.12",
 ]
 promptfoo = ["promptfoo>=0.1.0"]
 deepeval = ["deepeval>=1.0"]
