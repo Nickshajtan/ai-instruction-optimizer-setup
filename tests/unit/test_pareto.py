@@ -65,6 +65,16 @@ def test_tolerance_prevents_noise_dominance() -> None:
     assert not dominates(a, b, {"clarity": 0.01})
 
 
+def test_selector_uses_configured_tolerance_when_building_frontier() -> None:
+    a = _candidate("A", 1.0, 0.95, 4000)
+    b = _candidate("B", 1.0, 0.90, 4000)
+    selector = ParetoSelector(ParetoConfig(tolerances={"clarity": 0.10}))
+
+    frontier = selector.frontier([a, b])
+
+    assert {candidate.id for candidate in frontier} == {"A", "B"}
+
+
 def test_archive_removes_dominated_candidate() -> None:
     a = _candidate("A", 0.95, 0.90, 4000)
     b = _candidate("B", 0.94, 0.88, 4500)
