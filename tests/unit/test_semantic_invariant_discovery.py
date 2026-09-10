@@ -2,12 +2,13 @@ from pathlib import Path
 
 from ai_doc.config.models import DEFAULT_CONFIG
 from ai_doc.discovery.markdown_discovery import discover_markdown
+from ai_doc.domain.documents import DocumentationSnapshot
 from ai_doc.optimizer.invariants import Invariant, InvariantImportance, extract_invariants
 from ai_doc.tokens.counter import ApproximateTokenCounter
 
 
 class DuplicateSemanticDiscoverer:
-    def discover(self, snapshot):
+    def discover(self, snapshot: DocumentationSnapshot) -> list[Invariant]:
         document = snapshot.documents[0]
         return [
             Invariant(
