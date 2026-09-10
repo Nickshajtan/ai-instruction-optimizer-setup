@@ -13,6 +13,8 @@ from ai_doc.optimizer.invariants import Invariant, InvariantImportance, Invarian
 from ai_doc.optimizer.prompt_suboptimizer import PromptArtifact, PromptOptimizationResult
 from ai_doc.providers.semantic import ProviderUsage, SemanticProvider
 
+SEMANTIC_INVARIANT_CONFIDENCE = 0.8
+
 
 class ProviderSemanticCandidateGenerator:
     def __init__(self, provider: SemanticProvider) -> None:
@@ -20,8 +22,13 @@ class ProviderSemanticCandidateGenerator:
         self.last_usage = ProviderUsage(requests=0)
 
     def generate(
-        self, snapshot: DocumentationSnapshot, invariants: list[Invariant], strategy: GenerationStrategyName,
-        previous_summaries: list[str], explored_transformations: list[str], feedback: OptimizationFeedback | None,
+        self,
+        snapshot: DocumentationSnapshot,
+        invariants: list[Invariant],
+        strategy: GenerationStrategyName,
+        previous_summaries: list[str],
+        explored_transformations: list[str],
+        feedback: OptimizationFeedback | None,
         memory: SearchMemory,
     ) -> tuple[CandidateProposal, dict[str, str]]:
         response = self.provider.invoke(
@@ -48,14 +55,16 @@ class ProviderSemanticInvariantService:
         self.usage_history: list[ProviderUsage] = []
 
     def discover(self, snapshot: DocumentationSnapshot) -> list[Invariant]:
-        response = self.provider.invoke(
-            "discover_invariants", {"documents": {document.relative_path: document.text for document in snapshot.documents}}
-        )
+        documents = {document.relative_path: document.text for document in snapshot.documents}
+        response = self.provider.invoke("discover_invariants", {"documents": documents})
         self._record(response.usage)
         result: list[Invariant] = []
         for raw in cast(list[dict[str, object]], response.data.get("invariants", [])):
             item = Invariant.model_validate(raw)
-            if item.importance == InvariantImportance.CRITICAL and item.confidence >= 0.8:
+            if (
+                item.importance == InvariantImportance.CRITICAL
+                and item.confidence >= SEMANTIC_INVARIANT_CONFIDENCE
+            ):
                 result.append(item)
         return result
 
@@ -87,7 +96,10 @@ class ProviderSemanticEvaluator:
         self.last_usage = ProviderUsage(requests=0)
 
     def evaluate(
-        self, baseline: DocumentationSnapshot, candidate: DocumentationSnapshot | None, suite: EvaluationSuite
+        self,
+        baseline: DocumentationSnapshot,
+        candidate: DocumentationSnapshot | None,
+        suite: EvaluationSuite,
     ) -> EvaluationResult:
         effective = candidate or baseline
         response = self.provider.invoke(
@@ -115,7 +127,12 @@ class ProviderPromptSubOptimizer:
         self.provider = provider
         self.last_usage = ProviderUsage(requests=0)
 
-    def optimize(self, prompt: PromptArtifact, evals: EvaluationSuite, budget: SearchConfig) -> PromptOptimizationResult:
+    def optimize(
+        self,
+        prompt: PromptArtifact,
+        evals: EvaluationSuite,
+        budget: SearchConfig,
+    ) -> PromptOptimizationResult:
         response = self.provider.invoke(
             "optimize_prompt",
             {
@@ -135,11 +152,13 @@ class ProviderPromptSubOptimizer:
 
 
 def _combine_usage(items: list[ProviderUsage]) -> ProviderUsage:
+    sources = {item.cost_source for item in items}
+    cost_source = "mixed" if len(sources) > 1 else (items[0].cost_source if items else "provider")
     return ProviderUsage(
         requests=sum(item.requests for item in items),
         input_tokens=sum(item.input_tokens for item in items),
         output_tokens=sum(item.output_tokens for item in items),
         cost_usd=sum((item.cost_usd for item in items), Decimal("0")),
-        cost_source="mixed" if len({item.cost_source for item in items}) > 1 else (items[0].cost_source if items else "provider"),
+        cost_source=cost_source,
         cache_hits=sum(item.cache_hits for item in items),
     )
