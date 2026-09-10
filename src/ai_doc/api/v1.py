@@ -3,7 +3,7 @@ from __future__ import annotations
 from ai_doc.analyzers.base import AnalysisContext, Analyzer
 from ai_doc.domain.documents import Document, DocumentationSnapshot, DocumentProfile
 from ai_doc.domain.evaluations import EvaluationResult, Evaluator
-from ai_doc.domain.findings import Finding
+from ai_doc.domain.findings import Finding, FindingCategory, FindingSeverity
 from ai_doc.domain.optimization import Candidate, ObjectiveVector
 from ai_doc.optimizer.recommendation import RecommendationPolicy
 from ai_doc.plugins.registry import ExtensionRegistry
@@ -21,6 +21,8 @@ __all__ = [
     "Evaluator",
     "ExtensionRegistry",
     "Finding",
+    "FindingCategory",
+    "FindingSeverity",
     "LLMProvider",
     "ObjectiveVector",
     "RecommendationPolicy",

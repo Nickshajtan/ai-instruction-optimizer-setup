@@ -37,7 +37,7 @@ static gates during optimization. They are not a general plugin system for every
 Stable imports live under:
 
 ```python
-from ai_doc.api.v1 import AnalysisContext, Finding
+from ai_doc.api.v1 import AnalysisContext, Finding, FindingCategory, FindingSeverity
 ```
 
 Anything outside `ai_doc.api.v1` should be treated as internal unless explicitly
@@ -70,7 +70,7 @@ files. Real extensions can enforce organization-specific policies, naming conven
 required runbook links.
 
 ```python
-from ai_doc.api.v1 import AnalysisContext, Finding
+from ai_doc.api.v1 import AnalysisContext, Finding, FindingCategory, FindingSeverity
 
 
 class GeneratedFilesPolicy:
@@ -81,8 +81,8 @@ class GeneratedFilesPolicy:
                 findings.append(
                     Finding(
                         code="ORG_GENERATED_FILES_POLICY",
-                        category="risk",
-                        severity="info",
+                        category=FindingCategory.RISK,
+                        severity=FindingSeverity.INFO,
                         path=document.relative_path,
                         section=None,
                         message="Document mentions generated-file policy.",
@@ -114,7 +114,9 @@ def analyze(self, context: AnalysisContext) -> list[Finding]:
 ```
 
 `AnalysisContext` gives access to configuration, parsed documents, and the document graph.
-`Finding` is the stable report object shown in console and JSON output.
+`Finding` is the stable report object shown in console and JSON output. Use
+`FindingCategory` and `FindingSeverity` for typed custom findings; their JSON values are
+the same category and severity strings shown in reports.
 
 ## Failure Behavior
 

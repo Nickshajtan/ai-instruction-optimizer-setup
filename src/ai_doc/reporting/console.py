@@ -92,11 +92,11 @@ def _finding_summary_lines(
 ) -> list[str]:
     return [
         "Findings",
-        f"  Errors: {by_severity['error']}",
-        f"  Warnings: {by_severity['warning']}",
-        f"  Clarity: {by_category['clarity']}",
-        f"  FinOps: {by_category['finops']}",
-        f"  Structure: {by_category['structure']}",
+        f"  Errors: {by_severity[FindingSeverity.ERROR]}",
+        f"  Warnings: {by_severity[FindingSeverity.WARNING]}",
+        f"  Clarity: {by_category[FindingCategory.CLARITY]}",
+        f"  FinOps: {by_category[FindingCategory.FINOPS]}",
+        f"  Structure: {by_category[FindingCategory.STRUCTURE]}",
         "",
     ]
 

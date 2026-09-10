@@ -1,11 +1,21 @@
 from __future__ import annotations
 
-from typing import Literal
+from enum import StrEnum
 
 from pydantic import BaseModel, Field
 
-FindingCategory = Literal["clarity", "finops", "structure", "risk"]
-FindingSeverity = Literal["info", "warning", "error"]
+
+class FindingCategory(StrEnum):
+    CLARITY = "clarity"
+    FINOPS = "finops"
+    STRUCTURE = "structure"
+    RISK = "risk"
+
+
+class FindingSeverity(StrEnum):
+    INFO = "info"
+    WARNING = "warning"
+    ERROR = "error"
 
 
 class Finding(BaseModel):
@@ -20,4 +30,8 @@ class Finding(BaseModel):
 
 
 def severity_rank(severity: FindingSeverity) -> int:
-    return {"info": 0, "warning": 1, "error": 2}[severity]
+    return {
+        FindingSeverity.INFO: 0,
+        FindingSeverity.WARNING: 1,
+        FindingSeverity.ERROR: 2,
+    }[severity]

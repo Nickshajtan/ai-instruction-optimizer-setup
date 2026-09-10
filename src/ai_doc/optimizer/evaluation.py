@@ -15,9 +15,9 @@ CRITICAL_INVARIANT_FAILURE = "critical invariant recall below 1.0"
 REQUIRED_EVALUATION_FAILURE = "required evaluation failed"
 NEW_STATIC_ERROR_FAILURE = "new static error introduced"
 STATIC_ERROR_FAILURE = "static error present"
-CLARITY_CATEGORY: FindingCategory = "clarity"
-ERROR_SEVERITY: FindingSeverity = "error"
-WARNING_SEVERITY: FindingSeverity = "warning"
+CLARITY_CATEGORY = FindingCategory.CLARITY
+ERROR_SEVERITY = FindingSeverity.ERROR
+WARNING_SEVERITY = FindingSeverity.WARNING
 CLARITY_ERROR_WEIGHT = 0.25
 CLARITY_WARNING_WEIGHT = 0.05
 

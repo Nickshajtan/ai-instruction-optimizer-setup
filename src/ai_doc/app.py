@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from ai_doc.analyzers.base import AnalysisContext, run_analyzers
+from ai_doc.analyzers.base import AnalysisContext, run_analyzers, sort_findings
 from ai_doc.analyzers.duplication import estimate_duplicate_tokens
 from ai_doc.analyzers.finops import calculate_context_cost
 from ai_doc.config.models import AiDocConfig
@@ -34,7 +34,7 @@ def run_static_check(
     if extensions:
         for analyzer in extensions.analyzers:
             findings.extend(analyzer.analyze(context))
-        findings = sorted(findings, key=lambda f: (f.path, f.category, f.code, f.section or ""))
+        findings = sort_findings(findings)
     duplicate_tokens = estimate_duplicate_tokens(context)
     cost = calculate_context_cost(context, duplicate_tokens)
     return CheckReport(

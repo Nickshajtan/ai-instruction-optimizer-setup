@@ -12,8 +12,8 @@ from ai_doc.optimizer.evaluation import finding_subset
 from ai_doc.reporting.models import CheckReport
 
 ROUTER_KEYWORD = "router"
-CLARITY_CATEGORY: FindingCategory = "clarity"
-FINOPS_CATEGORY: FindingCategory = "finops"
+CLARITY_CATEGORY = FindingCategory.CLARITY
+FINOPS_CATEGORY = FindingCategory.FINOPS
 
 
 class FeedbackBuilder:
