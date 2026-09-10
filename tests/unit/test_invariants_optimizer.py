@@ -15,6 +15,7 @@ from ai_doc.optimizer.invariants import (
     InvariantSemanticStatus,
     extract_invariants,
     verify_invariants,
+    verify_invariants_with_evidence,
     verify_invariants_with_semantics,
 )
 from ai_doc.tokens.counter import ApproximateTokenCounter
@@ -74,6 +75,32 @@ def test_semantic_verifier_rejects_weakened_invariant(tmp_path: Path) -> None:
             return InvariantSemanticStatus.WEAKENED
 
     assert verify_invariants_with_semantics(invariants, candidate, WeakeningVerifier()) == ["inv-1"]
+
+
+def test_literal_critical_wording_does_not_bypass_semantic_contradiction_check(tmp_path: Path) -> None:
+    original = "MUST run validation before merge."
+    (tmp_path / "AGENTS.md").write_text(f"# Rules\n\n{original}\n", encoding="utf-8")
+    baseline = discover_markdown(tmp_path, DEFAULT_CONFIG, ApproximateTokenCounter())
+    invariants = extract_invariants(baseline)
+    candidate_doc = baseline.documents[0].model_copy(
+        update={"text": f"# Rules\n\n{original}\n\nFor migration-only changes, validation is optional and may be skipped.\n"}
+    )
+    candidate = baseline.model_copy(update={"documents": (candidate_doc,)})
+    calls = 0
+
+    class ContradictionVerifier:
+        def verify(self, invariant, snapshot):
+            nonlocal calls
+            calls += 1
+            assert invariant.text == original
+            assert "may be skipped" in snapshot.documents[0].text
+            return InvariantSemanticStatus.UNCERTAIN
+
+    unsafe, decisions = verify_invariants_with_evidence(invariants, candidate, ContradictionVerifier())
+    assert calls == 1
+    assert unsafe == ["inv-1"]
+    assert decisions[0].status == "uncertain"
+    assert decisions[0].source == "literal+semantic"
 
 
 class FakeGenerationStrategy:
