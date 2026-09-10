@@ -30,6 +30,35 @@ class SemanticProvider(Protocol):
     def invoke(self, operation: str, payload: dict[str, object]) -> SemanticResponse: ...
 
 
+class SemanticBudgetExceeded(RuntimeError):
+    pass
+
+
+class BudgetedSemanticProvider:
+    """Enforce request budget before an external call and track reported usage."""
+
+    def __init__(self, provider: SemanticProvider, max_requests: int) -> None:
+        self.provider = provider
+        self.max_requests = max_requests
+        self.usage = ProviderUsage(requests=0)
+
+    def invoke(self, operation: str, payload: dict[str, object]) -> SemanticResponse:
+        if self.usage.requests >= self.max_requests:
+            raise SemanticBudgetExceeded("semantic provider request budget exhausted")
+        response = self.provider.invoke(operation, payload)
+        self.usage = ProviderUsage(
+            requests=self.usage.requests + response.usage.requests,
+            input_tokens=self.usage.input_tokens + response.usage.input_tokens,
+            output_tokens=self.usage.output_tokens + response.usage.output_tokens,
+            cost_usd=self.usage.cost_usd + response.usage.cost_usd,
+            cost_source=response.usage.cost_source,
+            cache_hits=self.usage.cache_hits + response.usage.cache_hits,
+        )
+        if self.usage.requests > self.max_requests:
+            raise SemanticBudgetExceeded("semantic provider reported more requests than the configured budget permits")
+        return response
+
+
 class CommandSemanticProvider:
     """Production provider-neutral adapter using a JSON stdin/stdout command contract."""
 
