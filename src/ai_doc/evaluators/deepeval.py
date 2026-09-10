@@ -12,8 +12,7 @@ DEEPEVAL_ENGINE = "deepeval"
 DEEPEVAL_METRIC_PREFIX = "ai-doc"
 DEEPEVAL_DEFAULT_THRESHOLD = 0.5
 DEEPEVAL_CRITERIA = (
-    "Evaluate whether the documentation supports the required behavior "
-    "without violating forbidden behavior."
+    "Evaluate whether the documentation supports the required behavior without violating forbidden behavior."
 )
 DEEPEVAL_REASON_ATTRIBUTE = "reason"
 DEEPEVAL_SCORE_ATTRIBUTE = "score"

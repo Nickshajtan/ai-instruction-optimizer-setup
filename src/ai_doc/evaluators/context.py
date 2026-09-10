@@ -3,8 +3,14 @@ from __future__ import annotations
 import re
 from typing import Protocol
 
-from ai_doc.domain.documents import Document, DocumentationSnapshot, DocumentProfile
-from ai_doc.domain.evaluations import EvaluationCaseResult, EvaluationResult, EvaluationScenario, EvaluationSuite, Evaluator
+from ai_doc.domain.documents import DocumentationSnapshot, DocumentProfile
+from ai_doc.domain.evaluations import (
+    EvaluationCaseResult,
+    EvaluationResult,
+    EvaluationScenario,
+    EvaluationSuite,
+    Evaluator,
+)
 
 WORD_RE = re.compile(r"[a-z0-9][a-z0-9_-]{2,}", re.IGNORECASE)
 ALWAYS_LOADED_PROFILES = {DocumentProfile.INSTRUCTION, DocumentProfile.SKILL}

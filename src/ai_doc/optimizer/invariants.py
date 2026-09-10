@@ -55,7 +55,16 @@ def extract_invariants(snapshot: DocumentationSnapshot) -> list[Invariant]:
                     importance = InvariantImportance.IMPORTANT
                     confidence = 0.8
                 if importance:
-                    invariants.append(Invariant(id=f"inv-{counter}", source_path=document.relative_path, source_section=section_name, text=sentence.strip(), importance=importance, confidence=confidence))
+                    invariants.append(
+                        Invariant(
+                            id=f"inv-{counter}",
+                            source_path=document.relative_path,
+                            source_section=section_name,
+                            text=sentence.strip(),
+                            importance=importance,
+                            confidence=confidence,
+                        )
+                    )
                     counter += 1
     return invariants
 

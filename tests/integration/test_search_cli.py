@@ -34,8 +34,7 @@ optimization:
         "- Prefer module-local instructions when they exist.\n"
         "- Prefer module-local instructions when they exist.\n"
         "- Use best practices for changes.\n\n"
-        "## Testing Examples\n\n"
-        + "Example A: run the narrow test, then broaden validation.\n" * 40,
+        "## Testing Examples\n\n" + "Example A: run the narrow test, then broaden validation.\n" * 40,
         encoding="utf-8",
     )
     (root / "docs" / "testing.md").write_text("# Testing\n\nRun narrow tests first.\n", encoding="utf-8")
@@ -64,7 +63,9 @@ def test_search_stops_on_candidate_budget(tmp_path: Path) -> None:
 def test_deterministic_search_does_not_consume_llm_request_budget(tmp_path: Path) -> None:
     _write_fixture(tmp_path)
     runner = CliRunner()
-    result = runner.invoke(app, ["optimize", str(tmp_path), "--strategy", "search", "--max-requests", "0", "--max-candidates", "2"])
+    result = runner.invoke(
+        app, ["optimize", str(tmp_path), "--strategy", "search", "--max-requests", "0", "--max-candidates", "2"]
+    )
     assert result.exit_code == 0
     run_dir = next((tmp_path / ".ai-doc-output").iterdir())
     run_json = (run_dir / "run.json").read_text(encoding="utf-8")

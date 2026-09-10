@@ -22,11 +22,17 @@ def test_search_evaluates_failure_builds_feedback_and_repairs_child(tmp_path: Pa
     config.profiles = {"AGENTS.md": "instruction", "docs/**": "reference"}
     baseline = discover_markdown(project, config, ApproximateTokenCounter())
     baseline_report = run_static_check(project, config)
-    suite = EvaluationSuite.model_validate({"scenarios": [{
-        "id": "migration",
-        "task": "Change and validate migration examples",
-        "expected_required": ["read the migration examples before changing them"],
-    }]})
+    suite = EvaluationSuite.model_validate(
+        {
+            "scenarios": [
+                {
+                    "id": "migration",
+                    "task": "Change and validate migration examples",
+                    "expected_required": ["read the migration examples before changing them"],
+                }
+            ]
+        }
+    )
 
     class FakeSemanticEvaluator:
         def evaluate(self, baseline, candidate, suite):
@@ -39,7 +45,9 @@ def test_search_evaluates_failure_builds_feedback_and_repairs_child(tmp_path: Pa
             return EvaluationResult(
                 engine="fake-semantic",
                 passed=passed,
-                cases=[EvaluationCaseResult(id=scenario_id, passed=passed, score=1.0 if passed else 0.2, message=message)],
+                cases=[
+                    EvaluationCaseResult(id=scenario_id, passed=passed, score=1.0 if passed else 0.2, message=message)
+                ],
                 raw_summary={"semantic": True},
             )
 

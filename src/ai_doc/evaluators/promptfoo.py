@@ -104,14 +104,8 @@ class SubprocessPromptfooRunner(PromptfooRunner):
 
 
 def _scenario_assertions(required: list[str], forbidden: list[str]) -> list[dict[str, str]]:
-    assertions = [
-        {"type": PROMPTFOO_CONTAINS_ASSERTION, "value": value}
-        for value in required
-    ]
-    assertions.extend(
-        {"type": PROMPTFOO_NOT_CONTAINS_ASSERTION, "value": value}
-        for value in forbidden
-    )
+    assertions = [{"type": PROMPTFOO_CONTAINS_ASSERTION, "value": value} for value in required]
+    assertions.extend({"type": PROMPTFOO_NOT_CONTAINS_ASSERTION, "value": value} for value in forbidden)
     return assertions or [{"type": PROMPTFOO_CONTAINS_ASSERTION, "value": ""}]
 
 

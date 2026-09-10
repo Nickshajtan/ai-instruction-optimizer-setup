@@ -36,15 +36,21 @@ def optimize_command(
     output: Annotated[Path, typer.Option("--output", help="Output directory.")] = Path(".ai-doc-output"),
     candidates: Annotated[int | None, typer.Option("--candidates", help="Initial candidates.")] = None,
     generations: Annotated[int | None, typer.Option("--generations", help="Search generations.")] = None,
-    max_candidates: Annotated[int | None, typer.Option("--max-candidates", help="Maximum generated candidates.")] = None,
+    max_candidates: Annotated[
+        int | None, typer.Option("--max-candidates", help="Maximum generated candidates.")
+    ] = None,
     max_cost: Annotated[float | None, typer.Option("--max-cost", help="Maximum optimizer cost USD.")] = None,
     max_requests: Annotated[int | None, typer.Option("--max-requests", help="Maximum external model requests.")] = None,
     strategy: Annotated[OptimizeMode | None, typer.Option("--strategy", help="Optimization mode.")] = None,
-    deep: Annotated[bool, typer.Option("--deep", help="Run semantic DeepEval evaluation on task-selected context.")] = False,
+    deep: Annotated[
+        bool, typer.Option("--deep", help="Run semantic DeepEval evaluation on task-selected context.")
+    ] = False,
     gepa: Annotated[bool, typer.Option("--gepa", help="Enable GEPA prompt sub-optimizer.")] = False,
     seed: Annotated[int | None, typer.Option("--seed", help="Random seed.")] = None,
     show_frontier: Annotated[bool, typer.Option("--show-frontier", help="Print all frontier candidates.")] = False,
-    non_interactive: Annotated[bool, typer.Option("--non-interactive", help="Do not prompt before external calls.")] = False,
+    non_interactive: Annotated[
+        bool, typer.Option("--non-interactive", help="Do not prompt before external calls.")
+    ] = False,
     debug: Annotated[bool, typer.Option("--debug", help="Keep adapter temporary files.")] = False,
     experimental_gepa: Annotated[bool, typer.Option("--experimental-gepa", help="Alias for --gepa.")] = False,
 ) -> None:
@@ -66,7 +72,9 @@ def optimize_command(
         population=loaded.optimization.population.model_copy(deep=True),
         search=loaded.optimization.search.model_copy(deep=True),
         pareto=loaded.optimization.pareto.model_copy(deep=True),
-        gepa=loaded.optimization.gepa.model_copy(update={"enabled": gepa or experimental_gepa or loaded.optimization.gepa.enabled}),
+        gepa=loaded.optimization.gepa.model_copy(
+            update={"enabled": gepa or experimental_gepa or loaded.optimization.gepa.enabled}
+        ),
         recommendation=loaded.optimization.recommendation.model_copy(deep=True),
         exploration_rate=loaded.optimization.exploration_rate,
         restart_after_stagnation=loaded.optimization.restart_after_stagnation,
@@ -95,7 +103,9 @@ def optimize_command(
     except DeepEvalUnavailableError as exc:
         typer.echo(str(exc), err=True)
         raise typer.Exit(1) from exc
-    recommended = next((candidate for candidate in result.run.candidates if candidate.id == result.run.recommended_candidate_id), None)
+    recommended = next(
+        (candidate for candidate in result.run.candidates if candidate.id == result.run.recommended_candidate_id), None
+    )
     report = SearchOptimizeReport(
         baseline=baseline_report,
         run=result.run,
@@ -106,11 +116,22 @@ def optimize_command(
         baseline_in_frontier=bool(result.run.metadata.get("baseline_in_frontier")),
     )
     _write_run_artifacts(result.run_dir, report)
-    typer.echo(render_json(report) if output_format == OutputFormat.JSON else render_search_optimize_console(report, show_frontier=show_frontier))
+    typer.echo(
+        render_json(report)
+        if output_format == OutputFormat.JSON
+        else render_search_optimize_console(report, show_frontier=show_frontier)
+    )
     raise typer.Exit(4 if not result.run.recommended_candidate_id else 0)
 
 
-def _apply_overrides(runtime: RuntimeSearchConfig, candidates: int | None, generations: int | None, max_candidates: int | None, max_cost: float | None, max_requests: int | None) -> None:
+def _apply_overrides(
+    runtime: RuntimeSearchConfig,
+    candidates: int | None,
+    generations: int | None,
+    max_candidates: int | None,
+    max_cost: float | None,
+    max_requests: int | None,
+) -> None:
     if candidates is not None:
         runtime.population.initial_candidates = candidates
         runtime.search.initial_candidates = candidates

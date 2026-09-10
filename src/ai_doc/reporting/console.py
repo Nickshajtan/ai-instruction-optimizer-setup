@@ -23,14 +23,18 @@ def render_check_console(report: CheckReport) -> str:
 def render_optimize_console(report: OptimizeReport) -> str:
     comparison = report.comparison
     lines = [
-        "AI Documentation Optimization Report", "",
+        "AI Documentation Optimization Report",
+        "",
         f"Baseline tokens: {comparison.baseline.total_tokens:,}",
         f"Candidate tokens: {comparison.candidate.total_tokens:,}",
         f"Token delta: {comparison.token_delta:,} ({comparison.token_delta_percent:.1f}%)",
         f"Always-loaded tokens: {comparison.baseline.always_loaded_tokens:,} -> {comparison.candidate.always_loaded_tokens:,}",
         f"Invariant regressions: {len(comparison.invariant_regressions)}",
-        f"Recommendation: {comparison.recommendation.upper()}", "",
-        f"Proposal: {report.proposal_path}", f"Candidate: {report.candidate_path}", f"Diff: {report.diff_path}",
+        f"Recommendation: {comparison.recommendation.upper()}",
+        "",
+        f"Proposal: {report.proposal_path}",
+        f"Candidate: {report.candidate_path}",
+        f"Diff: {report.diff_path}",
     ]
     return "\n".join(lines) + "\n"
 
@@ -38,8 +42,11 @@ def render_optimize_console(report: OptimizeReport) -> str:
 def render_search_optimize_console(report: SearchOptimizeReport, show_frontier: bool = False) -> str:
     baseline_vector = _baseline_objective_vector(report)
     lines = [
-        "AI Documentation Optimization", "", "Baseline:",
-        *_objective_vector_lines(baseline_vector, include_token_unit=True), "",
+        "AI Documentation Optimization",
+        "",
+        "Baseline:",
+        *_objective_vector_lines(baseline_vector, include_token_unit=True),
+        "",
         f"Candidates evaluated: {report.candidates_evaluated}",
         f"Candidates rejected:   {report.candidates_rejected}",
         f"Pareto frontier:       {len(report.frontier)}",
@@ -50,27 +57,39 @@ def render_search_optimize_console(report: SearchOptimizeReport, show_frontier: 
     if show_frontier or report.frontier:
         lines.extend(["", "Frontier"])
         for entry in report.frontier:
-            lines.extend([f"{entry.candidate_id} - {', '.join(entry.proposal_summary) or 'baseline'}", *_objective_vector_lines(entry.objective_vector)])
-    lines.extend(["", "Recommended:", f"  {report.run.recommended_candidate_id or 'none'}", "", "Source repository unchanged."])
+            lines.extend(
+                [
+                    f"{entry.candidate_id} - {', '.join(entry.proposal_summary) or 'baseline'}",
+                    *_objective_vector_lines(entry.objective_vector),
+                ]
+            )
+    lines.extend(
+        ["", "Recommended:", f"  {report.run.recommended_candidate_id or 'none'}", "", "Source repository unchanged."]
+    )
     return "\n".join(lines) + "\n"
 
 
 def _check_summary_lines(report: CheckReport) -> list[str]:
     return [
-        "AI Documentation Report", "", f"Files analyzed: {report.files_analyzed}",
+        "AI Documentation Report",
+        "",
+        f"Files analyzed: {report.files_analyzed}",
         f"Total tokens: {report.total_tokens:,} ({report.token_counter})",
         f"Always-loaded tokens: {report.context_cost.always_loaded_tokens:,}",
-        f"Duplicate tokens: {report.context_cost.duplicate_tokens:,}", "",
+        f"Duplicate tokens: {report.context_cost.duplicate_tokens:,}",
+        "",
     ]
 
 
 def _finding_summary_lines(by_category: Counter[FindingCategory], by_severity: Counter[FindingSeverity]) -> list[str]:
     return [
-        "Findings", f"  Errors: {by_severity[FindingSeverity.ERROR]}",
+        "Findings",
+        f"  Errors: {by_severity[FindingSeverity.ERROR]}",
         f"  Warnings: {by_severity[FindingSeverity.WARNING]}",
         f"  Clarity: {by_category[FindingCategory.CLARITY]}",
         f"  FinOps: {by_category[FindingCategory.FINOPS]}",
-        f"  Structure: {by_category[FindingCategory.STRUCTURE]}", "",
+        f"  Structure: {by_category[FindingCategory.STRUCTURE]}",
+        "",
     ]
 
 
@@ -78,7 +97,12 @@ def _top_finding_lines(findings: list[Finding]) -> list[str]:
     lines = ["Top findings"]
     for finding in findings[:TOP_FINDING_LIMIT]:
         section = f"#{finding.section}" if finding.section else ""
-        lines.extend([f"[{finding.category.upper()}:{finding.severity.upper()}] {finding.path}{section}", f"{finding.code}: {finding.message}"])
+        lines.extend(
+            [
+                f"[{finding.category.upper()}:{finding.severity.upper()}] {finding.path}{section}",
+                f"{finding.code}: {finding.message}",
+            ]
+        )
         if finding.suggestion:
             lines.append(f"Suggestion: {finding.suggestion}")
         lines.append("")
@@ -92,7 +116,11 @@ def _evaluation_lines(report: CheckReport) -> list[str]:
 
 
 def _baseline_objective_vector(report: SearchOptimizeReport) -> ObjectiveVector:
-    return next(candidate.objective_vector for candidate in report.run.candidates if candidate.id == "baseline" and candidate.objective_vector is not None)
+    return next(
+        candidate.objective_vector
+        for candidate in report.run.candidates
+        if candidate.id == "baseline" and candidate.objective_vector is not None
+    )
 
 
 def _objective_vector_lines(vector: ObjectiveVector, include_token_unit: bool = False) -> list[str]:

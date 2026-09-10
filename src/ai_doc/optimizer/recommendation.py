@@ -22,7 +22,11 @@ class RecommendationPolicy:
         eligible: list[ScoredCandidate] = []
         baseline_objective = baseline.objective_vector
         for candidate in frontier:
-            if candidate.id == baseline.id or candidate.objective_vector is None or candidate.status == CandidateStatus.REJECTED:
+            if (
+                candidate.id == baseline.id
+                or candidate.objective_vector is None
+                or candidate.status == CandidateStatus.REJECTED
+            ):
                 continue
             objective = candidate.objective_vector
             if not _reliability_eligible(objective, baseline_objective, self.config.minimum_reliability_delta):
