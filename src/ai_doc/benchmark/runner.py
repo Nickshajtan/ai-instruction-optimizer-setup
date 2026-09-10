@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from math import sqrt
-from statistics import mean, pstdev
+from statistics import mean, median, pstdev
 
 from ai_doc.benchmark.models import (
     BenchmarkCase,
@@ -49,9 +50,9 @@ def _evaluate_case(
 ) -> BenchmarkCaseReport:
     baseline_runs = [run for run in case.runs if run.variant == BenchmarkVariant.BASELINE]
     candidate_runs = [run for run in case.runs if run.variant == BenchmarkVariant.CANDIDATE]
-    delta = _paired_success_delta(baseline_runs, candidate_runs)
+    success_delta = _paired_delta(baseline_runs, candidate_runs, lambda run: float(run.success))
     decision, reason = _decision(
-        delta,
+        success_delta,
         minimum_meaningful_improvement=minimum_meaningful_improvement,
         minimum_runs=minimum_runs,
     )
@@ -59,24 +60,71 @@ def _evaluate_case(
         id=case.id,
         repository=case.repository,
         task=case.task,
+        agents=sorted({run.metadata.agent for run in case.runs}),
         baseline=_variant_summary(baseline_runs),
         candidate=_variant_summary(candidate_runs),
-        task_success_delta=delta,
+        task_success_delta=success_delta,
+        instruction_violations_delta=_paired_delta(
+            baseline_runs,
+            candidate_runs,
+            lambda run: float(run.instruction_violations),
+        ),
+        retries_delta=_paired_delta(baseline_runs, candidate_runs, lambda run: float(run.retries)),
+        input_tokens_delta=_paired_delta(baseline_runs, candidate_runs, lambda run: float(run.input_tokens)),
+        output_tokens_delta=_paired_delta(baseline_runs, candidate_runs, lambda run: float(run.output_tokens)),
+        latency_ms_delta=_paired_optional_delta(baseline_runs, candidate_runs, lambda run: run.latency_ms),
+        cost_usd_delta=_paired_optional_delta(
+            baseline_runs,
+            candidate_runs,
+            lambda run: float(run.cost_usd) if run.cost_usd is not None else None,
+        ),
+        score_delta=_paired_optional_delta(baseline_runs, candidate_runs, lambda run: run.score),
         decision=decision,
         decision_reason=reason,
     )
 
 
-def _paired_success_delta(baseline: list[TaskRun], candidate: list[TaskRun]) -> DeltaEvidence:
+def _paired_delta(
+    baseline: list[TaskRun],
+    candidate: list[TaskRun],
+    value: Callable[[TaskRun], float],
+) -> DeltaEvidence:
     paired = min(len(baseline), len(candidate))
-    deltas = [float(candidate[index].success) - float(baseline[index].success) for index in range(paired)]
+    deltas = [value(candidate[index]) - value(baseline[index]) for index in range(paired)]
+    return _delta_evidence(deltas)
+
+
+def _paired_optional_delta(
+    baseline: list[TaskRun],
+    candidate: list[TaskRun],
+    value: Callable[[TaskRun], float | None],
+) -> DeltaEvidence | None:
+    paired = min(len(baseline), len(candidate))
+    deltas: list[float] = []
+    for index in range(paired):
+        baseline_value = value(baseline[index])
+        candidate_value = value(candidate[index])
+        if baseline_value is not None and candidate_value is not None:
+            deltas.append(candidate_value - baseline_value)
+    return _delta_evidence(deltas) if deltas else None
+
+
+def _delta_evidence(deltas: list[float]) -> DeltaEvidence:
     if not deltas:
-        return DeltaEvidence(mean_delta=0.0, stddev=0.0, ci95_low=0.0, ci95_high=0.0, paired_samples=0)
+        return DeltaEvidence(
+            mean_delta=0.0,
+            median_delta=0.0,
+            stddev=0.0,
+            ci95_low=0.0,
+            ci95_high=0.0,
+            paired_samples=0,
+        )
     delta_mean = mean(deltas)
     stddev = pstdev(deltas) if len(deltas) > 1 else 0.0
     margin = 1.96 * stddev / sqrt(len(deltas)) if len(deltas) > 1 else 0.0
     return DeltaEvidence(
         mean_delta=delta_mean,
+        median_delta=median(deltas),
         stddev=stddev,
         ci95_low=delta_mean - margin,
         ci95_high=delta_mean + margin,
@@ -115,8 +163,13 @@ def _variant_summary(runs: list[TaskRun]) -> VariantSummary:
 
 def _metric(values: list[float]) -> MetricSummary:
     if not values:
-        return MetricSummary(samples=0, mean=0.0, stddev=0.0)
-    return MetricSummary(samples=len(values), mean=mean(values), stddev=pstdev(values) if len(values) > 1 else 0.0)
+        return MetricSummary(samples=0, mean=0.0, median=0.0, stddev=0.0)
+    return MetricSummary(
+        samples=len(values),
+        mean=mean(values),
+        median=median(values),
+        stddev=pstdev(values) if len(values) > 1 else 0.0,
+    )
 
 
 def _optional_metric(values: list[float | None]) -> MetricSummary | None:
