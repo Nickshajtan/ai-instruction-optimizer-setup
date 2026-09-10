@@ -11,11 +11,7 @@ from ai_doc.domain.findings import Finding
 from ai_doc.domain.proposals import CandidateProposal
 
 ObjectiveName = Literal[
-    "reliability",
-    "clarity",
-    "always_loaded_tokens",
-    "expected_context_tokens",
-    "estimated_context_cost",
+    "reliability", "clarity", "always_loaded_tokens", "expected_context_tokens", "estimated_context_cost",
     "critical_invariant_recall",
 ]
 
@@ -34,6 +30,7 @@ class StopReason(StrEnum):
     CANDIDATE_BUDGET = "stopped_candidate_budget"
     REQUEST_BUDGET = "stopped_request_budget"
     COST_BUDGET = "stopped_budget"
+    TOKEN_BUDGET = "stopped_token_budget"
     PATIENCE = "stopped_patience"
 
 
@@ -51,15 +48,27 @@ class CandidateCost(BaseModel):
     generation_requests: int = 0
     evaluation_requests: int = 0
     prompt_suboptimizer_requests: int = 0
-    generation_input_tokens: int | None = None
-    generation_output_tokens: int | None = None
-    evaluation_input_tokens: int | None = None
-    evaluation_output_tokens: int | None = None
-    total_cost: Decimal | None = None
+    generation_input_tokens: int = 0
+    generation_output_tokens: int = 0
+    evaluation_input_tokens: int = 0
+    evaluation_output_tokens: int = 0
+    prompt_suboptimizer_input_tokens: int = 0
+    prompt_suboptimizer_output_tokens: int = 0
+    cache_hits: int = 0
+    total_cost: Decimal = Decimal("0")
+    cost_sources: list[str] = Field(default_factory=list)
 
     @property
     def external_requests(self) -> int:
         return self.generation_requests + self.evaluation_requests + self.prompt_suboptimizer_requests
+
+    @property
+    def input_tokens(self) -> int:
+        return self.generation_input_tokens + self.evaluation_input_tokens + self.prompt_suboptimizer_input_tokens
+
+    @property
+    def output_tokens(self) -> int:
+        return self.generation_output_tokens + self.evaluation_output_tokens + self.prompt_suboptimizer_output_tokens
 
 
 RunCost = CandidateCost
@@ -70,6 +79,20 @@ class CandidateFingerprint(BaseModel):
     affected_sections: tuple[str, ...]
     extracted_targets: tuple[str, ...]
     content_hash: str
+
+
+class InvariantDecision(BaseModel):
+    invariant_id: str
+    status: str
+    source: str
+
+
+class CandidateEvidence(BaseModel):
+    generation_reason: str | None = None
+    feedback: OptimizationFeedback | None = None
+    invariant_decisions: list[InvariantDecision] = Field(default_factory=list)
+    effective_context: dict[str, list[str]] = Field(default_factory=dict)
+    recommendation_reason: str | None = None
 
 
 class Candidate(BaseModel):
@@ -85,6 +108,7 @@ class Candidate(BaseModel):
     fingerprint: CandidateFingerprint | None = None
     rejection_reasons: list[str] = Field(default_factory=list)
     artifact_dir: str | None = None
+    evidence: CandidateEvidence = Field(default_factory=CandidateEvidence)
 
 
 class CandidatePopulation(BaseModel):
@@ -139,6 +163,7 @@ class OptimizationRun(BaseModel):
     candidates: list[Candidate] = Field(default_factory=list)
     frontier: ParetoArchive = Field(default_factory=ParetoArchive)
     recommended_candidate_id: str | None = None
+    recommendation_reason: str | None = None
     search_memory: SearchMemory = Field(default_factory=SearchMemory)
     stopped_reason: StopReason | str
     total_cost: RunCost = Field(default_factory=RunCost)
