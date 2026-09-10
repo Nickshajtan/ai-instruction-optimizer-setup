@@ -38,7 +38,7 @@ class StopReason(StrEnum):
 
 
 class ObjectiveVector(BaseModel):
-    reliability: float = Field(ge=0, le=1)
+    reliability: float | None = Field(default=None, ge=0, le=1)
     clarity: float = Field(ge=0, le=1)
     always_loaded_tokens: int
     expected_context_tokens: float | None = None
@@ -47,13 +47,19 @@ class ObjectiveVector(BaseModel):
 
 
 class CandidateCost(BaseModel):
+    deterministic_operations: int = 0
     generation_requests: int = 0
     evaluation_requests: int = 0
+    prompt_suboptimizer_requests: int = 0
     generation_input_tokens: int | None = None
     generation_output_tokens: int | None = None
     evaluation_input_tokens: int | None = None
     evaluation_output_tokens: int | None = None
     total_cost: Decimal | None = None
+
+    @property
+    def external_requests(self) -> int:
+        return self.generation_requests + self.evaluation_requests + self.prompt_suboptimizer_requests
 
 
 RunCost = CandidateCost
@@ -139,9 +145,9 @@ class OptimizationRun(BaseModel):
     metadata: dict[str, object] = Field(default_factory=dict)
 
 
-def passed_evaluation_score(evaluation: EvaluationResult | None) -> float:
+def passed_evaluation_score(evaluation: EvaluationResult | None) -> float | None:
     if evaluation is None or not evaluation.cases:
-        return 1.0
+        return None
     scores = [case.score for case in evaluation.cases if case.score is not None]
     if scores:
         return sum(scores) / len(scores)
