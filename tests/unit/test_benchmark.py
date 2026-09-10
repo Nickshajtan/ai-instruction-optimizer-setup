@@ -1,5 +1,7 @@
 from decimal import Decimal
 
+import pytest
+
 from ai_doc.benchmark.models import BenchmarkCase, BenchmarkDecision, BenchmarkSuite, BenchmarkVariant, TaskRun
 from ai_doc.benchmark.runner import evaluate_benchmark
 
@@ -37,7 +39,7 @@ def test_benchmark_marks_clear_improvement() -> None:
     assert item.candidate.input_tokens.median == 800.0
     assert item.input_tokens_delta.mean_delta == -200.0
     assert item.cost_usd_delta is not None
-    assert item.cost_usd_delta.mean_delta == -0.02
+    assert item.cost_usd_delta.mean_delta == pytest.approx(-0.02)
     assert not report.has_regressions
 
 
