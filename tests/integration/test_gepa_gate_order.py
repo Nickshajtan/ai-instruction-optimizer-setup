@@ -44,6 +44,34 @@ class OversizedSemanticGenerator:
         )
 
 
+class InvariantRemovingSemanticGenerator:
+    def generate(
+        self,
+        _snapshot: DocumentationSnapshot,
+        _invariants: list[Invariant],
+        _strategy: GenerationStrategyName,
+        _previous_summaries: list[str],
+        _explored_transformations: list[str],
+        _feedback,
+        _memory: SearchMemory,
+    ) -> tuple[CandidateProposal, dict[str, str]]:
+        return (
+            CandidateProposal(
+                operations=[
+                    ProposalOperation(
+                        type="rewrite",
+                        target="AGENTS.md",
+                        reason="remove critical wording to exercise the cheap invariant gate",
+                        expected_clarity_effect="neutral",
+                        expected_finops_effect="neutral",
+                        risk="high",
+                    )
+                ]
+            ),
+            {"AGENTS.md": "# Rules\n\n<!-- ai-doc:gepa -->\n\nKeep this concise.\n"},
+        )
+
+
 class CountingPromptSubOptimizer:
     def __init__(self) -> None:
         self.calls = 0
@@ -94,3 +122,36 @@ def test_known_static_failure_does_not_invoke_gepa(tmp_path: Path) -> None:
     assert oversized.status.value == "rejected"
     assert "new static error introduced" in oversized.rejection_reasons
     assert oversized.creation_cost.prompt_suboptimizer_requests == 0
+
+
+def test_known_literal_invariant_failure_does_not_invoke_gepa(tmp_path: Path) -> None:
+    (tmp_path / "AGENTS.md").write_text(
+        "# Rules\n\n<!-- ai-doc:gepa -->\n\nMUST run validation before merge.\n",
+        encoding="utf-8",
+    )
+    config = DEFAULT_CONFIG.model_copy(deep=True)
+    config.include = ["AGENTS.md"]
+    baseline = discover_markdown(tmp_path, config, ApproximateTokenCounter())
+    report = run_static_check(tmp_path, config)
+    runtime = RuntimeSearchConfig(mode=OptimizeMode.BALANCED)
+    runtime.population.initial_candidates = 2
+    runtime.search.max_candidates = 2
+    runtime.search.patience = 0
+    runtime.gepa.enabled = True
+    gepa = CountingPromptSubOptimizer()
+
+    result = SearchController(
+        config,
+        runtime,
+        tmp_path / "out",
+        semantic_generator=InvariantRemovingSemanticGenerator(),
+        prompt_suboptimizer=gepa,
+    ).optimize(baseline, EvaluationSuite(), report)
+
+    generated = [candidate for candidate in result.run.candidates if candidate.id != "baseline"]
+    assert len(generated) == 2
+    assert gepa.calls == 1
+    removed = generated[1]
+    assert removed.status.value == "rejected"
+    assert "critical invariant recall below 1.0" in removed.rejection_reasons
+    assert removed.creation_cost.prompt_suboptimizer_requests == 0
