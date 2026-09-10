@@ -252,7 +252,7 @@ class SearchController:  # pylint: disable=too-many-instance-attributes
             gepa_usage=ProviderUsage(requests=0),
         )
         workspace = self._materialize_candidate(draft, context)
-        cheap_failures = hard_constraint_failures(workspace.report, [], None, context.baseline_report)
+        cheap_failures = self._cheap_hard_failures(context, workspace)
         if cheap_failures:
             candidate = self._static_rejected_candidate(draft, context, workspace, cheap_failures)
             self._record_candidate(state, candidate, workspace.report, feedback)
@@ -310,12 +310,7 @@ class SearchController:  # pylint: disable=too-many-instance-attributes
         state.gepa_performed = state.gepa_performed or performed
         updated_draft = replace(draft, proposal=proposal, rendered=rendered, gepa_usage=gepa_usage)
         updated_workspace = self._materialize_candidate(updated_draft, context)
-        post_gepa_failures = hard_constraint_failures(
-            updated_workspace.report,
-            [],
-            None,
-            context.baseline_report,
-        )
+        post_gepa_failures = self._cheap_hard_failures(context, updated_workspace)
         if post_gepa_failures:
             candidate = self._static_rejected_candidate(
                 updated_draft,
@@ -349,6 +344,20 @@ class SearchController:  # pylint: disable=too-many-instance-attributes
         report = run_static_check(tree, self.config, extensions=self.extensions)
         snapshot = discover_markdown(tree, self.config, ApproximateTokenCounter())
         return CandidateWorkspace(candidate_dir, diff_path, report, snapshot)
+
+    def _cheap_hard_failures(
+        self,
+        context: EvaluationContext,
+        workspace: CandidateWorkspace,
+    ) -> list[str]:
+        literal_invariants = [item for item in context.invariants if item.discovery_source == "literal"]
+        regressions, _ = verify_invariants_with_evidence(literal_invariants, workspace.snapshot, None)
+        return hard_constraint_failures(
+            workspace.report,
+            regressions,
+            None,
+            context.baseline_report,
+        )
 
     def _static_rejected_candidate(
         self,
