@@ -30,6 +30,14 @@ class AnalyzerProvider(Protocol):
 
 class BuiltInAnalyzerProvider:
     def analyzers(self) -> Sequence[Analyzer]:
+        # Built-in analyzers depend on AnalysisContext from this module, so importing
+        # them lazily keeps the dependency direction acyclic without splitting the
+        # small analyzer contracts into another module.
+        from ai_doc.analyzers.clarity import ClarityAnalyzer  # pylint: disable=import-outside-toplevel
+        from ai_doc.analyzers.duplication import DuplicationAnalyzer  # pylint: disable=import-outside-toplevel
+        from ai_doc.analyzers.finops import FinOpsAnalyzer  # pylint: disable=import-outside-toplevel
+        from ai_doc.analyzers.structure import StructureAnalyzer  # pylint: disable=import-outside-toplevel
+
         return (
             StructureAnalyzer(),
             FinOpsAnalyzer(),
@@ -58,9 +66,3 @@ def run_analyzers(
 
 def sort_findings(findings: list[Finding]) -> list[Finding]:
     return sorted(findings, key=lambda f: (f.path, f.category, f.code, f.section or ""))
-
-
-from ai_doc.analyzers.clarity import ClarityAnalyzer  # noqa: E402
-from ai_doc.analyzers.duplication import DuplicationAnalyzer  # noqa: E402
-from ai_doc.analyzers.finops import FinOpsAnalyzer  # noqa: E402
-from ai_doc.analyzers.structure import StructureAnalyzer  # noqa: E402
