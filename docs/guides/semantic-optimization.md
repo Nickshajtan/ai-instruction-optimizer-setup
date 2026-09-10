@@ -2,7 +2,7 @@
 
 This guide explains what `ai-doc optimize` currently does, how semantic evaluation fits into the search loop, what evidence the tool produces, and where the current implementation intentionally stops.
 
-It is written for people operating or reviewing the tool. The implementation specification is deliberately more terse and forward-looking; this page describes the behavior that already exists.
+It is written for people operating or reviewing the tool. Agent-specific review procedure lives in `.ai/skills/semantic-optimization-review/SKILL.md`; this page describes the product model and behavior that already exists.
 
 ## What Problem The Optimizer Solves
 
@@ -179,30 +179,15 @@ One of the most important completed parts of the semantic core is the repair loo
 
 A candidate can make a useful structural/context-cost change and still fail a behavioral scenario. Instead of throwing away the entire direction, the optimizer can turn the failure into structured feedback and create a child candidate.
 
-The integration test exercises a concrete shape of this problem:
+The integration test exercises a concrete shape of this problem: a large examples section is extracted from an always-loaded instruction document; the resulting router is too weak for a semantic scenario; semantic evaluation fails the parent; feedback identifies the router weakness; a child applies the router-strengthening repair; the child is evaluated again; and the repaired child passes and can become the recommendation.
 
-1. a large examples section is extracted from an always-loaded instruction document;
-2. the resulting router is too weak for a semantic scenario;
-3. semantic evaluation fails the parent;
-4. feedback identifies the router weakness;
-5. a child applies the router-strengthening repair;
-6. the child is evaluated again;
-7. the repaired child passes and can become the recommendation.
-
-This is different from a test that manually creates a feedback object. The failure originates in the evaluator and causally affects the next candidate.
+The important property is that the failure originates in the evaluator and causally affects the next candidate. A manually constructed feedback object alone would not demonstrate that production behavior.
 
 ## Objective Vector And Pareto Frontier
 
 The optimizer keeps several dimensions separate instead of collapsing everything into one weighted score.
 
-The objective vector can contain:
-
-- reliability;
-- clarity;
-- critical invariant recall;
-- always-loaded tokens;
-- expected task-context tokens;
-- estimated context cost.
+The objective vector can contain reliability, clarity, critical invariant recall, always-loaded tokens, expected task-context tokens, and estimated context cost.
 
 Pareto dominance means candidate A dominates candidate B only when A is no worse on every comparable objective and strictly better on at least one, after configured tolerances.
 
@@ -240,8 +225,6 @@ A normal optimization run writes under:
 `-- report.json
 ```
 
-These artifacts have different purposes.
-
 `proposal.json` describes the candidate operations. `candidate/` contains the rendered documentation tree. `diff.patch` makes human review straightforward. `evaluation.json` records candidate evaluation when one ran. `frontier.json` records non-dominated candidates. `lineage.json` records parent relationships. `search-memory.json` captures accumulated search state. `run.json` and `report.json` provide the broader run/result view.
 
 The artifact model is intentionally review-first: generation does not imply application.
@@ -250,14 +233,11 @@ The artifact model is intentionally review-first: generation does not imply appl
 
 The artifacts do not yet preserve every semantic decision needed for a complete forensic explanation. In particular, future work will persist the exact feedback used for a repair child, semantic invariant decisions, stronger recommendation/no-change reasoning, and complete provider token/USD telemetry.
 
+For the repeatable agent procedure for inspecting these artifacts, use `.ai/skills/semantic-optimization-review/SKILL.md`.
+
 ## Request And Cost Accounting
 
-The current domain model separates:
-
-- deterministic operations;
-- generation requests;
-- evaluation requests;
-- prompt-suboptimizer requests.
+The current domain model separates deterministic operations, generation requests, evaluation requests, and prompt-suboptimizer requests.
 
 This fixes an important accounting problem: a regex transformation is not an LLM request and should not consume `max_llm_requests`.
 
@@ -272,20 +252,6 @@ GEPA is behind a prompt-suboptimizer boundary. It is not the outer documentation
 Current behavior is deliberately truthful: enabling GEPA does not pretend that prompt optimization happened when no eligible prompt artifact is wired. The run reports that no eligible artifact was optimized and why.
 
 This is safer than a decorative flag, but it is not the final integration. The remaining milestone work is to make enabled + eligible perform a real suboptimization and route its output through the normal safety, evaluation, budget, and Pareto machinery.
-
-## Reading A Result As A Human
-
-When reviewing an optimizer run, do not start with “Which candidate has the smallest token count?” A safer review order is:
-
-1. Check whether the candidate was rejected and why.
-2. Inspect semantic scenario failures/passes when deep evaluation ran.
-3. Inspect invariant recall and safety-sensitive changes.
-4. Read `diff.patch` and confirm that routing still makes sense to a human.
-5. Compare always-loaded and expected-context cost with baseline.
-6. Check whether the candidate is on the Pareto frontier.
-7. Treat the recommendation as evidence-backed advice, not automatic permission to apply the patch.
-
-The optimizer is designed to make this review easier, not to remove the reviewer from the loop.
 
 ## What Is Complete And What Is Not
 
