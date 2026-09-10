@@ -14,7 +14,11 @@ def benchmark_command(
     evidence: Annotated[Path, typer.Argument(help="Benchmark evidence JSON file.")],
     minimum_meaningful_improvement: Annotated[
         float,
-        typer.Option("--minimum-meaningful-improvement", min=0.0, help="Minimum task-success delta treated as meaningful."),
+        typer.Option(
+            "--minimum-meaningful-improvement",
+            min=0.0,
+            help="Minimum task-success delta treated as meaningful.",
+        ),
     ] = 0.05,
     minimum_runs: Annotated[
         int,
