@@ -16,11 +16,13 @@ usage = {
 if op == "generate_candidate":
     documents = dict(payload["documents"])
     first = next(iter(documents))
+    feedback = payload.get("feedback") or {}
+    memory = payload.get("search_memory") or {}
     marker = (
-        "\n\nSemantic generation used feedback="
-        + str(bool(payload.get("feedback")))
+        "\n\nSemantic generation feedback="
+        + json.dumps(feedback, sort_keys=True)
         + " memory="
-        + str(bool(payload.get("search_memory")))
+        + json.dumps(memory, sort_keys=True)
     )
     documents[first] += marker
     data = {
@@ -49,13 +51,28 @@ elif op == "discover_invariants":
                 "text": "Validate migrations before completion",
                 "importance": "critical",
                 "confidence": 0.91,
-            }
+                "discovery_source": "semantic",
+                "evidence": "Migrations require validation before completion.",
+                "rationale": "Skipping migration validation can ship an invalid migration.",
+            },
+            {
+                "id": "semantic-description-1",
+                "source_path": "AGENTS.md",
+                "source_section": "Background",
+                "text": "The repository contains migration documentation",
+                "importance": "normal",
+                "confidence": 0.99,
+                "discovery_source": "semantic",
+                "evidence": "The repository contains migration documentation.",
+                "rationale": "Descriptive repository background only.",
+            },
         ]
     }
 elif op == "verify_invariant":
     text = "\n".join(payload["documents"].values()).lower()
-    preserved = "validate migrations" in text or "validation" in text
-    data = {"status": "preserved" if preserved else "removed"}
+    contradicted = "validation is optional" in text or "may be skipped" in text
+    preserved = ("validate migrations" in text or "validation" in text) and not contradicted
+    data = {"status": "preserved" if preserved else ("uncertain" if contradicted else "removed")}
 elif op == "evaluate":
     data = {
         "cases": [
