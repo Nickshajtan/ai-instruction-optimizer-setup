@@ -109,4 +109,5 @@ only_mutate = [
   "src/ai_doc/providers/semantic.py",
 ]
 pytest_add_cli_args_test_selection = ["tests/unit", "tests/integration"]
+also_copy = ["tools", "examples"]
 mutate_only_covered_lines = true
