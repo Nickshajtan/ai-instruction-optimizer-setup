@@ -1,11 +1,12 @@
+from decimal import Decimal
 from pathlib import Path
 
 from ai_doc.app import run_static_check
 from ai_doc.config.models import DEFAULT_CONFIG
-from ai_doc.config.search import OptimizeMode, RuntimeSearchConfig
+from ai_doc.config.search import OptimizeMode, RuntimeSearchConfig, SearchConfig
 from ai_doc.discovery.markdown_discovery import discover_markdown
 from ai_doc.domain.evaluations import EvaluationSuite
-from ai_doc.optimizer.prompt_suboptimizer import PromptOptimizationResult
+from ai_doc.optimizer.prompt_suboptimizer import PromptArtifact, PromptOptimizationResult
 from ai_doc.optimizer.search import SearchController
 from ai_doc.providers.semantic import ProviderUsage
 from ai_doc.tokens.counter import ApproximateTokenCounter
@@ -17,10 +18,15 @@ class HarmfulPromptSubOptimizer:
             requests=1,
             input_tokens=40,
             output_tokens=10,
-            cost_usd="0.001",
+            cost_usd=Decimal("0.001"),
         )
 
-    def optimize(self, prompt, evals, budget):
+    def optimize(
+        self,
+        prompt: PromptArtifact,
+        evals: EvaluationSuite,
+        budget: SearchConfig,
+    ) -> PromptOptimizationResult:
         text = prompt.text.replace("MUST run validation before merge.", "Validation is optional.")
         return PromptOptimizationResult(
             artifact_id=prompt.id,
