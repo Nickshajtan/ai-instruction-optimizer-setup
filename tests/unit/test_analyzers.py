@@ -1,6 +1,7 @@
 from pathlib import Path
 
-from ai_doc.analyzers.base import AnalysisContext, run_analyzers
+from ai_doc.analyzers.base import AnalysisContext
+from ai_doc.analyzers.suite import run_analyzers
 from ai_doc.app import run_static_check
 from ai_doc.config.models import DEFAULT_CONFIG
 from ai_doc.discovery.markdown_discovery import discover_markdown
