@@ -22,25 +22,52 @@ def test_baseline_can_win_against_semantically_valid_candidate(tmp_path: Path) -
     suite = EvaluationSuite(scenarios=[EvaluationScenario(id="validation", task="validate changes")])
 
     class WorseSemanticGenerator:
-        def generate(self, snapshot, invariants, strategy, previous_summaries, explored_transformations, feedback, memory):
+        def generate(
+            self,
+            snapshot,
+            _invariants,
+            _strategy,
+            _previous_summaries,
+            _explored_transformations,
+            _feedback,
+            _memory,
+        ):
             text = snapshot.documents[0].text + "\nThis paragraph adds context without changing behavior.\n"
-            proposal = CandidateProposal(operations=[ProposalOperation(
-                type="rewrite", target="AGENTS.md", reason="semantic expansion",
-                expected_clarity_effect="none", expected_finops_effect="worse", risk="low")])
+            proposal = CandidateProposal(
+                operations=[
+                    ProposalOperation(
+                        type="rewrite",
+                        target="AGENTS.md",
+                        reason="semantic expansion",
+                        expected_clarity_effect="none",
+                        expected_finops_effect="worse",
+                        risk="low",
+                    )
+                ]
+            )
             return proposal, {"AGENTS.md": text}
 
     class PassingEvaluator:
-        def evaluate(self, baseline, candidate, suite):
+        def evaluate(self, _baseline, _candidate, suite):
             scenario = suite.scenarios[0]
-            return EvaluationResult(engine="fake-semantic", passed=True,
-                cases=[EvaluationCaseResult(id=scenario.id, passed=True, score=1.0)], raw_summary={"semantic": True})
+            return EvaluationResult(
+                engine="fake-semantic",
+                passed=True,
+                cases=[EvaluationCaseResult(id=scenario.id, passed=True, score=1.0)],
+                raw_summary={"semantic": True},
+            )
 
     runtime = RuntimeSearchConfig(mode=OptimizeMode.BALANCED)
     runtime.population.initial_candidates = 1
     runtime.search.max_candidates = 1
     runtime.search.max_llm_requests = 10
-    result = SearchController(config, runtime, tmp_path / "out", evaluator=PassingEvaluator(),
-        semantic_generator=WorseSemanticGenerator()).optimize(baseline, suite, report)
+    result = SearchController(
+        config,
+        runtime,
+        tmp_path / "out",
+        evaluator=PassingEvaluator(),
+        semantic_generator=WorseSemanticGenerator(),
+    ).optimize(baseline, suite, report)
     assert result.run.recommended_candidate_id is None
     assert result.run.metadata["baseline_in_frontier"] is True
     assert result.run.recommendation_reason.startswith("baseline/no-change retained")
