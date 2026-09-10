@@ -10,21 +10,22 @@ Use this skill when an agent is asked to inspect, explain, validate, or critique
 
 ## Required Context
 
-Read `docs/guides/semantic-optimization.md` first. For implementation changes also read `docs/design/architecture.md`, the still-open acceptance items in `specs/semantic-optimizer-core-v0.3.md`, and `docs/standards.md`.
+Read `docs/guides/semantic-optimization.md` first. For implementation changes also read `docs/design/architecture.md`, `specs/semantic-optimizer-core-v0.3.md`, and `docs/standards.md`.
 
-Do not infer capability from interfaces alone. Production semantic generation, semantic invariant discovery/verification, eligible prompt suboptimization, normalized provider usage, effective-context evidence, and feedback-directed repair count because the normal product path wires them and tests exercise their causal behavior.
+Do not infer capability from interfaces alone. Require a production execution path plus behavioral evidence.
 
 ## Review Order
 
-1. Check candidate status and rejection reasons.
+1. Check run stop reason, `metadata.budget_stop_stage`, candidate status, and rejection reasons.
 2. Inspect semantic scenario results when semantic evaluation ran.
 3. Inspect critical invariant discovery provenance and candidate invariant decisions.
-4. Read `diff.patch` and verify routing remains understandable/actionable.
-5. Compare always-loaded and expected task-context cost with baseline.
-6. Inspect Pareto membership and the trade-offs keeping the candidate non-dominated.
-7. Inspect external request/token/USD usage and cost provenance.
-8. Inspect concrete recommendation/no-change evidence.
-9. Treat recommendation as evidence-backed advice, not permission to apply automatically.
+4. Verify accepted semantic discoveries are grounded in the claimed repository source/evidence, not only provider severity/confidence.
+5. Read `diff.patch` and verify routing remains understandable/actionable.
+6. Compare always-loaded and expected task-context cost with baseline.
+7. Inspect Pareto membership and the trade-offs keeping the candidate non-dominated.
+8. Inspect external request/token/USD usage and cost provenance; for multiple scenarios verify usage represents all scenario calls.
+9. Inspect concrete recommendation/no-change evidence.
+10. Treat recommendation as evidence-backed advice, not permission to apply automatically.
 
 ## Evidence Rules
 
@@ -35,10 +36,12 @@ Do not infer capability from interfaces alone. Production semantic generation, s
 - Distinguish full corpus from task-selected effective context.
 - Explicit-route context selection is still an approximation of real Claude/Codex/Copilot loading behavior.
 - Semantic provider evidence is only as trustworthy as the configured `AI_DOC_SEMANTIC_COMMAND` contract.
-- Request/token/USD limits are accumulated provider-boundary controls. Without a trustworthy pre-call estimate, one call may report an overrun; verify that the overrun is retained and no later external work begins after the limit is known.
+- Semantic invariant provider output is additionally subject to a core grounding boundary: real source path, repository-grounded evidence, and a critical instruction/safety cue in that evidence. A provider-authored MUST summary is not enough.
+- Request/token/USD limits are accumulated provider-boundary controls. Without a trustworthy pre-call estimate, one completed call may report an overrun; verify that the usage is retained, the run stops normally, and no later external work begins after exhaustion is known.
+- For a budget-stopped run, require `run.json`/`report.json` plus an appropriate `stopped_*_budget` reason rather than treating ordinary exhaustion as an internal error.
 - Literal survival of a critical rule is not conclusive when semantic verification is configured. Inspect the global semantic decision for contradictory exceptions.
-- Semantic critical discoveries should carry source location, evidence, rationale, confidence, and discovery source. Flag unexplained provider classifications.
-- GEPA has no safety bypass: its output must survive the same invariant/evaluation gates.
+- A known cheap static hard failure must reject before GEPA. If GEPA changes content, the changed tree must be gated again before later semantic work.
+- GEPA has no safety bypass: its output must survive the same applicable static, invariant, and evaluation gates.
 
 ## Repair-Loop Review
 
@@ -46,7 +49,7 @@ For a repair child, verify parent failure -> structured feedback -> child mutati
 
 ## Artifact Map
 
-- `run.json` — run model, candidates, total usage, recommendation/no-change result, metadata;
+- `run.json` — run model, candidates, total usage, recommendation/no-change result, stop reason, metadata;
 - `report.json` — operator-facing aggregate result;
 - `frontier.json` — non-dominated candidates;
 - `lineage.json` — parent/child relationships;
@@ -55,9 +58,9 @@ For a repair child, verify parent failure -> structured feedback -> child mutati
 - `candidates/<id>/candidate/` — rendered documentation;
 - `candidates/<id>/diff.patch` — human-reviewable changes;
 - `candidates/<id>/evaluation.json` — evaluation evidence;
-- `candidates/<id>/evidence.json` — generation, feedback, invariant, context evidence written at candidate evaluation time.
+- `candidates/<id>/evidence.json` — generation, feedback, invariant, and context evidence written at candidate evaluation time.
 
-Recommendation evidence is also present in the final run candidate models: selected-candidate evidence names improved objectives/tolerated regressions; baseline evidence records concrete blocking factors when no candidate qualifies.
+Recommendation evidence is also present in final run candidate models: selected-candidate evidence names improved objectives/tolerated regressions; baseline evidence records concrete blocking factors when no candidate qualifies.
 
 ## Red Flags
 
@@ -66,10 +69,15 @@ Escalate when:
 - lower token cost is treated as sufficient proof of improvement;
 - semantic reliability exists without semantic evaluation;
 - scenario requirements leak across tasks;
+- multi-scenario evaluation usage looks like only one scenario was billed/accounted;
 - a reference is reachable only by vocabulary overlap rather than an explicit task-relevant route;
 - implicit critical behavior disappears because it lacked MUST/NEVER wording;
+- an alleged semantic critical invariant cites a nonexistent source or evidence absent from that source;
+- ordinary descriptive evidence becomes critical only because the provider adds normative wording in its summary;
 - literal critical wording survives while another section contradicts it and semantic verification still reports preserved;
-- a known exhausted provider budget is followed by more external work;
+- a known exhausted provider budget is followed by more external work or becomes generic CLI exit 1 without normal run artifacts;
+- GEPA runs for a candidate already known to fail a cheap static hard gate;
+- post-GEPA content is not re-gated;
 - an adapter reports work as performed when it no-oped;
 - a repaired child loses the context saving/reachability that justified the direction;
 - recommendation forces a generated candidate when baseline should win;
