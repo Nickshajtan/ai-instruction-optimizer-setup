@@ -1,6 +1,6 @@
 # Empirical Benchmarking
 
-`ai-doc` should not claim that an instruction rewrite is better only because a heuristic or LLM evaluator assigns it a higher score. The evidence layer measures whether the rewritten repository instructions improve real agent-task outcomes.
+`ai-doc` should not claim that an instruction rewrite is better only because a heuristic or LLM evaluator assigns it a higher score. The evidence layer measures whether rewritten repository instructions improve real agent-task outcomes in an explicit local experiment.
 
 ## What the benchmark is
 
@@ -19,16 +19,25 @@ Run the same engineering task multiple times against both variants and record wh
 - Did the instruction change reduce input/output tokens or cost?
 - Did latency improve without sacrificing reliability?
 
-The benchmark engine therefore acts as an empirical regression layer for the optimizer rather than as another Markdown score.
+The benchmark engine therefore acts as an empirical regression layer for a specific experiment rather than as another Markdown score.
 
-## Engine versus corpus
+## Local-only evidence boundary
 
 Keep two concepts separate:
 
 1. **Benchmark engine** — part of the shipped `ai-doc` package and standalone executable. It reads compatible evidence JSON and produces summaries/decisions.
-2. **Benchmark corpus/evidence** — development and research data produced by real repeated agent runs. The project's empirical corpus belongs under `benchmarks/` in this repository and is not required in repositories that only consume `ai-doc`.
+2. **Real benchmark evidence** — local/private experiment data produced from a target repository and real agent runs.
 
-`examples/benchmark/example-evidence.json` is synthetic fixture data. It exists to validate the schema, CLI, examples, and CI wiring. It must not be cited as evidence that the optimizer improves a real agent.
+Real evidence is intentionally **not** a repository contribution mechanism. `ai-doc` does not expect consumer repository snapshots, task definitions, raw prompts, raw agent outputs, costs, credentials, or evidence JSON to be committed back to the AI Documentation Optimizer repository.
+
+Store real evidence where the experiment belongs, for example:
+
+- a temporary local directory;
+- an ignored directory inside the consumer workspace;
+- a private CI artifact store;
+- another private research location chosen by the consumer.
+
+The source repository contains only `examples/benchmark/example-evidence.json`, a synthetic fixture used to validate the schema, CLI, tests, and benchmark contract. It must not be cited as evidence that the optimizer improves a real agent.
 
 ## Evidence model
 
@@ -42,11 +51,13 @@ Use deterministic tests or task-specific assertions as the primary success oracl
 
 ## Run a benchmark summary
 
+Run the command against a local evidence file:
+
 ```bash
-ai-doc benchmark examples/benchmark/example-evidence.json
+ai-doc benchmark ./local-evidence.json
 ```
 
-The command reports each metric separately instead of collapsing clarity, task quality, and cost into one magic score. Summaries include mean, median, standard deviation, and paired deltas. Task-success decisions are variance-aware:
+The command reports each metric separately instead of collapsing task quality and cost into one magic score. Summaries include mean, median, standard deviation, and paired deltas. Task-success decisions are variance-aware:
 
 - fewer than `--minimum-runs` paired runs => `inconclusive`;
 - the 95% interval must clear `--minimum-meaningful-improvement` to call an improvement or regression;
@@ -55,20 +66,22 @@ The command reports each metric separately instead of collapsing clarity, task q
 Example stricter gate:
 
 ```bash
-ai-doc benchmark evidence.json --minimum-runs 5 --minimum-meaningful-improvement 0.10
+ai-doc benchmark ./local-evidence.json --minimum-runs 5 --minimum-meaningful-improvement 0.10
 ```
 
-For CI:
+For a local or private CI experiment:
 
 ```bash
-ai-doc benchmark evidence.json --fail-on-regression
+ai-doc benchmark ./local-evidence.json --fail-on-regression
 ```
 
 Exit code `5` is used only when at least one case has a meaningful task-success regression. An inconclusive result remains non-blocking. This deliberately makes "leave the instructions unchanged" a normal outcome instead of forcing every optimization attempt to produce a winner.
 
-## Recommended benchmark design
+The repository's own `Benchmark contract` workflow does **not** evaluate consumer evidence. It only runs the synthetic fixture to ensure that the benchmark schema, CLI, and evaluator continue to work.
 
-Start with one agent and one model before adding provider breadth. A useful portfolio/release benchmark should eventually cover 10-20 repositories and 5-10 representative tasks per repository. Preserve the repository commit, task definition, verification rubric, raw run artifacts, model/provider/version, pair/seed information where available, and relevant runtime configuration.
+## Recommended experiment design
+
+Start with one agent and one model before adding provider breadth. Preserve enough local metadata to reproduce the experiment: repository revision, task definition, verification rubric, raw run artifacts, model/provider/version, pair/seed information where available, and relevant runtime configuration.
 
 Report at least:
 
@@ -80,19 +93,15 @@ Report at least:
 - latency;
 - variance, median, confidence interval, and run count.
 
-Do not hide regressions behind aggregate averages. Keep per-case evidence so users can see when shorter instructions save tokens but reduce task reliability. Token reduction and semantic/task quality are independent dimensions; a cheaper candidate is not automatically a better candidate.
+Do not hide regressions behind aggregate averages. Keep per-case evidence in the local experiment so it is visible when shorter instructions save tokens but reduce task reliability. Token reduction and semantic/task quality are independent dimensions; a cheaper candidate is not automatically a better candidate.
 
-## Corpus and regression CI
-
-`examples/benchmark/` is synthetic and exists only to exercise the stable evidence contract. Real publishable evidence belongs under `benchmarks/evidence/`; see `benchmarks/README.md` for the corpus contract. The `Benchmark evidence` workflow evaluates committed evidence and blocks meaningful task regressions while allowing statistically inconclusive results.
-
-Use `docs/case-studies/TEMPLATE.md` when turning a benchmark slice into a published case study. Never fill the results section with invented example percentages and present them as empirical evidence.
+A single experiment is local evidence for that repository/task/runtime combination. Broader product claims require separate research across multiple repositories and tasks, but that research dataset is not part of the consumer-data contract and does not belong in the product repository by default.
 
 ## Agent adapters
 
 The evidence JSON is intentionally agent-neutral. Codex, Claude, Copilot, Promptfoo, DeepEval, or a custom harness can produce the raw runs. This keeps the benchmark contract stable while agent SDKs and CLIs change quickly.
 
-If one instruction set behaves differently across agents, preserve that difference in the run metadata rather than averaging it away. That evidence can justify a common instruction core plus thin agent-specific overlays.
+If one instruction set behaves differently across agents, preserve that difference in the local run metadata rather than averaging it away.
 
 ## Runtime requirements
 
