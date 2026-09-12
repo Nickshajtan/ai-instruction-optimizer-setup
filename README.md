@@ -50,6 +50,24 @@ ai-doc check examples/basic --deep
 
 Adaptive optimization can also use the provider-neutral `AI_DOC_SEMANTIC_COMMAND` contract for semantic generation, invariant safety, evaluation, and eligible prompt suboptimization. See [Semantic Optimization](docs/guides/semantic-optimization.md) for the command contract, budget semantics, and evidence model.
 
+## What Benchmarking Means Here
+
+The benchmark is not a performance benchmark for the Python CLI. It is an empirical comparison of how AI coding agents behave with two versions of repository instructions.
+
+For the same repository task, run the agent repeatedly with:
+
+- `baseline`: the original instructions;
+- `candidate`: the optimized instructions.
+
+Then compare outcomes such as task success, instruction violations, retries, input/output tokens, latency, and cost. This answers the product-level question: **did the rewritten AI instructions actually help the agent, or did they only look cleaner to us?**
+
+There are two separate pieces:
+
+- the benchmark engine is part of `ai-doc` and can evaluate any compatible evidence JSON;
+- benchmark corpus/evidence is development data. The project's real empirical evidence belongs in this repository under `benchmarks/` and is not required in repositories that merely consume the tool.
+
+`examples/benchmark/evidence.json` is intentionally **synthetic example data** used to exercise the schema, CLI, and CI contract. It is not empirical proof that the optimizer improves Codex, Claude, Copilot, or any other agent.
+
 ## Prove That An Optimization Works
 
 Static clarity and token metrics are useful signals, but they do not prove that an AI agent performs better. `ai-doc benchmark` consumes repeated baseline/candidate task runs and reports task success, instruction violations, retries, tokens, latency, cost, median, variance, and a confidence-aware decision without collapsing them into one magic quality score.
@@ -64,6 +82,14 @@ Use `--fail-on-regression` in CI when committed empirical evidence should block 
 
 The evidence format is provider-neutral: Codex, Claude, Copilot, Promptfoo, DeepEval, or a custom harness can produce raw runs. See [Empirical Benchmarking](docs/guides/benchmarking.md) and the empirical corpus contract in [benchmarks/README.md](benchmarks/README.md).
 
+## Runtime Requirements
+
+**Node.js is not a core dependency.** The analyzer, optimizer, benchmark engine, CLI, and standalone executable are Python-based and do not require Node.js/npm/npx for normal operation.
+
+Node.js/npm/npx may be required only when you enable an optional integration that uses them, currently Promptfoo. DeepEval is an optional Python dependency. Real coding-agent execution is also external to the benchmark aggregator and depends on whichever agent CLI, SDK, or harness you choose.
+
+Use `ai-doc doctor` to see which optional runtimes and integrations are available in the current environment. Missing Node/npx is informational unless you are trying to use a Node-based integration.
+
 ## Product Direction
 
 - **v0.2 — Prove it works:** empirical benchmark contract, repeated evaluation, task-success/cost evidence, and regression CI.
@@ -74,9 +100,9 @@ Infrastructure additions should serve measurable benchmark outcomes. New optimiz
 
 ## Runtime Topology
 
-- Core analyzer, optimizer, benchmark aggregation: Python.
+- Core analyzer, optimizer, benchmark aggregation: Python only.
 - DeepEval adapter: optional Python dependency.
-- Promptfoo adapter: optional integration whose runtime may include Node.js/npm/npx.
+- Promptfoo adapter: optional integration that may require Node.js/npm/npx.
 - Real coding-agent execution: external provider/agent adapter or harness; benchmark evidence remains stable across those implementations.
 
 Use `ai-doc doctor` to inspect Python/runtime mode, Node/npx availability, optional integrations, provider credentials, and the provider-neutral semantic command.
