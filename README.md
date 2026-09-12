@@ -52,35 +52,37 @@ Adaptive optimization can also use the provider-neutral `AI_DOC_SEMANTIC_COMMAND
 
 ## What Benchmarking Means Here
 
-The benchmark is not a performance benchmark for the Python CLI. It is an empirical comparison of how AI coding agents behave with two versions of repository instructions.
+The benchmark is not a performance benchmark for the Python CLI. It is a local empirical comparison of how AI coding agents behave with two versions of repository instructions.
 
 For the same repository task, run the agent repeatedly with:
 
 - `baseline`: the original instructions;
 - `candidate`: the optimized instructions.
 
-Then compare outcomes such as task success, instruction violations, retries, input/output tokens, latency, and cost. This answers the product-level question: **did the rewritten AI instructions actually help the agent, or did they only look cleaner to us?**
+Then compare outcomes such as task success, instruction violations, retries, input/output tokens, latency, and cost. This answers the local product question: **did this rewritten instruction set actually help the agent for this repository/task, or did it only look cleaner to us?**
 
-There are two separate pieces:
+The boundary is intentional:
 
 - the benchmark engine is part of `ai-doc` and can evaluate any compatible evidence JSON;
-- benchmark corpus/evidence is development data. The project's real empirical evidence belongs in this repository under `benchmarks/` and is not required in repositories that merely consume the tool.
+- real benchmark evidence belongs to the local/private environment where the target repository and agent runs exist;
+- `ai-doc` does not expect consumer benchmark results, repository snapshots, tasks, or raw agent outputs to be committed back to this repository;
+- local evidence may be stored in a temporary directory, ignored workspace directory, or private CI artifact store depending on the user's workflow.
 
-`examples/benchmark/example-evidence.json` is intentionally **synthetic example data** used to exercise the schema, CLI, and CI contract. It is not empirical proof that the optimizer improves Codex, Claude, Copilot, or any other agent.
+`examples/benchmark/example-evidence.json` is intentionally **synthetic example data** used only to exercise the schema, CLI, tests, and CI contract of the benchmark engine. It is not empirical proof that the optimizer improves Codex, Claude, Copilot, or any other agent.
 
-## Prove That An Optimization Works
+## Evaluate A Local Optimization Experiment
 
-Static clarity and token metrics are useful signals, but they do not prove that an AI agent performs better. `ai-doc benchmark` consumes repeated baseline/candidate task runs and reports task success, instruction violations, retries, tokens, latency, cost, median, variance, and a confidence-aware decision without collapsing them into one magic quality score.
+Static clarity and token metrics are useful signals, but they do not prove that an AI agent performs better. `ai-doc benchmark` consumes a local evidence file containing repeated baseline/candidate task runs and reports task success, instruction violations, retries, tokens, latency, cost, median, variance, and a confidence-aware decision without collapsing them into one magic quality score.
 
 ```bash
-ai-doc benchmark examples/benchmark/example-evidence.json \
+ai-doc benchmark ./local-evidence.json \
   --minimum-runs 3 \
   --minimum-meaningful-improvement 0.05
 ```
 
-Use `--fail-on-regression` in CI when committed empirical evidence should block a change only after a meaningful task-success regression clears the configured confidence threshold. Inconclusive evidence remains non-blocking.
+Use `--fail-on-regression` in a local or private CI workflow when a meaningful task-success regression should fail that experiment. Inconclusive evidence remains non-blocking.
 
-The evidence format is provider-neutral: Codex, Claude, Copilot, Promptfoo, DeepEval, or a custom harness can produce raw runs. See [Empirical Benchmarking](docs/guides/benchmarking.md) and the empirical corpus contract in [benchmarks/README.md](benchmarks/README.md).
+The evidence format is provider-neutral: Codex, Claude, Copilot, Promptfoo, DeepEval, or a custom harness can produce raw runs. See [Empirical Benchmarking](docs/guides/benchmarking.md) for the local evidence model and experimental guidance.
 
 ## Runtime Requirements
 
@@ -92,9 +94,9 @@ Use `ai-doc doctor` to see which optional runtimes and integrations are availabl
 
 ## Product Direction
 
-- **v0.2 — Prove it works:** empirical benchmark contract, repeated evaluation, task-success/cost evidence, and regression CI.
+- **v0.2 — Prove it works locally:** benchmark contract, repeated evaluation, task-success/cost evidence, and regression decisions for explicit experiments.
 - **v0.3 — Make it reliable:** confidence/noise handling, conservative/no-op recommendation gates, invariant protection, and explicit independent metrics.
-- **v0.4 — Make it easy to adopt:** release binaries, source-checkout mode, richer `doctor`, stable versioned extension API, and case-study workflow.
+- **v0.4 — Make it easy to adopt:** release binaries, source-checkout mode, richer `doctor`, stable versioned extension API, and a local-first benchmark harness.
 
 Infrastructure additions should serve measurable benchmark outcomes. New optimizer abstractions or evaluators should come with a concrete scenario demonstrating the additional signal they provide.
 
@@ -103,7 +105,7 @@ Infrastructure additions should serve measurable benchmark outcomes. New optimiz
 - Core analyzer, optimizer, benchmark aggregation: Python only.
 - DeepEval adapter: optional Python dependency.
 - Promptfoo adapter: optional integration that may require Node.js/npm/npx.
-- Real coding-agent execution: external provider/agent adapter or harness; benchmark evidence remains stable across those implementations.
+- Real coding-agent execution: external provider/agent adapter or harness; benchmark evidence remains local to that execution environment.
 
 Use `ai-doc doctor` to inspect Python/runtime mode, Node/npx availability, optional integrations, provider credentials, and the provider-neutral semantic command.
 
@@ -127,7 +129,7 @@ Use these when you want to run or configure the tool:
 - [Runbook](docs/operations/runbook.md): routine operation, CI usage, diagnosis, and recovery.
 - [Configuration](docs/guides/configuration.md): `.ai-doc.yaml`, profiles, budgets, evals, optimization, and extensions.
 - [Semantic Optimization](docs/guides/semantic-optimization.md): semantic generation/evaluation, invariant safety, task-selected context, budgets, Pareto comparison, repair, and evidence.
-- [Empirical Benchmarking](docs/guides/benchmarking.md): real agent-task evidence, repeated runs, noise handling, and FinOps metrics.
+- [Empirical Benchmarking](docs/guides/benchmarking.md): local agent-task evidence, repeated runs, noise handling, and FinOps metrics.
 
 Use these when changing the project:
 
@@ -159,4 +161,4 @@ Documentation maintenance rules:
 - `2`: static quality gate failed.
 - `3`: semantic evaluation gate failed.
 - `4`: optimization produced no acceptable candidate.
-- `5`: benchmark regression gate detected a meaningful task-success regression.
+- `5`: local benchmark regression gate detected a meaningful task-success regression.
