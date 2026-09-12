@@ -30,6 +30,7 @@ class RunMetadata(BaseModel):
 
 class TaskRun(BaseModel):
     run_id: str
+    pair_id: str | None = None
     variant: BenchmarkVariant
     success: bool
     instruction_violations: int = Field(default=0, ge=0)
