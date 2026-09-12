@@ -14,7 +14,7 @@ Editable install for local development:
 python -m pip install -e ".[dev]"
 ai-doc check examples/basic
 ai-doc optimize examples/basic --strategy balanced --show-frontier
-ai-doc benchmark examples/benchmark/evidence.json
+ai-doc benchmark examples/benchmark/example-evidence.json
 ai-doc doctor examples/basic
 ```
 
@@ -66,14 +66,14 @@ There are two separate pieces:
 - the benchmark engine is part of `ai-doc` and can evaluate any compatible evidence JSON;
 - benchmark corpus/evidence is development data. The project's real empirical evidence belongs in this repository under `benchmarks/` and is not required in repositories that merely consume the tool.
 
-`examples/benchmark/evidence.json` is intentionally **synthetic example data** used to exercise the schema, CLI, and CI contract. It is not empirical proof that the optimizer improves Codex, Claude, Copilot, or any other agent.
+`examples/benchmark/example-evidence.json` is intentionally **synthetic example data** used to exercise the schema, CLI, and CI contract. It is not empirical proof that the optimizer improves Codex, Claude, Copilot, or any other agent.
 
 ## Prove That An Optimization Works
 
 Static clarity and token metrics are useful signals, but they do not prove that an AI agent performs better. `ai-doc benchmark` consumes repeated baseline/candidate task runs and reports task success, instruction violations, retries, tokens, latency, cost, median, variance, and a confidence-aware decision without collapsing them into one magic quality score.
 
 ```bash
-ai-doc benchmark examples/benchmark/evidence.json \
+ai-doc benchmark examples/benchmark/example-evidence.json \
   --minimum-runs 3 \
   --minimum-meaningful-improvement 0.05
 ```
