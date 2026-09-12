@@ -28,7 +28,7 @@ Keep two concepts separate:
 1. **Benchmark engine** — part of the shipped `ai-doc` package and standalone executable. It reads compatible evidence JSON and produces summaries/decisions.
 2. **Benchmark corpus/evidence** — development and research data produced by real repeated agent runs. The project's empirical corpus belongs under `benchmarks/` in this repository and is not required in repositories that only consume `ai-doc`.
 
-`examples/benchmark/evidence.json` is synthetic fixture data. It exists to validate the schema, CLI, examples, and CI wiring. It must not be cited as evidence that the optimizer improves a real agent.
+`examples/benchmark/example-evidence.json` is synthetic fixture data. It exists to validate the schema, CLI, examples, and CI wiring. It must not be cited as evidence that the optimizer improves a real agent.
 
 ## Evidence model
 
@@ -43,7 +43,7 @@ Use deterministic tests or task-specific assertions as the primary success oracl
 ## Run a benchmark summary
 
 ```bash
-ai-doc benchmark examples/benchmark/evidence.json
+ai-doc benchmark examples/benchmark/example-evidence.json
 ```
 
 The command reports each metric separately instead of collapsing clarity, task quality, and cost into one magic score. Summaries include mean, median, standard deviation, and paired deltas. Task-success decisions are variance-aware:
