@@ -1,6 +1,8 @@
 from pathlib import Path
 
-from ai_doc.diagnostics import build_doctor_report, runtime_mode
+import pytest
+
+from ai_doc.diagnostics import Capability, build_doctor_report, runtime_mode
 from ai_doc.resource_loader import read_text_resource
 from ai_doc.root import discover_project_root
 
@@ -24,3 +26,21 @@ def test_doctor_report_has_runtime_mode(tmp_path: Path) -> None:
     report = build_doctor_report(tmp_path)
     assert report.version
     assert runtime_mode() in {"source checkout", "installed package", "standalone executable"}
+
+
+def test_doctor_reports_external_runtime_and_semantic_command(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "ai_doc.diagnostics._executable_capability",
+        lambda name: Capability(name=name, status="ok", detail=f"/usr/bin/{name}"),
+    )
+    monkeypatch.setenv("AI_DOC_SEMANTIC_COMMAND", "agent-adapter")
+    report = build_doctor_report(tmp_path)
+    runtime = {item.name: item for item in report.runtime}
+    providers = {item.name: item for item in report.llm_providers}
+    assert runtime["node"].status == "ok"
+    assert runtime["npx"].status == "ok"
+    assert providers["semantic command"].status == "configured"
+    assert providers["semantic command"].detail == "agent-adapter"

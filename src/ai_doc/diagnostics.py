@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import shutil
 import sys
 import tempfile
 from pathlib import Path
@@ -67,6 +68,8 @@ def _runtime_capabilities(root: Path, current_runtime_mode: str) -> list[Capabil
     return [
         Capability(name="Python runtime", status="ok", detail=sys.version.split()[0]),
         Capability(name="runtime mode", status="ok", detail=current_runtime_mode),
+        _executable_capability("node"),
+        _executable_capability("npx"),
         _writable_capability(root),
     ]
 
@@ -79,10 +82,21 @@ def _optional_integration_capabilities() -> list[Capability]:
 
 
 def _llm_provider_capabilities() -> list[Capability]:
+    semantic_command = os.getenv("AI_DOC_SEMANTIC_COMMAND")
     return [
         Capability(name="OpenAI", status="configured" if os.getenv("OPENAI_API_KEY") else "not configured"),
         Capability(name="Anthropic", status="configured" if os.getenv("ANTHROPIC_API_KEY") else "not configured"),
+        Capability(
+            name="semantic command",
+            status="configured" if semantic_command else "not configured",
+            detail=semantic_command,
+        ),
     ]
+
+
+def _executable_capability(name: str) -> Capability:
+    path = shutil.which(name)
+    return Capability(name=name, status="ok" if path else "missing", detail=path)
 
 
 def _writable_capability(root: Path) -> Capability:

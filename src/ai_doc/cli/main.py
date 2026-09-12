@@ -6,6 +6,7 @@ from typing import Annotated
 import typer
 
 from ai_doc import __version__
+from ai_doc.cli.benchmark import benchmark_command
 from ai_doc.cli.check import check_command
 from ai_doc.cli.doctor import doctor_command
 from ai_doc.cli.optimize import optimize_command
@@ -51,6 +52,7 @@ def init(
 
 app.command(name="check")(check_command)
 app.command(name="optimize")(optimize_command)
+app.command(name="benchmark")(benchmark_command)
 app.command(name="doctor")(doctor_command)
 app.command(name="setup")(setup_command)
 
