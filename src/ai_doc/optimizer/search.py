@@ -11,7 +11,13 @@ from ai_doc.config.models import AiDocConfig
 from ai_doc.config.search import OptimizeMode, RuntimeSearchConfig
 from ai_doc.discovery.markdown_discovery import discover_markdown
 from ai_doc.domain.documents import DocumentationSnapshot
-from ai_doc.domain.evaluations import EvaluationResult, EvaluationSuite, Evaluator
+from ai_doc.domain.evaluations import (
+    EvaluationResult,
+    EvaluationSuite,
+    Evaluator,
+    PairwiseSemanticEvaluator,
+    PairwiseSemanticResult,
+)
 from ai_doc.domain.optimization import (
     Candidate,
     CandidateCost,
@@ -48,6 +54,7 @@ from ai_doc.optimizer.invariants import (
 from ai_doc.optimizer.pareto import ParetoArchiveBuilder, ParetoSelector
 from ai_doc.optimizer.prompt_suboptimizer import PromptArtifact, PromptSubOptimizer
 from ai_doc.optimizer.recommendation import RecommendationPolicy
+from ai_doc.optimizer.semantic import uncertain_pairwise_result
 from ai_doc.plugins.registry import ExtensionRegistry
 from ai_doc.providers.semantic import ProviderUsage, SemanticBudgetExceeded, UsageDrainer
 from ai_doc.reporting.models import CheckReport
@@ -56,6 +63,7 @@ from ai_doc.tokens.counter import ApproximateTokenCounter
 BASELINE_CANDIDATE_ID = "baseline"
 GEPA_MARKER = "<!-- ai-doc:gepa -->"
 BUDGET_REJECTION = "external budget exhausted before required candidate evaluation"
+PAIRWISE_BUDGET_REJECTION = "external budget exhausted before optional pairwise evaluation"
 
 
 @dataclass
@@ -132,6 +140,7 @@ class SearchController:  # pylint: disable=too-many-instance-attributes
         output_root: Path,
         extensions: ExtensionRegistry | None = None,
         evaluator: Evaluator | None = None,
+        pairwise_semantic_evaluator: PairwiseSemanticEvaluator | None = None,
         semantic_generator: SemanticCandidateGenerator | None = None,
         semantic_invariant_verifier: SemanticInvariantVerifier | None = None,
         semantic_invariant_discoverer: SemanticInvariantDiscoverer | None = None,
@@ -147,6 +156,7 @@ class SearchController:  # pylint: disable=too-many-instance-attributes
         self.random = random.Random(runtime.seed)
         self.extensions = extensions
         self.evaluator = evaluator
+        self.pairwise_semantic_evaluator = pairwise_semantic_evaluator
         self.semantic_invariant_verifier = semantic_invariant_verifier
         self.semantic_invariant_discoverer = semantic_invariant_discoverer
         self.prompt_suboptimizer = prompt_suboptimizer
@@ -424,9 +434,16 @@ class SearchController:  # pylint: disable=too-many-instance-attributes
         if tier0 or duplicate or budget_stop is not None:
             evaluation = None
             semantic_usage = ProviderUsage(requests=0)
+            pairwise = None
+            pairwise_usage = ProviderUsage(requests=0)
         else:
             evaluation, semantic_usage = self._semantic_evaluate(context.baseline, workspace.snapshot, context.suite)
-        evaluation_usage = _combine_usage(invariant_usage, semantic_usage)
+            if evaluation is not None and not evaluation.passed:
+                pairwise = None
+                pairwise_usage = ProviderUsage(requests=0)
+            else:
+                pairwise, pairwise_usage = self._semantic_pairwise(context.baseline, workspace.snapshot, context.suite)
+        evaluation_usage = _combine_usage(invariant_usage, semantic_usage, pairwise_usage)
         failures = hard_constraint_failures(workspace.report, regressions, evaluation, context.baseline_report)
         if duplicate:
             failures.append("duplicate candidate fingerprint")
@@ -441,6 +458,7 @@ class SearchController:  # pylint: disable=too-many-instance-attributes
             evaluation,
             evaluation_usage,
             failures,
+            pairwise=pairwise,
             fingerprint=fingerprint,
         )
         self._write_candidate_evidence(candidate, workspace, evaluation)
@@ -457,6 +475,7 @@ class SearchController:  # pylint: disable=too-many-instance-attributes
         evaluation: EvaluationResult | None,
         evaluation_usage: ProviderUsage,
         failures: list[str],
+        pairwise: PairwiseSemanticResult | None = None,
         fingerprint: CandidateFingerprint | None = None,
     ) -> Candidate:
         cost = self._candidate_cost(
@@ -470,6 +489,7 @@ class SearchController:  # pylint: disable=too-many-instance-attributes
             feedback=draft.feedback,
             invariant_decisions=decisions,
             effective_context=self._effective_context(evaluation),
+            pairwise_semantic=pairwise,
         )
         return Candidate(
             id=draft.candidate_id,
@@ -634,6 +654,29 @@ class SearchController:  # pylint: disable=too-many-instance-attributes
                 usage = ProviderUsage(requests=len(suite.scenarios))
         return result, usage
 
+    def _semantic_pairwise(
+        self,
+        baseline: DocumentationSnapshot,
+        candidate: DocumentationSnapshot,
+        suite: EvaluationSuite,
+    ) -> tuple[PairwiseSemanticResult | None, ProviderUsage]:
+        if self.pairwise_semantic_evaluator is None:
+            return None, ProviderUsage(requests=0)
+        try:
+            result = self.pairwise_semantic_evaluator.compare_pairwise(baseline, candidate, suite)
+        except SemanticBudgetExceeded:
+            return uncertain_pairwise_result("semantic-pairwise", PAIRWISE_BUDGET_REJECTION), ProviderUsage(requests=0)
+        except RuntimeError as exc:
+            return uncertain_pairwise_result("semantic-pairwise", str(exc)), ProviderUsage(requests=0)
+        component = getattr(self.pairwise_semantic_evaluator, "evaluator", self.pairwise_semantic_evaluator)
+        if isinstance(component, UsageDrainer):
+            usage = component.drain_usage()
+        else:
+            usage = self._last_usage(component)
+            if not usage.requests:
+                usage = ProviderUsage(requests=1)
+        return result, usage
+
     def _drain_invariant_usage(self) -> ProviderUsage:
         verifier = self.semantic_invariant_verifier or self.semantic_invariant_discoverer
         return verifier.drain_usage() if isinstance(verifier, UsageDrainer) else ProviderUsage(requests=0)
@@ -759,6 +802,7 @@ class SearchController:  # pylint: disable=too-many-instance-attributes
                 self.semantic_invariant_discoverer is not None,
                 self.semantic_invariant_verifier is not None,
                 self.prompt_suboptimizer is not None,
+                self.pairwise_semantic_evaluator is not None,
             )
         )
 
