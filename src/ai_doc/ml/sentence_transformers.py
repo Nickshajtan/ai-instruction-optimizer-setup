@@ -3,6 +3,8 @@ from __future__ import annotations
 from importlib import import_module
 from typing import Any
 
+from ai_doc.ml.model_paths import SIMILARITY_MODEL_SLOT, resolve_local_model_reference
+
 
 class LocalModelUnavailableError(RuntimeError):
     pass
@@ -10,13 +12,15 @@ class LocalModelUnavailableError(RuntimeError):
 
 class SentenceTransformerSimilarityEngine:
     def __init__(self, model_name: str) -> None:
+        model_reference = resolve_local_model_reference(model_name, SIMILARITY_MODEL_SLOT)
         try:
             module = import_module("sentence_transformers")
             model_type = module.SentenceTransformer
-            self._model: Any = model_type(model_name, local_files_only=True)
+            self._model: Any = model_type(model_reference, local_files_only=True)
         except (ImportError, OSError, ValueError) as exc:
             raise LocalModelUnavailableError(
-                f"Local similarity model '{model_name}' is unavailable; install ai-doc[ml] and cache the model locally."
+                f"Local similarity model '{model_name}' is unavailable; install ai-doc[ml] and provision "
+                "the model through an explicit path, AI_DOC_MODEL_ROOT, a bundled executable model, or the local cache."
             ) from exc
 
     def similarity(self, left: str, right: str) -> float:
