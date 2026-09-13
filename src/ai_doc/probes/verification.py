@@ -117,7 +117,8 @@ class PlanningObservationVerifier:
     def _semantic_match(self, expectation: str, actions: list[str]) -> tuple[str, float] | None:
         if self.nli_engine is None:
             return None
-        best: tuple[str, float] | None = None
+        best_action: str | None = None
+        best_confidence = 0.0
         for action in actions:
             try:
                 result = self.nli_engine.classify(action, expectation)
@@ -125,9 +126,12 @@ class PlanningObservationVerifier:
                 return None
             if result.relation != NLIRelation.ENTAILMENT or result.confidence < self.confidence_threshold:
                 continue
-            if best is None or result.confidence > best[1]:
-                best = (action, result.confidence)
-        return best
+            if result.confidence > best_confidence:
+                best_action = action
+                best_confidence = result.confidence
+        if best_action is None:
+            return None
+        return best_action, best_confidence
 
 
 def _lexical_match(expectation: str, actions: list[str]) -> str | None:
