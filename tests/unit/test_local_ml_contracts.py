@@ -8,7 +8,7 @@ from ai_doc.analyzers.semantic_duplication import SemanticDuplicationAnalyzer
 from ai_doc.config.models import DEFAULT_CONFIG, LocalMLConfig
 from ai_doc.discovery.markdown_discovery import discover_markdown
 from ai_doc.markdown.graph import DocumentGraph
-from ai_doc.ml.base import NLIResult, NLIRelation
+from ai_doc.ml.base import NLIRelation, NLIResult
 from ai_doc.tokens.counter import ApproximateTokenCounter
 
 

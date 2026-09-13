@@ -12,7 +12,7 @@ class SentenceTransformerSimilarityEngine:
     def __init__(self, model_name: str) -> None:
         try:
             module = import_module("sentence_transformers")
-            model_type = getattr(module, "SentenceTransformer")
+            model_type = module.SentenceTransformer
             self._model: Any = model_type(model_name, local_files_only=True)
         except (ImportError, OSError, ValueError) as exc:
             raise LocalModelUnavailableError(

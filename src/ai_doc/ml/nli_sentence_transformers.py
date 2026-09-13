@@ -3,7 +3,7 @@ from __future__ import annotations
 from importlib import import_module
 from typing import Any
 
-from ai_doc.ml.base import NLIResult, NLIRelation
+from ai_doc.ml.base import NLIRelation, NLIResult
 from ai_doc.ml.sentence_transformers import LocalModelUnavailableError
 
 
@@ -11,7 +11,7 @@ class SentenceTransformersNLIEngine:
     def __init__(self, model_name: str) -> None:
         try:
             module = import_module("sentence_transformers")
-            model_type = getattr(module, "CrossEncoder")
+            model_type = module.CrossEncoder
             self._model: Any = model_type(model_name, local_files_only=True)
         except (ImportError, OSError, ValueError) as exc:
             raise LocalModelUnavailableError(
