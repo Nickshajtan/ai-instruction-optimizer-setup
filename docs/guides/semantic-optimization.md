@@ -51,7 +51,7 @@ Responses have this envelope:
 }
 ```
 
-Supported operations are `generate_candidate`, `discover_invariants`, `verify_invariant`, `evaluate`, and `optimize_prompt`. Repository tests exercise this production command contract without network calls.
+Supported operations are `generate_candidate`, `discover_invariants`, `verify_invariant`, `evaluate`, optional `compare_pairwise`, and `optimize_prompt`. Repository tests exercise this production command contract without network calls.
 
 When the command is configured, adaptive semantic generation receives the current documents, invariants, strategy, previous candidate summaries, explored fingerprints, parent feedback, and search memory. Feedback and search-memory contents are serialized into the production provider request, not represented only by placeholder booleans. Semantic output goes through the same safety, evaluation, Pareto, and artifact pipeline as deterministic output.
 
@@ -78,6 +78,16 @@ Evaluation uses task-selected effective context rather than blindly concatenatin
 Multi-scenario provider usage is accumulated across all scenario calls rather than reporting only the final scenario's request/tokens/cost.
 
 This is deliberately still an approximation of agent loading behavior, not a claim to perfectly simulate Claude, Codex, Copilot, or every future agent.
+
+## Optional Pairwise Semantic Judging
+
+Native/static checks and invariant verification are the authoritative A-tier constraints. They run without model calls and can reject unsafe candidates. Real Claude/Codex execution, benchmark harnesses, and repeated target-agent runs are out of scope for this optimizer path.
+
+`optimization.pairwise_semantic: true` or `ai-doc optimize --pairwise-semantic` enables a B-tier confidence layer after a candidate has survived deterministic gates and any required absolute semantic scenario evaluation. The pairwise evaluator compares the baseline and candidate for predicted instruction-following quality across clarity, ambiguity, scope precision, instruction hierarchy/priority, actionability, semantic requirement preservation, and conflicting-interpretation risk.
+
+Each dimension and the overall result uses `candidate`, `baseline`, `equivalent`, or `uncertain` with concise evidence. This evidence is recorded on candidate artifacts and may transparently support a recommendation, but missing, unavailable, budget-exhausted, equivalent, or uncertain B-tier evidence does not fail normal optimization.
+
+When `AI_DOC_SEMANTIC_COMMAND` is configured, the provider receives a `compare_pairwise` request containing baseline documents, candidate documents, scenarios, the fixed dimensions, allowed outcomes, and the ai-doc rubric. Without a command provider, `--pairwise-semantic` uses the optional DeepEval adapter; if DeepEval exposes `ArenaGEval`, ai-doc adapts that blinded pairwise API instead of comparing unrelated absolute scores. Framework details remain outside the domain result schema.
 
 ## Feedback And Repair
 
@@ -113,7 +123,7 @@ If GEPA changes text, the changed candidate tree is materialized and the applica
 
 A run writes `run.json`, `report.json`, `frontier.json`, `lineage.json`, and `search-memory.json`. Each generated candidate contains its rendered tree, `proposal.json`, `diff.patch`, `evaluation.json`, and `evidence.json`.
 
-Candidate evidence records generation rationale, repair feedback when present, invariant decisions, effective-context paths, and recommendation reasoning when the candidate is selected. When no generated candidate qualifies, baseline evidence records concrete blocking factors for no-change. Recommendation explanations name material objective improvements and any tolerated reliability/clarity regression instead of only saying that a candidate was policy-qualified.
+Candidate evidence records generation rationale, repair feedback when present, invariant decisions, effective-context paths, optional pairwise semantic evidence, and recommendation reasoning when the candidate is selected. When no generated candidate qualifies, baseline evidence records concrete blocking factors for no-change. Recommendation explanations name material objective improvements, optional B-tier pairwise support, and any tolerated reliability/clarity regression instead of only saying that a candidate was policy-qualified.
 
 Budget-stopped runs remain inspectable. `run.json` contains the accumulated provider usage that was successfully reported before termination plus the stage at which the budget stopped further work.
 
