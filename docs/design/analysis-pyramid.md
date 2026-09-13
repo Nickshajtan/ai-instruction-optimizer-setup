@@ -36,7 +36,9 @@ A1 is optional. Install the Python integration with:
 python -m pip install "ai-doc[ml]"
 ```
 
-`pip` installs the Python runtime dependencies, not every configured model artifact. Model weights must be provisioned separately into the local Hugging Face / sentence-transformers cache (or another future local model store) before A1 runs. Normal `ai-doc check` execution must not silently download model artifacts. Once dependencies and model artifacts are available locally, inference runs against only the text spans supplied by `ai-doc` and does not require an external inference API.
+`pip` installs the Python runtime dependencies, not every configured model artifact. Model weights are deliberately a separate deployment concern. They may be supplied as explicit local directories, through `AI_DOC_MODEL_ROOT`, from an already-populated local Hugging Face / sentence-transformers cache, or embedded into a standalone executable at build time.
+
+Normal `ai-doc check` execution must not silently download model artifacts. The concrete adapters always use local-only loading. Once runtime dependencies and model artifacts are available locally, inference runs against only the text spans supplied by `ai-doc` and does not require an external inference API.
 
 Example configuration:
 
@@ -50,6 +52,30 @@ local_ml:
   similarity_threshold: 0.90
   nli_confidence_threshold: 0.90
 ```
+
+The model fields can also contain explicit local directory paths instead of registry-style names.
+
+For a shared local bundle:
+
+```text
+models/
+|-- similarity/
+`-- nli/
+```
+
+set:
+
+```bash
+export AI_DOC_MODEL_ROOT=/path/to/models
+```
+
+For a fully offline standalone artifact, the same bundle can be embedded at build time:
+
+```bash
+python -m tools.build executable --extras ml --model-root /path/to/models
+```
+
+That executable includes the ML runtime and both model directories, so the target machine does not need Python, a pre-populated Hugging Face cache, or network access. See [Packaging](../operations/packaging.md) for the complete model-resolution order and deployment options.
 
 If A1 is disabled or unavailable, A0 continues to work normally.
 
@@ -78,7 +104,7 @@ text spans
 
 If the embedding similarity threshold is met but bidirectional entailment is not established with sufficient confidence, `ai-doc` reports only a probable semantic duplicate based on similarity. A pair is promoted to a strong semantic duplicate only when both NLI directions are `entailment` and both satisfy the configured NLI confidence threshold.
 
-This distinction matters because one-way entailment is usually closer to redundancy, specialization, or scope narrowing than true equivalence. Contradiction is never promoted to duplication.
+This distinction matters because one-way entailment is usually closer to redundancy, specialization, or scope narrowing than true equivalence. A confident contradiction is excluded from duplicate findings.
 
 Even bidirectional NLI entailment is probabilistic evidence, not a mathematical proof that two repository instructions are perfectly interchangeable.
 
@@ -125,6 +151,21 @@ The concrete sentence-transformers adapters are implementation details. Tests an
 This boundary also permits future local implementations, quantized models, ONNX backends, or organization-specific classifiers without turning each analyzer into an ML integration module.
 
 One-way entailment may later support a dedicated redundancy or scope-relation analyzer, but it should not be mislabeled as equivalence.
+
+## Model Provisioning Is Part Of The A1 Contract
+
+A1 is local by design, so model distribution cannot be left implicit. The runtime must never depend on a target machine being able to reach a public model registry.
+
+Supported patterns are:
+
+- explicit local model directories in configuration;
+- a shared `AI_DOC_MODEL_ROOT` containing `similarity/` and `nli/`;
+- an already-populated local model cache;
+- a standalone executable built with `--extras ml --model-root ...`, which embeds both model directories.
+
+The last option creates the strongest offline guarantee: runtime + model weights are one build artifact. The trade-off is artifact size and model-version coupling.
+
+Model licensing/redistribution terms still apply. A technically self-contained executable is not automatically legally redistributable.
 
 ## Scaling
 
@@ -173,7 +214,8 @@ A therefore provides cheap facts, heuristics, and semantic proxies. B provides p
 - Bidirectional NLI entailment is stronger semantic-equivalence evidence but remains probabilistic.
 - NLI is a probabilistic classifier and may misunderstand repository-specific terminology or scope.
 - A1 inference only sees the text supplied to it; it does not automatically know repository context that was not included in the compared spans.
-- A1 requires local model artifacts; installing `sentence-transformers` alone does not provide every configured model.
+- Installing `sentence-transformers` alone does not provide every configured model; model weights must be provisioned or embedded explicitly.
 - Local model size and runtime requirements can be substantial, which is why A1 is not a core dependency.
+- Fully embedded offline binaries are larger and tied to the model versions packaged at build time.
 - Pairwise semantic analysis can become expensive on large repositories and may require candidate filtering.
 - Neither A0 nor A1 proves improvement in real agent task success.
