@@ -43,6 +43,18 @@ class _TargetPlanResponse(BaseModel):
     raw_summary: dict[str, object] = Field(default_factory=dict)
 
 
+def split_command(command: str) -> list[str]:
+    if os.name != "nt":
+        return shlex.split(command)
+    return [_strip_matching_quotes(item) for item in shlex.split(command, posix=False)]
+
+
+def _strip_matching_quotes(value: str) -> str:
+    if len(value) >= 2 and value[0] == value[-1] and value[0] in {"'", '"'}:
+        return value[1:-1]
+    return value
+
+
 class CommandTargetProbe:
     """Run a real target-model planning probe through a provider-neutral command contract."""
 
@@ -62,7 +74,7 @@ class CommandTargetProbe:
         )
         try:
             completed = subprocess.run(
-                shlex.split(self.command, posix=os.name != "nt"),
+                split_command(self.command),
                 input=request.model_dump_json(),
                 text=True,
                 capture_output=True,
