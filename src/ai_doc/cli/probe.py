@@ -6,6 +6,7 @@ from typing import Annotated
 import typer
 
 from ai_doc.config.loader import ConfigError, load_config
+from ai_doc.config.models import AiDocConfig
 from ai_doc.discovery.markdown_discovery import discover_markdown
 from ai_doc.evaluators.suite import load_evaluation_suite
 from ai_doc.ml.nli_sentence_transformers import SentenceTransformersNLIEngine
@@ -48,8 +49,7 @@ def probe_command(
         if candidate is None:
             typer.echo(baseline_report.model_dump_json(indent=2))
             return
-        candidate_root = candidate.resolve()
-        candidate_snapshot = discover_markdown(candidate_root, loaded, ApproximateTokenCounter())
+        candidate_snapshot = discover_markdown(candidate.resolve(), loaded, ApproximateTokenCounter())
         candidate_report = runner.run(candidate_snapshot, suite)
     except (TargetProbeError, OSError) as exc:
         typer.echo(str(exc), err=True)
@@ -58,12 +58,11 @@ def probe_command(
     typer.echo(compare_planning_reports(baseline_report, candidate_report).model_dump_json(indent=2))
 
 
-def _optional_nli_engine(config: object) -> SentenceTransformersNLIEngine | None:
-    local_ml = getattr(config, "local_ml", None)
-    if local_ml is None or not local_ml.enabled:
+def _optional_nli_engine(config: AiDocConfig) -> SentenceTransformersNLIEngine | None:
+    if not config.local_ml.enabled:
         return None
     try:
-        return SentenceTransformersNLIEngine(local_ml.nli_model)
+        return SentenceTransformersNLIEngine(config.local_ml.nli_model)
     except LocalModelUnavailableError as exc:
         typer.echo(f"Local NLI verification unavailable; using exact planning checks only: {exc}", err=True)
         return None
