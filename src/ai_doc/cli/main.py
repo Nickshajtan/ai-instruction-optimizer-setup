@@ -8,6 +8,7 @@ import typer
 from ai_doc import __version__
 from ai_doc.cli.check import check_command
 from ai_doc.cli.doctor import doctor_command
+from ai_doc.cli.execute import execute_command
 from ai_doc.cli.optimize import optimize_command
 from ai_doc.cli.probe import probe_command
 from ai_doc.cli.setup import setup_command
@@ -53,6 +54,7 @@ def init(
 app.command(name="check")(check_command)
 app.command(name="optimize")(optimize_command)
 app.command(name="probe")(probe_command)
+app.command(name="execute")(execute_command)
 app.command(name="doctor")(doctor_command)
 app.command(name="setup")(setup_command)
 
