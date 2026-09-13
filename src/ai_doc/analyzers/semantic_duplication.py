@@ -70,14 +70,26 @@ class SemanticDuplicationAnalyzer:
                 forward = nli_engine.classify(left.text, right.text)
                 reverse = nli_engine.classify(right.text, left.text)
                 relation_evidence = {
-                    "left_entails_right": forward.model_dump(mode="json"),
-                    "right_entails_left": reverse.model_dump(mode="json"),
+                    "left_entails_right": _nli_evidence(forward),
+                    "right_entails_left": _nli_evidence(reverse),
                 }
-                strong = _confident_entailment(
+                if _confident_relation(
                     forward,
+                    NLIRelation.CONTRADICTION,
                     config.nli_confidence_threshold,
-                ) and _confident_entailment(
+                ) or _confident_relation(
                     reverse,
+                    NLIRelation.CONTRADICTION,
+                    config.nli_confidence_threshold,
+                ):
+                    continue
+                strong = _confident_relation(
+                    forward,
+                    NLIRelation.ENTAILMENT,
+                    config.nli_confidence_threshold,
+                ) and _confident_relation(
+                    reverse,
+                    NLIRelation.ENTAILMENT,
                     config.nli_confidence_threshold,
                 )
             elif nli_unavailable:
@@ -114,8 +126,15 @@ class SemanticDuplicationAnalyzer:
         return findings
 
 
-def _confident_entailment(result: NLIResult, threshold: float) -> bool:
-    return result.relation == NLIRelation.ENTAILMENT and result.confidence >= threshold
+def _confident_relation(result: NLIResult, relation: NLIRelation, threshold: float) -> bool:
+    return result.relation == relation and result.confidence >= threshold
+
+
+def _nli_evidence(result: NLIResult) -> dict[str, object]:
+    return {
+        "relation": result.relation.value,
+        "confidence": result.confidence,
+    }
 
 
 def _spans(context: AnalysisContext) -> list[SemanticSpan]:
