@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import sys
 import tempfile
+from importlib.util import find_spec
 from pathlib import Path
 
 from pydantic import BaseModel
@@ -73,9 +74,25 @@ def _runtime_capabilities(root: Path, current_runtime_mode: str) -> list[Capabil
 
 def _optional_integration_capabilities() -> list[Capability]:
     return [
+        _local_ml_capability(),
         _capability_from_dependency(promptfoo_status()),
         _capability_from_dependency(deepeval_status()),
     ]
+
+
+def _local_ml_capability() -> Capability:
+    available = find_spec("sentence_transformers") is not None
+    if available:
+        return Capability(
+            name="Local semantic ML",
+            status="ok",
+            detail="sentence-transformers importable; configured model artifacts must also exist locally",
+        )
+    return Capability(
+        name="Local semantic ML",
+        status="missing",
+        detail='optional; install with `python -m pip install "ai-doc[ml]"`',
+    )
 
 
 def _llm_provider_capabilities() -> list[Capability]:

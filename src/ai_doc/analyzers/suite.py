@@ -7,6 +7,8 @@ from ai_doc.analyzers.clarity import ClarityAnalyzer
 from ai_doc.analyzers.contradiction import ContradictionAnalyzer
 from ai_doc.analyzers.duplication import DuplicationAnalyzer
 from ai_doc.analyzers.finops import FinOpsAnalyzer
+from ai_doc.analyzers.semantic_contradiction import SemanticContradictionAnalyzer
+from ai_doc.analyzers.semantic_duplication import SemanticDuplicationAnalyzer
 from ai_doc.analyzers.structure import StructureAnalyzer
 from ai_doc.domain.findings import Finding
 
@@ -17,8 +19,10 @@ class BuiltInAnalyzerProvider:
             StructureAnalyzer(),
             FinOpsAnalyzer(),
             DuplicationAnalyzer(),
+            SemanticDuplicationAnalyzer(),
             ClarityAnalyzer(),
             ContradictionAnalyzer(),
+            SemanticContradictionAnalyzer(),
         )
 
 

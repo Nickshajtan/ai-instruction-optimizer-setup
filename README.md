@@ -35,6 +35,14 @@ Standalone executable build:
 python -m tools.build executable
 ```
 
+Optional local semantic static analysis (A1):
+
+```bash
+python -m pip install -e ".[ml]"
+```
+
+A1 uses locally cached sentence-transformer/NLI models and never requires an external inference API. Model artifacts are not downloaded silently by normal `ai-doc check` runs; enable and configure `local_ml` explicitly. See [Analysis Pyramid](docs/design/analysis-pyramid.md).
+
 Optional deep-evaluation setup:
 
 ```bash
@@ -55,7 +63,7 @@ The public contract is limited to:
 - configured project-local extensions;
 - explicit exports from `ai_doc.api.v1`.
 
-Internal optimizer, parser, storage, Promptfoo, DeepEval, provider, and GEPA modules are not extension contracts.
+Internal optimizer, parser, storage, Promptfoo, DeepEval, provider, local-ML adapter, and GEPA modules are not extension contracts.
 
 ## Documentation
 
@@ -70,6 +78,7 @@ Use these when changing the project:
 
 - [Standards](docs/standards.md): normative coding, API, CLI, configuration, security, testing, and documentation rules.
 - [Architecture](docs/design/architecture.md): package boundaries, flows, stable contracts, and adapter responsibilities.
+- [Analysis Pyramid](docs/design/analysis-pyramid.md): A0 deterministic analysis, optional A1 local ML, extension points, limits, and the boundary to B/C evidence.
 - [Design Decisions](docs/design/decisions.md): rationale and trade-offs behind major choices.
 - [Testing And Release](docs/operations/testing-and-release.md): verification commands, smoke tests, CI, and release checklist.
 
