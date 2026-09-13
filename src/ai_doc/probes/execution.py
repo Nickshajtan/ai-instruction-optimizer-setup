@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import os
-import shlex
 import subprocess
 from pathlib import Path
 
@@ -11,7 +10,12 @@ from pydantic import BaseModel, Field, ValidationError
 from ai_doc.domain.documents import DocumentationSnapshot
 from ai_doc.domain.evaluations import EvaluationScenario
 from ai_doc.domain.probes import ExecutionObservation, ExecutionStatus, ProbeMode, ProbeUsage
-from ai_doc.probes.command import DEFAULT_TARGET_TIMEOUT_SECONDS, TARGET_COMMAND_ENV, TargetProbeError
+from ai_doc.probes.command import (
+    DEFAULT_TARGET_TIMEOUT_SECONDS,
+    TARGET_COMMAND_ENV,
+    TargetProbeError,
+    split_command,
+)
 
 
 class _InstructionPayload(BaseModel):
@@ -62,7 +66,7 @@ class CommandExecutionProbe:
         )
         try:
             completed = subprocess.run(
-                shlex.split(self.command, posix=os.name != "nt"),
+                split_command(self.command),
                 input=request.model_dump_json(),
                 text=True,
                 capture_output=True,
