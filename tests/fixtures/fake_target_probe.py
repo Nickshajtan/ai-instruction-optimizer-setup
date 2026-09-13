@@ -13,8 +13,8 @@ print(
             "model": "fixture-model",
             "model_version": "1",
             "applicable_rules": scenario.get("expected_required", []),
-            "planned_actions": scenario.get("expected_required", []),
-            "forbidden_actions_avoided": scenario.get("expected_forbidden", []),
+            "planned_actions": scenario.get("behavior_required", []),
+            "forbidden_actions_avoided": scenario.get("behavior_forbidden", []),
             "uncertainties": [],
             "usage": {
                 "input_tokens": 10,
