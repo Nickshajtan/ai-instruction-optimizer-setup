@@ -34,7 +34,7 @@ class FakeProbe:
             scenario_id=scenario.id,
             context_paths=[item.relative_path for item in snapshot.documents],
             planned_actions=["Run PHPUnit for the changed module."],
-            forbidden_actions_avoided=["Do not edit generated files directly."],
+            forbidden_actions_avoided=["Edit generated files directly."],
         )
 
 
@@ -53,8 +53,8 @@ def _scenario() -> EvaluationScenario:
     return EvaluationScenario(
         id="php-change",
         task="Change a PHP module",
-        expected_required=["Run PHPUnit for the changed module."],
-        expected_forbidden=["Do not edit generated files directly."],
+        behavior_required=["Run PHPUnit for the changed module."],
+        behavior_forbidden=["Edit generated files directly."],
     )
 
 
@@ -63,7 +63,7 @@ def test_exact_verifier_marks_required_and_avoided_forbidden_as_satisfied() -> N
         target="codex",
         scenario_id="php-change",
         planned_actions=["Run PHPUnit for the changed module."],
-        forbidden_actions_avoided=["Do not edit generated files directly."],
+        forbidden_actions_avoided=["Edit generated files directly."],
     )
 
     results = PlanningObservationVerifier().verify(observation, _scenario())
@@ -83,7 +83,7 @@ def test_verifier_marks_forbidden_planned_action_as_violation() -> None:
     scenario = EvaluationScenario(
         id="generated",
         task="Fix generated output",
-        expected_forbidden=["Edit generated files directly."],
+        behavior_forbidden=["Edit generated files directly."],
     )
 
     result = PlanningObservationVerifier().verify(observation, scenario)[0]
