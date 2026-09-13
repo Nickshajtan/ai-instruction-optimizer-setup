@@ -9,6 +9,7 @@ from ai_doc.ml import (
     LocalModelUnavailableError,
     NLIEngine,
     NLIRelation,
+    NLIResult,
     SemanticSimilarityEngine,
     SentenceTransformerSimilarityEngine,
     SentenceTransformersNLIEngine,
@@ -72,7 +73,10 @@ class SemanticDuplicationAnalyzer:
                     "left_entails_right": forward.model_dump(mode="json"),
                     "right_entails_left": reverse.model_dump(mode="json"),
                 }
-                strong = _confident_entailment(forward, config.nli_confidence_threshold) and _confident_entailment(
+                strong = _confident_entailment(
+                    forward,
+                    config.nli_confidence_threshold,
+                ) and _confident_entailment(
                     reverse,
                     config.nli_confidence_threshold,
                 )
@@ -101,7 +105,7 @@ class SemanticDuplicationAnalyzer:
                         **relation_evidence,
                     },
                     suggestion=(
-                        "Review whether one equivalent passage can be removed or replaced with a route to the canonical rule."
+                        "Review whether one equivalent passage can be removed or routed to a canonical rule."
                         if strong
                         else "Review whether both passages are needed; similarity alone is not proof of equivalence."
                     ),
@@ -110,10 +114,8 @@ class SemanticDuplicationAnalyzer:
         return findings
 
 
-def _confident_entailment(result: object, threshold: float) -> bool:
-    relation = getattr(result, "relation", None)
-    confidence = float(getattr(result, "confidence", 0.0))
-    return relation == NLIRelation.ENTAILMENT and confidence >= threshold
+def _confident_entailment(result: NLIResult, threshold: float) -> bool:
+    return result.relation == NLIRelation.ENTAILMENT and result.confidence >= threshold
 
 
 def _spans(context: AnalysisContext) -> list[SemanticSpan]:
