@@ -15,6 +15,11 @@ from ai_doc.domain.findings import Finding, FindingCategory, FindingSeverity
 from ai_doc.domain.optimization import Candidate, ObjectiveVector
 from ai_doc.domain.probes import (
     BehavioralObservation,
+    ExecutionObservation,
+    ExecutionObservationVerifier,
+    ExecutionProbe,
+    ExecutionProbeReport,
+    ExecutionStatus,
     ObservationVerifier,
     PlanningProbeComparison,
     PlanningProbeReport,
@@ -25,7 +30,9 @@ from ai_doc.domain.probes import (
     ProbeUsage,
     ScenarioProbeComparison,
     TargetProbe,
+    VerifiedExecutionObservation,
     VerifiedObservation,
+    WorkspaceDelta,
 )
 from ai_doc.optimizer.recommendation import RecommendationPolicy
 from ai_doc.plugins.registry import ExtensionRegistry
@@ -42,6 +49,11 @@ __all__ = [
     "DocumentationSnapshot",
     "EvaluationResult",
     "Evaluator",
+    "ExecutionObservation",
+    "ExecutionObservationVerifier",
+    "ExecutionProbe",
+    "ExecutionProbeReport",
+    "ExecutionStatus",
     "ExtensionRegistry",
     "Finding",
     "FindingCategory",
@@ -65,5 +77,7 @@ __all__ = [
     "ScenarioProbeComparison",
     "TargetProbe",
     "TokenCounter",
+    "VerifiedExecutionObservation",
     "VerifiedObservation",
+    "WorkspaceDelta",
 ]
