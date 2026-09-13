@@ -14,6 +14,7 @@ from ai_doc.domain.probes import BehavioralObservation, ProbeMode, ProbeUsage
 
 TARGET_COMMAND_ENV = "AI_DOC_TARGET_COMMAND"
 DEFAULT_TARGET_TIMEOUT_SECONDS = 120
+MIN_QUOTED_COMMAND_LENGTH = 2
 
 
 class TargetProbeError(RuntimeError):
@@ -50,7 +51,7 @@ def split_command(command: str) -> list[str]:
 
 
 def _strip_matching_quotes(value: str) -> str:
-    if len(value) >= 2 and value[0] == value[-1] and value[0] in {"'", '"'}:
+    if len(value) >= MIN_QUOTED_COMMAND_LENGTH and value[0] == value[-1] and value[0] in {"'", '"'}:
         return value[1:-1]
     return value
 
