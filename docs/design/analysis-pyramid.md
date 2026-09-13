@@ -27,6 +27,7 @@ A1 adds local pretrained ML models to classify relationships between text spans.
 The initial A1 capabilities are:
 
 - semantic duplication through sentence embeddings and similarity;
+- stronger semantic-duplicate evidence through bidirectional NLI entailment;
 - semantic contradiction through a local natural-language-inference (NLI) classifier.
 
 A1 is optional. Install the Python integration with:
@@ -35,7 +36,7 @@ A1 is optional. Install the Python integration with:
 python -m pip install "ai-doc[ml]"
 ```
 
-Model weights are not bundled into the core package. They must already exist in the local model cache before A1 runs. Normal `ai-doc check` execution must not silently download model artifacts. Once dependencies and model artifacts are available locally, inference can run without an external inference API.
+`pip` installs the Python runtime dependencies, not every configured model artifact. Model weights must be provisioned separately into the local Hugging Face / sentence-transformers cache (or another future local model store) before A1 runs. Normal `ai-doc check` execution must not silently download model artifacts. Once dependencies and model artifacts are available locally, inference runs against only the text spans supplied by `ai-doc` and does not require an external inference API.
 
 Example configuration:
 
@@ -56,9 +57,30 @@ If A1 is disabled or unavailable, A0 continues to work normally.
 
 The boundary is based on the claim being made, not merely on whether machine learning is involved.
 
-A local embedding model can say that two passages are semantically similar. A local NLI classifier can say that two statements are likely contradictory. These are properties or probabilistic relationships of the supplied text.
+A local embedding model can say that two passages are semantically similar. A local NLI classifier can say that one supplied statement likely entails, contradicts, or is neutral toward another supplied statement. These are properties or probabilistic relationships of the supplied text.
 
 They do **not** establish that a particular target model will follow the instructions better. That stronger claim belongs to B or C.
+
+## Semantic Duplication Evidence
+
+Embedding similarity is a candidate-generation signal, not proof of equivalence.
+
+The A1 duplication pipeline is:
+
+```text
+text spans
+  -> embedding similarity
+  -> candidate pair above similarity threshold
+  -> NLI: A entails B
+  -> NLI: B entails A
+  -> strong semantic-duplicate evidence
+```
+
+If the embedding similarity threshold is met but bidirectional entailment is not established with sufficient confidence, `ai-doc` reports only a probable semantic duplicate based on similarity. A pair is promoted to a strong semantic duplicate only when both NLI directions are `entailment` and both satisfy the configured NLI confidence threshold.
+
+This distinction matters because one-way entailment is usually closer to redundancy, specialization, or scope narrowing than true equivalence. Contradiction is never promoted to duplication.
+
+Even bidirectional NLI entailment is probabilistic evidence, not a mathematical proof that two repository instructions are perfectly interchangeable.
 
 ## Similarity Is Not Contradiction
 
@@ -81,6 +103,7 @@ For that reason:
 
 - literal A0 contradictions can be reported as deterministic errors;
 - A1 NLI contradictions should be reported as probabilistic findings;
+- bidirectional entailment is stronger duplicate evidence than similarity alone, but is still probabilistic;
 - confidence thresholds are explicit and configurable;
 - users should review semantic findings instead of treating them as formal proofs.
 
@@ -89,10 +112,11 @@ For that reason:
 Analyzers own domain meaning. Shared ML infrastructure only provides narrow capabilities.
 
 ```text
-DuplicationAnalyzer
+SemanticDuplicationAnalyzer
     -> SemanticSimilarityEngine
+    -> NLIEngine
 
-ContradictionAnalyzer
+SemanticContradictionAnalyzer
     -> NLIEngine
 ```
 
@@ -100,13 +124,13 @@ The concrete sentence-transformers adapters are implementation details. Tests an
 
 This boundary also permits future local implementations, quantized models, ONNX backends, or organization-specific classifiers without turning each analyzer into an ML integration module.
 
-Potential future semantic relations include bidirectional entailment for stronger duplicate/equivalence evidence and one-way entailment for redundancy or scope relationships. These should be added only when they support a concrete analyzer use case.
+One-way entailment may later support a dedicated redundancy or scope-relation analyzer, but it should not be mislabeled as equivalence.
 
 ## Scaling
 
 Exact A0 checks are cheap. Pairwise semantic analysis can grow quadratically with the number of candidate spans or rules.
 
-For small instruction files, direct local NLI comparison can be acceptable. For larger repositories, embeddings can act as a candidate-selection stage:
+For small instruction files, direct local NLI comparison can be acceptable. For larger repositories, embeddings act as a candidate-selection stage:
 
 ```text
 text spans
@@ -115,7 +139,7 @@ text spans
   -> NLI or analyzer-specific relation check
 ```
 
-This is an optimization, not a semantic shortcut: high embedding similarity alone must never be promoted to a contradiction finding.
+This is an optimization, not a semantic shortcut: high embedding similarity alone must never be promoted to a contradiction or strong-equivalence finding.
 
 ## False Positives And False Negatives
 
@@ -146,7 +170,9 @@ A therefore provides cheap facts, heuristics, and semantic proxies. B provides p
 ## Limitations
 
 - Embedding similarity does not prove semantic equivalence.
+- Bidirectional NLI entailment is stronger semantic-equivalence evidence but remains probabilistic.
 - NLI is a probabilistic classifier and may misunderstand repository-specific terminology or scope.
+- A1 inference only sees the text supplied to it; it does not automatically know repository context that was not included in the compared spans.
 - A1 requires local model artifacts; installing `sentence-transformers` alone does not provide every configured model.
 - Local model size and runtime requirements can be substantial, which is why A1 is not a core dependency.
 - Pairwise semantic analysis can become expensive on large repositories and may require candidate filtering.
