@@ -70,14 +70,69 @@ The wheel includes:
 Optional Python integrations are selected with extras before installation:
 
 ```bash
+python -m pip install "ai-doc[ml]"
 python -m pip install "ai-doc[promptfoo]"
 python -m pip install "ai-doc[deepeval]"
 python -m pip install "ai-doc[deep]"
 ```
 
+`ml` installs the local semantic-analysis runtime, including `sentence-transformers` and its
+PyTorch/Transformers runtime dependencies. It does **not** implicitly fetch model weights.
+Weights are a separate distribution artifact and can be supplied from a local directory,
+a pre-populated local cache, or an executable that embeds them.
+
 `promptfoo` installs the Python wrapper package, but Promptfoo remains Node-backed.
 `deepeval` installs the Python DeepEval package. `deep` installs both optional Python
 packages.
+
+## Offline Local-ML Model Bundle Contract
+
+A1 is designed to support machines that must never contact Hugging Face or another model
+registry at runtime. A model bundle has this directory layout:
+
+```text
+models/
+|-- similarity/
+|   `-- <complete SentenceTransformer model files>
+`-- nli/
+    `-- <complete CrossEncoder/NLI model files>
+```
+
+Both directories must contain a complete model saved in a format understood by
+`sentence-transformers`. `ai-doc` never reconstructs missing files from the network.
+
+For source, editable, or wheel installs, point `ai-doc` at this bundle:
+
+```bash
+export AI_DOC_MODEL_ROOT=/opt/ai-doc-models
+ai-doc check .
+```
+
+PowerShell:
+
+```powershell
+$env:AI_DOC_MODEL_ROOT = "C:\ai-doc-models"
+ai-doc check .
+```
+
+You may also configure `local_ml.similarity_model` and `local_ml.nli_model` as explicit local
+directory paths. This is useful when the two models are stored separately rather than under
+one model root.
+
+Local model resolution order is deliberate:
+
+1. an explicit existing path in `local_ml.similarity_model` / `local_ml.nli_model`;
+2. `AI_DOC_MODEL_ROOT/similarity` or `AI_DOC_MODEL_ROOT/nli`;
+3. a model embedded into a PyInstaller executable under the corresponding bundled slot;
+4. the configured model identifier resolved from an already-populated local
+   Hugging Face / sentence-transformers cache.
+
+Every concrete adapter still loads with `local_files_only=True`. There is **no network fallback**
+after these local resolution steps.
+
+This separation lets a team download/approve models once on a connected build machine, publish
+the model bundle to its own artifact store, and deploy the same bytes to disconnected target
+machines.
 
 ## Standalone Executable
 
@@ -99,13 +154,47 @@ python -m tools.build executable --onedir
 Executable with optional Python integrations:
 
 ```bash
+python -m tools.build executable --extras ml
 python -m tools.build executable --extras promptfoo
 python -m tools.build executable --extras deepeval
 python -m tools.build executable --extras deep
 ```
 
 The selected extra packages must already be installed in the build environment. For
-example:
+example, to vendor the local A1 ML runtime into the executable:
+
+```bash
+python -m pip install -e ".[ml]"
+python -m tools.build executable --extras ml
+```
+
+The `ml` executable collects `sentence_transformers`, `transformers`, and `torch`, so the target
+machine does not need a separate Python ML installation.
+
+### Fully Self-Contained Offline ML Executable
+
+To package both the ML runtime **and the model weights** into the executable, prepare the
+`models/similarity` and `models/nli` directories described above and build with:
+
+```bash
+python -m pip install -e ".[ml]"
+python -m tools.build executable \
+  --extras ml \
+  --model-root /path/to/models
+```
+
+The build fails if `--model-root` is used without `--extras ml`, or if either `similarity/` or
+`nli/` is missing. PyInstaller embeds both model directories into the artifact. At runtime,
+`ai-doc` resolves these bundled model slots before trying the local Hugging Face cache.
+
+The resulting executable can therefore perform A1 embedding and NLI inference on a machine
+with no Python installation, no model cache, and no network connection.
+
+This can produce a **large** artifact because PyTorch, Transformers, the embedding model, and
+the NLI model are all included. Use it when reproducibility/offline deployment matters more
+than binary size.
+
+For deep-evaluation packaging:
 
 ```bash
 python -m pip install -e ".[deep]"
@@ -156,6 +245,17 @@ Alternatives considered:
 
 ## Packaged Mode Optional Integrations
 
+Local A1 ML supports three deployment forms:
+
+- runtime only: `--extras ml`, with models provided separately through local paths/cache;
+- runtime + sidecar models: `--extras ml` plus `AI_DOC_MODEL_ROOT` on the target machine;
+- fully embedded: `--extras ml --model-root <dir>`, with both model weights inside the
+  executable artifact.
+
+For Python/source/wheel installations, the same `AI_DOC_MODEL_ROOT` contract allows model bytes
+to be distributed from an internal package/artifact system instead of fetched from the public
+internet.
+
 Promptfoo remains Node-backed. There are two supported executable strategies:
 
 - Build the core executable and let users run `ai-doc setup --deep` or
@@ -196,18 +296,28 @@ dist/windows-x64/ai-doc.exe doctor examples/basic
 dist/windows-x64/ai-doc.exe check examples/basic
 ```
 
-Manual deep executable smoke when optional packages are included:
+Manual ML executable smoke with sidecar/local-cache models:
 
 ```bash
-python -m pip install -e ".[deep]"
-python -m tools.build executable --extras deep
-dist/windows-x64/ai-doc.exe doctor examples/basic
-dist/windows-x64/ai-doc.exe check examples/basic --deep --non-interactive
+python -m pip install -e ".[ml]"
+python -m tools.build executable --extras ml
+AI_DOC_MODEL_ROOT=/opt/ai-doc-models dist/linux-x64/ai-doc doctor examples/basic
+```
+
+Manual fully embedded ML build:
+
+```bash
+python -m pip install -e ".[ml]"
+python -m tools.build executable --extras ml --model-root ./models
+dist/linux-x64/ai-doc doctor examples/basic
 ```
 
 ## Known Limitations
 
 - No cross-compilation.
+- PyTorch-backed ML executables are materially larger than the core executable and should be smoke-tested per release platform.
+- Bundled model weights increase artifact size further and are tied to the model versions present at build time.
+- Model licensing and redistribution terms must be checked before publishing a binary that embeds third-party weights.
 - Node.js is not bundled in the executable, even with `--extras promptfoo`.
 - DeepEval packaged compatibility must be smoke-tested per release target when included.
 - PyInstaller output is generated state and should not be committed by default.

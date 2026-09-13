@@ -30,6 +30,16 @@ class EvaluationModeConfig(BaseModel):
     engine: EvaluationEngine = EvaluationEngine.PROMPTFOO
 
 
+class LocalMLConfig(BaseModel):
+    enabled: bool = False
+    semantic_duplication: bool = True
+    semantic_contradiction: bool = True
+    similarity_model: str = "sentence-transformers/all-MiniLM-L6-v2"
+    nli_model: str = "cross-encoder/nli-deberta-v3-small"
+    similarity_threshold: float = Field(default=0.90, ge=0, le=1)
+    nli_confidence_threshold: float = Field(default=0.90, ge=0, le=1)
+
+
 class OptimizationConfig(BaseModel):
     engine: EvaluationEngine = EvaluationEngine.DEEPEVAL
     pairwise_semantic: bool = False
@@ -84,6 +94,7 @@ class AiDocConfig(BaseModel):
     )
     profiles: dict[str, DocumentProfile] = Field(default_factory=dict)
     budgets: dict[DocumentProfile, BudgetConfig] = Field(default_factory=dict)
+    local_ml: LocalMLConfig = Field(default_factory=LocalMLConfig)
     evaluation: dict[str, EvaluationModeConfig] = Field(
         default_factory=lambda: {
             "fast": EvaluationModeConfig(),
