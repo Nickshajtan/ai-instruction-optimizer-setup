@@ -100,7 +100,7 @@ def test_one_way_entailment_is_not_strong_duplicate(tmp_path: Path) -> None:
     assert "FINOPS_SEMANTIC_DUPLICATE" in codes
 
 
-def test_contradiction_is_not_promoted_to_duplicate(tmp_path: Path) -> None:
+def test_contradiction_is_not_a_duplicate(tmp_path: Path) -> None:
     _write_duplicate_fixture(tmp_path)
     nli = FakeNLIEngine(
         [
@@ -111,7 +111,7 @@ def test_contradiction_is_not_promoted_to_duplicate(tmp_path: Path) -> None:
     findings = SemanticDuplicationAnalyzer(FakeSimilarityEngine(0.98), nli).analyze(_context(tmp_path))
     codes = {item.code for item in findings}
     assert "FINOPS_STRONG_SEMANTIC_DUPLICATE" not in codes
-    assert "FINOPS_SEMANTIC_DUPLICATE" in codes
+    assert "FINOPS_SEMANTIC_DUPLICATE" not in codes
 
 
 def test_below_similarity_threshold_does_not_call_nli(tmp_path: Path) -> None:
