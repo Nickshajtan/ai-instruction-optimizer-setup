@@ -70,10 +70,16 @@ The wheel includes:
 Optional Python integrations are selected with extras before installation:
 
 ```bash
+python -m pip install "ai-doc[ml]"
 python -m pip install "ai-doc[promptfoo]"
 python -m pip install "ai-doc[deepeval]"
 python -m pip install "ai-doc[deep]"
 ```
+
+`ml` installs the local semantic-analysis runtime, including `sentence-transformers` and its
+PyTorch/Transformers runtime dependencies. It does **not** bundle or download the configured
+embedding or NLI model weights. Those model artifacts must be provisioned separately into the
+local Hugging Face cache before offline A1 analysis is enabled.
 
 `promptfoo` installs the Python wrapper package, but Promptfoo remains Node-backed.
 `deepeval` installs the Python DeepEval package. `deep` installs both optional Python
@@ -99,13 +105,27 @@ python -m tools.build executable --onedir
 Executable with optional Python integrations:
 
 ```bash
+python -m tools.build executable --extras ml
 python -m tools.build executable --extras promptfoo
 python -m tools.build executable --extras deepeval
 python -m tools.build executable --extras deep
 ```
 
 The selected extra packages must already be installed in the build environment. For
-example:
+example, to vendor the local A1 ML runtime into the executable:
+
+```bash
+python -m pip install -e ".[ml]"
+python -m tools.build executable --extras ml
+```
+
+The `ml` executable collects `sentence_transformers`, `transformers`, and `torch`, so the target
+machine does not need a separate Python ML installation. Model weights are intentionally **not**
+embedded into the executable: the configured embedding and NLI models must still exist in the
+local model cache. Normal analyzer execution uses local-only model loading and does not silently
+fetch them from the network.
+
+For deep-evaluation packaging:
 
 ```bash
 python -m pip install -e ".[deep]"
@@ -156,6 +176,11 @@ Alternatives considered:
 
 ## Packaged Mode Optional Integrations
 
+Local A1 ML can be vendored into standalone builds with `--extras ml`. This packages the Python
+runtime needed for embeddings and NLI but intentionally leaves model artifacts external so teams
+can choose, update, cache, quantize, or centrally provision models independently from the
+`ai-doc` executable.
+
 Promptfoo remains Node-backed. There are two supported executable strategies:
 
 - Build the core executable and let users run `ai-doc setup --deep` or
@@ -196,6 +221,17 @@ dist/windows-x64/ai-doc.exe doctor examples/basic
 dist/windows-x64/ai-doc.exe check examples/basic
 ```
 
+Manual ML executable smoke when local semantic analysis is included:
+
+```bash
+python -m pip install -e ".[ml]"
+python -m tools.build executable --extras ml
+dist/windows-x64/ai-doc.exe doctor examples/basic
+```
+
+The smoke above verifies the vendored runtime. Actual A1 inference additionally requires the
+configured embedding/NLI model weights to be present in the local cache.
+
 Manual deep executable smoke when optional packages are included:
 
 ```bash
@@ -208,6 +244,8 @@ dist/windows-x64/ai-doc.exe check examples/basic --deep --non-interactive
 ## Known Limitations
 
 - No cross-compilation.
+- ML model weights are not bundled into `--extras ml`; they must be provisioned separately.
+- PyTorch-backed ML executables are materially larger than the core executable and should be smoke-tested per release platform.
 - Node.js is not bundled in the executable, even with `--extras promptfoo`.
 - DeepEval packaged compatibility must be smoke-tested per release target when included.
 - PyInstaller output is generated state and should not be committed by default.
