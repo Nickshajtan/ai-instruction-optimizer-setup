@@ -27,14 +27,21 @@ class PlanningObservationVerifier:
         observation: BehavioralObservation,
         scenario: EvaluationScenario,
     ) -> list[ProbeExpectationResult]:
-        results = [self._required(expectation, observation) for expectation in scenario.expected_required]
-        results.extend(self._forbidden(expectation, observation) for expectation in scenario.expected_forbidden)
+        results = [self._required(expectation, observation) for expectation in scenario.behavior_required]
+        results.extend(self._forbidden(expectation, observation) for expectation in scenario.behavior_forbidden)
         return results
 
     def _required(self, expectation: str, observation: BehavioralObservation) -> ProbeExpectationResult:
         match = _lexical_match(expectation, observation.planned_actions)
         if match is not None:
-            return _result(expectation, ProbeExpectationKind.REQUIRED, ProbeExpectationOutcome.SATISFIED, match, 1.0, "exact")
+            return _result(
+                expectation,
+                ProbeExpectationKind.REQUIRED,
+                ProbeExpectationOutcome.SATISFIED,
+                match,
+                1.0,
+                "exact",
+            )
         semantic = self._semantic_match(expectation, observation.planned_actions)
         if semantic is not None:
             evidence, confidence = semantic
