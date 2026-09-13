@@ -2,7 +2,15 @@ from __future__ import annotations
 
 from ai_doc.analyzers.base import AnalysisContext, Analyzer
 from ai_doc.domain.documents import Document, DocumentationSnapshot, DocumentProfile
-from ai_doc.domain.evaluations import EvaluationResult, Evaluator
+from ai_doc.domain.evaluations import (
+    EvaluationResult,
+    Evaluator,
+    PairwiseDimension,
+    PairwiseDimensionResult,
+    PairwiseOutcome,
+    PairwiseSemanticEvaluator,
+    PairwiseSemanticResult,
+)
 from ai_doc.domain.findings import Finding, FindingCategory, FindingSeverity
 from ai_doc.domain.optimization import Candidate, ObjectiveVector
 from ai_doc.optimizer.recommendation import RecommendationPolicy
@@ -25,6 +33,11 @@ __all__ = [
     "FindingSeverity",
     "LLMProvider",
     "ObjectiveVector",
+    "PairwiseDimension",
+    "PairwiseDimensionResult",
+    "PairwiseOutcome",
+    "PairwiseSemanticEvaluator",
+    "PairwiseSemanticResult",
     "RecommendationPolicy",
     "TokenCounter",
 ]

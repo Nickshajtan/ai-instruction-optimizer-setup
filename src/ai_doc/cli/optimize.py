@@ -14,7 +14,7 @@ from ai_doc.app import load_suite, run_static_check
 from ai_doc.config.loader import ConfigError, load_config
 from ai_doc.config.search import OptimizeMode, RuntimeSearchConfig
 from ai_doc.discovery.markdown_discovery import discover_markdown
-from ai_doc.domain.evaluations import Evaluator
+from ai_doc.domain.evaluations import Evaluator, PairwiseSemanticEvaluator
 from ai_doc.evaluators.context import ScenarioContextEvaluator
 from ai_doc.evaluators.deepeval import DeepEvalEvaluator, DeepEvalUnavailableError
 from ai_doc.optimizer.generator import SemanticCandidateGenerator
@@ -22,6 +22,7 @@ from ai_doc.optimizer.invariants import SemanticInvariantDiscoverer, SemanticInv
 from ai_doc.optimizer.prompt_suboptimizer import PromptSubOptimizer
 from ai_doc.optimizer.search import SearchController
 from ai_doc.optimizer.semantic import (
+    ProviderPairwiseSemanticEvaluator,
     ProviderPromptSubOptimizer,
     ProviderSemanticCandidateGenerator,
     ProviderSemanticEvaluator,
@@ -53,6 +54,7 @@ class SemanticStack:
     invariant_verifier: SemanticInvariantVerifier | None = None
     invariant_discoverer: SemanticInvariantDiscoverer | None = None
     evaluator: Evaluator | None = None
+    pairwise_evaluator: PairwiseSemanticEvaluator | None = None
     prompt_suboptimizer: PromptSubOptimizer | None = None
 
 
@@ -64,29 +66,22 @@ def optimize_command(  # pylint: disable=too-many-arguments,too-many-positional-
     output: Annotated[Path, typer.Option("--output", help="Output directory.")] = Path(".ai-doc-output"),
     candidates: Annotated[int | None, typer.Option("--candidates", help="Initial candidates.")] = None,
     generations: Annotated[int | None, typer.Option("--generations", help="Search generations.")] = None,
-    max_candidates: Annotated[
-        int | None, typer.Option("--max-candidates", help="Maximum generated candidates.")
-    ] = None,
+    max_candidates: Annotated[int | None, typer.Option("--max-candidates", help="Maximum generated candidates.")] = None,
     max_cost: Annotated[float | None, typer.Option("--max-cost", help="Maximum optimizer cost USD.")] = None,
-    max_requests: Annotated[
-        int | None, typer.Option("--max-requests", help="Maximum external model requests.")
-    ] = None,
+    max_requests: Annotated[int | None, typer.Option("--max-requests", help="Maximum external model requests.")] = None,
     strategy: Annotated[OptimizeMode | None, typer.Option("--strategy", help="Optimization mode.")] = None,
-    deep: Annotated[
-        bool, typer.Option("--deep", help="Run semantic evaluation on task-selected context.")
+    deep: Annotated[bool, typer.Option("--deep", help="Run semantic evaluation on task-selected context.")] = False,
+    pairwise_semantic: Annotated[
+        bool, typer.Option("--pairwise-semantic", help="Run optional B-tier baseline-vs-candidate semantic judging.")
     ] = False,
     gepa: Annotated[bool, typer.Option("--gepa", help="Enable GEPA prompt sub-optimizer.")] = False,
     seed: Annotated[int | None, typer.Option("--seed", help="Random seed.")] = None,
-    show_frontier: Annotated[
-        bool, typer.Option("--show-frontier", help="Print all frontier candidates.")
-    ] = False,
+    show_frontier: Annotated[bool, typer.Option("--show-frontier", help="Print all frontier candidates.")] = False,
     non_interactive: Annotated[
         bool, typer.Option("--non-interactive", help="Do not prompt before external calls.")
     ] = False,
     debug: Annotated[bool, typer.Option("--debug", help="Keep adapter temporary files.")] = False,
-    experimental_gepa: Annotated[
-        bool, typer.Option("--experimental-gepa", help="Alias for --gepa.")
-    ] = False,
+    experimental_gepa: Annotated[bool, typer.Option("--experimental-gepa", help="Alias for --gepa.")] = False,
 ) -> None:
     project_root = discover_project_root(path, root)
     try:
@@ -111,6 +106,7 @@ def optimize_command(  # pylint: disable=too-many-arguments,too-many-positional-
         restart_after_stagnation=loaded.optimization.restart_after_stagnation,
         concurrency=loaded.optimization.concurrency,
         seed=seed or loaded.optimization.gepa.random_seed,
+        pairwise_semantic=pairwise_semantic or loaded.optimization.pairwise_semantic,
     )
     _apply_overrides(runtime, candidates, generations, max_candidates, max_cost, max_requests)
     if runtime.mode == OptimizeMode.CONSERVATIVE:
@@ -137,6 +133,7 @@ def optimize_command(  # pylint: disable=too-many-arguments,too-many-positional-
             output_root,
             extensions=extensions,
             evaluator=semantic.evaluator,
+            pairwise_semantic_evaluator=semantic.pairwise_evaluator,
             semantic_generator=semantic.generator,
             semantic_invariant_verifier=semantic.invariant_verifier,
             semantic_invariant_discoverer=semantic.invariant_discoverer,
@@ -174,7 +171,10 @@ def _build_semantic_stack(runtime: RuntimeSearchConfig, deep: bool) -> SemanticS
     enabled = bool(os.getenv(SEMANTIC_COMMAND_ENV)) and runtime.mode != OptimizeMode.CONSERVATIVE
     if not enabled:
         evaluator = ScenarioContextEvaluator(DeepEvalEvaluator()) if deep else None
-        return SemanticStack(evaluator=evaluator)
+        deepeval_pairwise: PairwiseSemanticEvaluator | None = (
+            DeepEvalEvaluator() if runtime.pairwise_semantic and runtime.mode != OptimizeMode.CONSERVATIVE else None
+        )
+        return SemanticStack(evaluator=evaluator, pairwise_evaluator=deepeval_pairwise)
     provider = BudgetedSemanticProvider(
         CommandSemanticProvider(),
         runtime.search.max_llm_requests,
@@ -184,12 +184,16 @@ def _build_semantic_stack(runtime: RuntimeSearchConfig, deep: bool) -> SemanticS
     )
     invariant_service = ProviderSemanticInvariantService(provider)
     evaluator = ScenarioContextEvaluator(ProviderSemanticEvaluator(provider)) if deep else None
+    provider_pairwise: PairwiseSemanticEvaluator | None = (
+        ProviderPairwiseSemanticEvaluator(provider) if runtime.pairwise_semantic else None
+    )
     return SemanticStack(
         provider=provider,
         generator=ProviderSemanticCandidateGenerator(provider),
         invariant_verifier=invariant_service,
         invariant_discoverer=invariant_service,
         evaluator=evaluator,
+        pairwise_evaluator=provider_pairwise,
         prompt_suboptimizer=ProviderPromptSubOptimizer(provider) if runtime.gepa.enabled else None,
     )
 
