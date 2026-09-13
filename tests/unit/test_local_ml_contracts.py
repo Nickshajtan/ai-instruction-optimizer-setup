@@ -128,8 +128,10 @@ def test_nli_contradiction_is_reported_with_injected_engine(tmp_path: Path) -> N
         encoding="utf-8",
     )
     result = NLIResult(relation=NLIRelation.CONTRADICTION, confidence=0.96)
-    findings = SemanticContradictionAnalyzer(FakeNLIEngine([result])).analyze(_context(tmp_path))
+    nli = FakeNLIEngine([result, result])
+    findings = SemanticContradictionAnalyzer(nli).analyze(_context(tmp_path))
     assert "RISK_SEMANTIC_CONTRADICTION" in {item.code for item in findings}
+    assert nli.calls == 2
 
 
 def test_nli_neutral_does_not_report_contradiction(tmp_path: Path) -> None:
@@ -138,5 +140,7 @@ def test_nli_neutral_does_not_report_contradiction(tmp_path: Path) -> None:
         encoding="utf-8",
     )
     result = NLIResult(relation=NLIRelation.NEUTRAL, confidence=0.99)
-    findings = SemanticContradictionAnalyzer(FakeNLIEngine([result])).analyze(_context(tmp_path))
+    nli = FakeNLIEngine([result, result])
+    findings = SemanticContradictionAnalyzer(nli).analyze(_context(tmp_path))
     assert "RISK_SEMANTIC_CONTRADICTION" not in {item.code for item in findings}
+    assert nli.calls == 2
