@@ -45,6 +45,8 @@ ai-doc check examples/basic --deep
 
 Adaptive optimization can also use the provider-neutral `AI_DOC_SEMANTIC_COMMAND` contract for semantic generation, invariant safety, evaluation, and eligible prompt suboptimization. See [Semantic Optimization](docs/guides/semantic-optimization.md) for the command contract, budget semantics, and evidence model.
 
+Optional pairwise B-tier judging can compare baseline and candidate documentation for predicted instruction-following quality without claiming empirical target-agent performance. See [Predictive Semantic Evaluation](docs/design/predictive-evaluation.md).
+
 ## What Is Stable
 
 The public contract is limited to:
@@ -70,6 +72,7 @@ Use these when changing the project:
 
 - [Standards](docs/standards.md): normative coding, API, CLI, configuration, security, testing, and documentation rules.
 - [Architecture](docs/design/architecture.md): package boundaries, flows, stable contracts, and adapter responsibilities.
+- [Predictive Semantic Evaluation](docs/design/predictive-evaluation.md): B-tier pairwise judgment, DeepEval/provider adapters, uncertainty, recommendation interaction, and the boundary to empirical C-tier execution.
 - [Design Decisions](docs/design/decisions.md): rationale and trade-offs behind major choices.
 - [Testing And Release](docs/operations/testing-and-release.md): verification commands, smoke tests, CI, and release checklist.
 
