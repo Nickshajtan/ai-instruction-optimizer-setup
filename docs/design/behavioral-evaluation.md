@@ -15,15 +15,35 @@ C2  real target execution          (future)
 C3  repeated target benchmark      (future)
 ```
 
-A1 can verify semantic relationships in text. B can predict whether one instruction set is likely better than another. C1 records what the actual configured target says it intends to do for a concrete task.
-
-A planning probe is therefore stronger evidence than a generic judge, but weaker evidence than executing the task. A compliant plan is not proof that the agent will execute the plan correctly.
+A1 can verify semantic relationships in text. B can predict whether one instruction set is likely better than another. C1 records what the actual configured target says it intends to do for a concrete task. A compliant plan is stronger evidence than a generic judge, but it is not proof of correct execution.
 
 ## Why There Is No Local Generative Surrogate
 
-`ai-doc` deliberately does not bundle Qwen, SmolLM, or another local generative model as a C-tier surrogate. A local generator adds a large runtime/model artifact while still providing weaker external validity than calling the actual target model.
+`ai-doc` deliberately does not bundle Qwen, SmolLM, or another local generative model as a C-tier surrogate. That adds a large runtime/model artifact while still providing weaker external validity than calling the actual target model.
 
-Local ML remains focused on lightweight A1 capabilities such as embeddings and NLI. When C evidence is requested, the target itself should be observed.
+Local ML stays focused on lightweight A1 capabilities such as embeddings and NLI. When C evidence is requested, the target itself should be observed.
+
+## Scenario Contract
+
+B and C deliberately use different expectation fields. Existing `expected.required` / `expected.forbidden` describe semantic requirements that documentation should preserve. They are not necessarily actions; a semantic requirement such as `NEVER modify generated files` must not be misread as an action the target should plan.
+
+C1 therefore uses a separate `behavior` block:
+
+```yaml
+id: generated-schema
+profile: coding-task
+task: Update API types and regenerate the schema
+expected:
+  required:
+    - NEVER edit generated schema files directly.
+behavior:
+  required:
+    - run npm run build-schema
+  forbidden:
+    - edit generated schema files directly
+```
+
+The semantic `expected` block remains available to B/evaluator integrations. The behavioral block is the action contract used to verify C observations.
 
 ## Command Contract
 
@@ -31,39 +51,33 @@ Planning probes are provider-neutral. Configure:
 
 ```bash
 export AI_DOC_TARGET_COMMAND='your-target-adapter --plan'
-```
-
-Then run:
-
-```bash
 ai-doc probe .
 ```
 
 `ai-doc` starts the command with `shell=False`, writes one JSON request to stdin per evaluation scenario, and expects one JSON response on stdout.
 
-The request shape is:
+The request contains the complete scenario and task-selected instruction context:
 
 ```json
 {
   "mode": "plan",
   "scenario": {
     "id": "generated-schema",
-    "profile": "generic",
+    "profile": "coding-task",
     "task": "Update API types and regenerate the schema",
-    "expected_required": ["Run npm run build-schema"],
-    "expected_forbidden": ["Edit generated schema files directly"],
+    "expected_required": ["NEVER edit generated schema files directly."],
+    "expected_forbidden": [],
+    "behavior_required": ["run npm run build-schema"],
+    "behavior_forbidden": ["edit generated schema files directly"],
     "tags": []
   },
   "instructions": [
-    {
-      "path": "AGENTS.md",
-      "text": "..."
-    }
+    {"path": "AGENTS.md", "text": "..."}
   ]
 }
 ```
 
-The command returns:
+The command returns a normalized planning observation:
 
 ```json
 {
@@ -84,62 +98,50 @@ The command returns:
 }
 ```
 
-Provider authentication, API invocation, and target-specific request formatting belong to the adapter command. This keeps the stable `ai-doc` contract independent of Codex, Claude, or another provider.
+Provider authentication, API invocation, and Codex/Claude-specific formatting belong to the adapter command. The stable `ai-doc` contract stays provider-neutral.
 
 ## Context Selection
 
 Each scenario uses the existing deterministic context selector. Instruction and skill documents are loaded according to the same task-routing approximation used by semantic evaluation rather than blindly sending every discovered document.
 
-The selected paths are recorded in `BehavioralObservation.context_paths` so evidence can be audited later.
+Selected paths are recorded in `BehavioralObservation.context_paths` so evidence can be audited later.
 
 ## Verification
 
-The target response is evidence; it is not trusted as its own judge.
+The target response is evidence; it is not trusted as its own judge. `ai-doc` checks the scenario's `behavior` contract against the observed plan:
 
-`ai-doc` checks scenario expectations against the observed plan:
-
-- required actions can be marked `satisfied` when the plan contains an exact or semantically entailing action;
-- forbidden actions are `violated` when the plan proposes an exact or semantically entailing forbidden action;
-- a forbidden action explicitly listed in `forbidden_actions_avoided` can be marked `satisfied`;
+- a required action is `satisfied` when the plan contains an exact or semantically entailing action;
+- a forbidden action is `violated` when the plan proposes an exact or semantically entailing action;
+- a forbidden action explicitly reported in `forbidden_actions_avoided` can be `satisfied`;
 - otherwise the result is `uncertain`.
 
-Exact checks are always available. If A1 local NLI is enabled and its model is locally available, NLI can verify semantically equivalent wording. Missing NLI never invalidates or discards the target observation; it only reduces verification strength.
+Exact checks are always available. If A1 local NLI is enabled and its model is locally available, NLI can verify semantically equivalent wording. Missing NLI never invalidates or discards the target observation; verification simply falls back to exact evidence and uncertainty.
 
 NLI is a verifier here, not a replacement for the target model.
 
 ## Baseline And Candidate
 
-A single tree can be probed with:
+Probe one tree:
 
 ```bash
 ai-doc probe .
 ```
 
-An alternate documentation tree can be compared with:
+Compare an alternate documentation tree:
 
 ```bash
 ai-doc probe . --candidate /path/to/candidate-tree
 ```
 
-The same target adapter and evaluation suite are used for both trees. The comparison reports scenario-level counts of satisfied expectations and violations. It deliberately does not create a magic aggregate performance score.
+The same target adapter and evaluation suite are used for both trees. The comparison reports scenario-level satisfied/violation counts and deliberately avoids a magic aggregate performance score.
 
 ## Cache Identity
 
-Every observation receives a deterministic SHA-256 `cache_key` derived from:
-
-- target name;
-- model and model version returned by the adapter;
-- probe mode;
-- evaluation scenario;
-- selected document paths and contents.
-
-This makes observations safe to persist or reuse later when all behavior-affecting inputs are identical. The first C1 implementation exposes the identity but does not add a persistent cache backend.
+Every observation receives a deterministic SHA-256 `cache_key` derived from target name, model/version, probe mode, scenario, and selected document paths/contents. This identity is safe to use for persistent evidence reuse when all behavior-affecting inputs are identical. C1 exposes the identity but does not yet add a persistent cache backend.
 
 ## FinOps Boundary
 
 C1 performs exactly one target call per evaluation scenario and documentation tree. There are no automatic repetitions.
-
-Typical escalation should be:
 
 ```text
 ordinary docs/skills
@@ -156,14 +158,4 @@ Repeated target runs belong to C3 and should be reserved for documentation where
 
 ## Non-Goals Of C1
 
-C1 does not:
-
-- execute shell commands or tools;
-- modify repository files;
-- verify generated code or test results;
-- claim task completion;
-- estimate a task-success probability;
-- repeat stochastic runs;
-- replace future sandbox execution benchmarks.
-
-Those boundaries keep planning probes cheap enough to use selectively while preserving an honest distinction between intent and execution.
+C1 does not execute shell commands or tools, modify repository files, verify generated code/tests, claim task completion, estimate task-success probability, or repeat stochastic runs. Those belong to future C2/C3 layers.
