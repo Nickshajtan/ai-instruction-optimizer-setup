@@ -89,10 +89,13 @@ class ExecutionActionVerifier:
                 result = self.nli_engine.classify(action, expectation)
             except LocalModelUnavailableError:
                 return None
-            if result.relation == NLIRelation.ENTAILMENT and result.confidence >= self.confidence_threshold:
-                if best_action is None or result.confidence > best_confidence:
-                    best_action = action
-                    best_confidence = result.confidence
+            if (
+                result.relation == NLIRelation.ENTAILMENT
+                and result.confidence >= self.confidence_threshold
+                and (best_action is None or result.confidence > best_confidence)
+            ):
+                best_action = action
+                best_confidence = result.confidence
         if best_action is None:
             return None
         return best_action, best_confidence, "nli"
