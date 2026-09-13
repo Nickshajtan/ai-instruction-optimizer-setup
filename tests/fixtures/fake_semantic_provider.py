@@ -75,11 +75,19 @@ elif op == "verify_invariant":
     preserved = ("validate migrations" in text or "validation" in text) and not contradicted
     data = {"status": "preserved" if preserved else ("uncertain" if contradicted else "removed")}
 elif op == "evaluate":
+    data = {"cases": [{"id": scenario["id"], "passed": True, "score": 1.0} for scenario in payload["scenarios"]]}
+elif op == "compare_pairwise":
     data = {
-        "cases": [
-            {"id": scenario["id"], "passed": True, "score": 1.0}
-            for scenario in payload["scenarios"]
-        ]
+        "overall": os.getenv("AI_DOC_TEST_PAIRWISE_OVERALL", "candidate"),
+        "reason": "candidate is predicted to be clearer; this is not measured agent performance",
+        "dimensions": [
+            {
+                "dimension": dimension,
+                "outcome": os.getenv("AI_DOC_TEST_PAIRWISE_OUTCOME", "candidate"),
+                "evidence": f"{dimension} evidence",
+            }
+            for dimension in payload["dimensions"]
+        ],
     }
 elif op == "optimize_prompt":
     text = payload["artifact"]["text"]

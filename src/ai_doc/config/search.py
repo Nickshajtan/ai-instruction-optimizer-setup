@@ -68,3 +68,4 @@ class RuntimeSearchConfig(BaseModel):
     restart_after_stagnation: bool = False
     concurrency: int = Field(default=3, ge=1)
     seed: int | None = None
+    pairwise_semantic: bool = False

@@ -44,6 +44,8 @@ evaluation:
 
 optimization:
   engine: deepeval
+  # Optional B-tier predictive pairwise judging; native/static A-tier checks remain authoritative.
+  pairwise_semantic: false
   strategy: balanced
   population:
     initial_candidates: 4

@@ -6,12 +6,16 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-from ai_doc.domain.evaluations import EvaluationCaseResult, EvaluationResult
+from ai_doc.domain.evaluations import EvaluationCaseResult, EvaluationResult, PairwiseSemanticResult
 from ai_doc.domain.findings import Finding
 from ai_doc.domain.proposals import CandidateProposal
 
 ObjectiveName = Literal[
-    "reliability", "clarity", "always_loaded_tokens", "expected_context_tokens", "estimated_context_cost",
+    "reliability",
+    "clarity",
+    "always_loaded_tokens",
+    "expected_context_tokens",
+    "estimated_context_cost",
     "critical_invariant_recall",
 ]
 
@@ -112,6 +116,7 @@ class CandidateEvidence(BaseModel):
     feedback: OptimizationFeedback | None = None
     invariant_decisions: list[InvariantDecision] = Field(default_factory=list)
     effective_context: dict[str, list[str]] = Field(default_factory=dict)
+    pairwise_semantic: PairwiseSemanticResult | None = None
     recommendation_reason: str | None = None
 
 

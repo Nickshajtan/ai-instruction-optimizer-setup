@@ -19,9 +19,7 @@ class OutputFormat(StrEnum):
 def doctor_command(
     path: Annotated[Path, typer.Argument(help="Project path.")] = Path("."),
     root: Annotated[Path | None, typer.Option("--root", help="Explicit project root.")] = None,
-    output_format: Annotated[
-        OutputFormat, typer.Option("--format", help="Output format.")
-    ] = OutputFormat.CONSOLE,
+    output_format: Annotated[OutputFormat, typer.Option("--format", help="Output format.")] = OutputFormat.CONSOLE,
 ) -> None:
     project_root = discover_project_root(path, root)
     report = build_doctor_report(project_root)
