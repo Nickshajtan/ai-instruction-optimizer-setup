@@ -14,6 +14,7 @@ from ai_doc.evaluators.context import DeterministicContextSelector, ScenarioCont
 from ai_doc.optimizer.generator import GenerationStrategyName
 from ai_doc.optimizer.search import SearchController
 from ai_doc.optimizer.semantic import (
+    ProviderPairwiseSemanticEvaluator,
     ProviderPromptSubOptimizer,
     ProviderSemanticCandidateGenerator,
     ProviderSemanticEvaluator,
@@ -45,6 +46,7 @@ def test_production_semantic_path_persists_evidence_and_usage(tmp_path: Path) ->
     semantic = ProviderSemanticCandidateGenerator(provider)
     invariants = ProviderSemanticInvariantService(provider)
     evaluator = ScenarioContextEvaluator(ProviderSemanticEvaluator(provider))
+    pairwise = ProviderPairwiseSemanticEvaluator(provider)
     gepa = ProviderPromptSubOptimizer(provider)
     runtime = RuntimeSearchConfig(mode=OptimizeMode.BALANCED)
     runtime.population.initial_candidates = 2
@@ -56,6 +58,7 @@ def test_production_semantic_path_persists_evidence_and_usage(tmp_path: Path) ->
         runtime,
         tmp_path / "out",
         evaluator=evaluator,
+        pairwise_semantic_evaluator=pairwise,
         semantic_generator=semantic,
         semantic_invariant_verifier=invariants,
         semantic_invariant_discoverer=invariants,
@@ -66,17 +69,17 @@ def test_production_semantic_path_persists_evidence_and_usage(tmp_path: Path) ->
     semantic_candidate = next(candidate for candidate in generated if candidate.creation_cost.generation_requests)
     assert semantic_candidate.creation_cost.generation_input_tokens == 100
     assert semantic_candidate.creation_cost.evaluation_requests >= 1
+    assert semantic_candidate.evidence.pairwise_semantic is not None
+    assert semantic_candidate.evidence.pairwise_semantic.overall == "candidate"
     assert semantic_candidate.creation_cost.prompt_suboptimizer_requests == 1
     assert semantic_candidate.creation_cost.total_cost > 0
-    assert any(
-        item.invariant_id == "semantic-critical-1"
-        for item in semantic_candidate.evidence.invariant_decisions
-    )
+    assert any(item.invariant_id == "semantic-critical-1" for item in semantic_candidate.evidence.invariant_decisions)
     assert result.run.metadata["gepa"]["performed"] is True
     assert result.run.recommendation_reason
     evidence_path = Path(semantic_candidate.artifact_dir) / "evidence.json"
     persisted = json.loads(evidence_path.read_text(encoding="utf-8"))
     assert persisted["invariant_decisions"]
+    assert persisted["pairwise_semantic"]["reason"].endswith("not measured agent performance")
 
 
 def test_semantic_discovery_is_conservative_and_preserves_provenance(tmp_path: Path) -> None:
@@ -100,6 +103,7 @@ def test_cli_semantic_stack_wires_all_provider_budgets(monkeypatch) -> None:
     runtime.search.max_input_tokens = 700
     runtime.search.max_output_tokens = 140
     runtime.search.max_cost_usd = Decimal("0.07")
+    runtime.pairwise_semantic = True
     monkeypatch.setenv("AI_DOC_SEMANTIC_COMMAND", _fixture_command())
     stack = _build_semantic_stack(runtime, deep=True)
     assert isinstance(stack.provider, BudgetedSemanticProvider)
@@ -110,6 +114,18 @@ def test_cli_semantic_stack_wires_all_provider_budgets(monkeypatch) -> None:
     assert stack.generator is not None
     assert stack.invariant_verifier is not None
     assert stack.evaluator is not None
+    assert stack.pairwise_evaluator is not None
+
+
+def test_cli_pairwise_stack_uses_deepeval_without_command(monkeypatch) -> None:
+    runtime = RuntimeSearchConfig(mode=OptimizeMode.BALANCED, pairwise_semantic=True)
+    monkeypatch.delenv("AI_DOC_SEMANTIC_COMMAND", raising=False)
+
+    stack = _build_semantic_stack(runtime, deep=False)
+
+    assert stack.provider is None
+    assert stack.evaluator is None
+    assert stack.pairwise_evaluator is not None
 
 
 def test_production_generator_observes_feedback_and_memory_contents(tmp_path: Path) -> None:
@@ -142,9 +158,7 @@ def test_context_selector_requires_explicit_router(tmp_path: Path) -> None:
         "# Rules\n\nMigration migration migration. [Migration guide](docs/migration.md)\n",
         encoding="utf-8",
     )
-    (project / "docs/migration.md").write_text(
-        "# Migration\n\nDetailed migration instructions.\n", encoding="utf-8"
-    )
+    (project / "docs/migration.md").write_text("# Migration\n\nDetailed migration instructions.\n", encoding="utf-8")
     config = DEFAULT_CONFIG.model_copy(deep=True)
     config.include = ["AGENTS.md", "docs/**/*.md"]
     snapshot = discover_markdown(project, config, ApproximateTokenCounter())

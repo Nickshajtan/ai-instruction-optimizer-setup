@@ -259,6 +259,7 @@ preserving a safety requirement during optimization.
 ```yaml
 optimization:
   engine: deepeval
+  pairwise_semantic: false
   strategy: balanced
   population:
     initial_candidates: 4
@@ -293,6 +294,12 @@ ai-doc optimize . --max-cost 1.00 --max-requests 20 --seed 42
 The optimization settings bound how many candidates are generated, how much search is
 allowed, and what trade-offs are acceptable. Keep defaults until you have reviewed a few
 optimization reports and understand which limits matter for your workflow.
+
+`pairwise_semantic` is an explicit opt-in B-tier confidence layer. It compares baseline
+and candidate documentation for predicted instruction-following quality and records
+`candidate`, `baseline`, `equivalent`, or `uncertain` evidence. It is not measured
+Claude/Codex task success; static and invariant checks remain the authoritative hard
+constraints, and unavailable or uncertain pairwise evidence does not fail optimization.
 
 ## Extensions
 

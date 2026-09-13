@@ -4,7 +4,7 @@ import pytest
 
 import ai_doc.evaluators.deepeval as deepeval_module
 from ai_doc.domain.documents import DocumentationSnapshot
-from ai_doc.domain.evaluations import EvaluationSuite
+from ai_doc.domain.evaluations import EvaluationSuite, PairwiseDimension, PairwiseOutcome
 from ai_doc.evaluators.deepeval import DeepEvalEvaluator, DeepEvalUnavailableError
 from ai_doc.evaluators.promptfoo import (
     PROMPTFOO_CONTAINS_ASSERTION,
@@ -15,6 +15,7 @@ from ai_doc.evaluators.promptfoo import (
     _promptfoo_config,
 )
 from ai_doc.evaluators.suite import load_evaluation_suite
+from ai_doc.optimizer.semantic import normalize_pairwise_response
 
 
 def _snapshot(text: str) -> DocumentationSnapshot:
@@ -137,7 +138,11 @@ def test_deepeval_evaluator_uses_baseline_when_candidate_absent(monkeypatch) -> 
         deepeval_module,
         "_load_deepeval_symbols",
         lambda: deepeval_module.DeepEvalSymbols(
-            geval=FakeMetric, llm_test_case=FakeTestCase, actual_output_param=object(), expected_output_param=object()
+            geval=FakeMetric,
+            llm_test_case=FakeTestCase,
+            actual_output_param=object(),
+            expected_output_param=object(),
+            input_param=object(),
         ),
     )
     suite = EvaluationSuite.model_validate(
@@ -152,3 +157,75 @@ def test_deepeval_evaluator_uses_baseline_when_candidate_absent(monkeypatch) -> 
     assert result.raw_summary["semantic"] is True
     assert measured
     assert "BASELINE CONTENT" in measured[0].kwargs["actual_output"]
+
+
+def test_pairwise_response_normalizes_all_outcomes_and_dimensions() -> None:
+    result = normalize_pairwise_response(
+        {
+            "overall": "candidate_better",
+            "dimensions": [
+                {"dimension": "clarity", "outcome": "candidate_wins", "evidence": "clearer"},
+                {"dimension": "ambiguity", "outcome": "baseline_wins", "evidence": "less vague"},
+                {"dimension": "scope_precision", "outcome": "tie", "evidence": "same scope"},
+                {"dimension": "instruction_hierarchy", "outcome": "unclear", "evidence": "mixed"},
+            ],
+        },
+        engine="test",
+    )
+
+    assert result.overall == PairwiseOutcome.CANDIDATE
+    by_dimension = {item.dimension: item for item in result.dimensions}
+    assert set(by_dimension) == set(PairwiseDimension)
+    assert by_dimension[PairwiseDimension.CLARITY].outcome == PairwiseOutcome.CANDIDATE
+    assert by_dimension[PairwiseDimension.AMBIGUITY].outcome == PairwiseOutcome.BASELINE
+    assert by_dimension[PairwiseDimension.SCOPE_PRECISION].outcome == PairwiseOutcome.EQUIVALENT
+    assert by_dimension[PairwiseDimension.INSTRUCTION_HIERARCHY].outcome == PairwiseOutcome.UNCERTAIN
+    assert by_dimension[PairwiseDimension.ACTIONABILITY].outcome == PairwiseOutcome.UNCERTAIN
+
+
+def test_deepeval_pairwise_uses_arena_geval_when_available(monkeypatch) -> None:
+    measured: list[object] = []
+
+    class FakeArenaMetric:
+        winner = "candidate"
+        reason = "candidate has clearer instructions"
+
+        def __init__(self, **kwargs) -> None:
+            self.kwargs = kwargs
+
+        def measure(self, test_case: object) -> None:
+            measured.append(test_case)
+
+    class FakeTestCase:
+        def __init__(self, **kwargs) -> None:
+            self.kwargs = kwargs
+
+    class FakeContestant:
+        def __init__(self, **kwargs) -> None:
+            self.kwargs = kwargs
+
+    monkeypatch.setattr(
+        deepeval_module,
+        "_load_deepeval_symbols",
+        lambda: deepeval_module.DeepEvalSymbols(
+            geval=object,
+            llm_test_case=FakeTestCase,
+            actual_output_param=object(),
+            expected_output_param=object(),
+            input_param=object(),
+            arena_geval=FakeArenaMetric,
+            arena_test_case=FakeTestCase,
+            contestant=FakeContestant,
+        ),
+    )
+
+    result = DeepEvalEvaluator().compare_pairwise(
+        _snapshot("baseline"),
+        _snapshot("candidate"),
+        EvaluationSuite.model_validate({"scenarios": [{"id": "one", "task": "Do work."}]}),
+    )
+
+    assert result.engine == "deepeval-arena-geval"
+    assert result.overall == PairwiseOutcome.CANDIDATE
+    assert len(result.dimensions) == len(PairwiseDimension)
+    assert measured

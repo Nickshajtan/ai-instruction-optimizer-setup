@@ -10,6 +10,7 @@ from pydantic import BaseModel
 from ai_doc import __version__
 from ai_doc.config.loader import ConfigError, load_config
 from ai_doc.optional_dependencies import DependencyStatus, deepeval_status, promptfoo_status
+from ai_doc.providers.semantic import SEMANTIC_COMMAND_ENV
 
 
 class Capability(BaseModel):
@@ -75,6 +76,11 @@ def _optional_integration_capabilities() -> list[Capability]:
     return [
         _capability_from_dependency(promptfoo_status()),
         _capability_from_dependency(deepeval_status()),
+        Capability(
+            name="semantic command",
+            status="configured" if os.getenv(SEMANTIC_COMMAND_ENV) else "not configured",
+            detail=SEMANTIC_COMMAND_ENV,
+        ),
     ]
 
 

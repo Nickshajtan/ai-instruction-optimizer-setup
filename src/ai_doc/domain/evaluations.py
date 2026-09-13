@@ -43,6 +43,37 @@ class EvaluationResult(BaseModel):
     raw_summary: dict[str, object] = Field(default_factory=dict)
 
 
+class PairwiseOutcome(StrEnum):
+    CANDIDATE = "candidate"
+    BASELINE = "baseline"
+    EQUIVALENT = "equivalent"
+    UNCERTAIN = "uncertain"
+
+
+class PairwiseDimension(StrEnum):
+    CLARITY = "clarity"
+    AMBIGUITY = "ambiguity"
+    SCOPE_PRECISION = "scope_precision"
+    INSTRUCTION_HIERARCHY = "instruction_hierarchy"
+    ACTIONABILITY = "actionability"
+    SEMANTIC_REQUIREMENT_PRESERVATION = "semantic_requirement_preservation"
+    CONFLICTING_INTERPRETATION_RISK = "conflicting_interpretation_risk"
+
+
+class PairwiseDimensionResult(BaseModel):
+    dimension: PairwiseDimension
+    outcome: PairwiseOutcome
+    evidence: str
+
+
+class PairwiseSemanticResult(BaseModel):
+    engine: str
+    overall: PairwiseOutcome
+    dimensions: list[PairwiseDimensionResult] = Field(default_factory=list)
+    reason: str | None = None
+    raw_summary: dict[str, object] = Field(default_factory=dict)
+
+
 class Evaluator(Protocol):
     def evaluate(
         self,
@@ -50,6 +81,15 @@ class Evaluator(Protocol):
         candidate: DocumentationSnapshot | None,
         suite: EvaluationSuite,
     ) -> EvaluationResult: ...
+
+
+class PairwiseSemanticEvaluator(Protocol):
+    def compare_pairwise(
+        self,
+        baseline: DocumentationSnapshot,
+        candidate: DocumentationSnapshot,
+        suite: EvaluationSuite,
+    ) -> PairwiseSemanticResult: ...
 
 
 class CandidateComparison(BaseModel):
