@@ -1,8 +1,5 @@
-from __future__ import annotations
-
 import json
 import sys
-
 
 request = json.load(sys.stdin)
 scenario = request["scenario"]
