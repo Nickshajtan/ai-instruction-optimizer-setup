@@ -10,6 +10,7 @@ from pathlib import Path
 
 EXTRA_MODULES = {
     "none": (),
+    "ml": ("sentence_transformers", "transformers", "torch"),
     "promptfoo": ("promptfoo",),
     "deepeval": ("deepeval",),
     "deep": ("promptfoo", "deepeval"),
