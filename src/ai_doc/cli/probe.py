@@ -24,7 +24,10 @@ def probe_command(
     config: Annotated[Path | None, typer.Option("--config", help="Path to .ai-doc.yaml.")] = None,
     candidate: Annotated[
         Path | None,
-        typer.Option("--candidate", help="Optional alternate documentation tree for baseline-vs-candidate planning comparison."),
+        typer.Option(
+            "--candidate",
+            help="Optional alternate documentation tree for baseline-vs-candidate planning comparison.",
+        ),
     ] = None,
 ) -> None:
     """Run one real target-model planning probe per configured evaluation scenario."""
