@@ -13,6 +13,20 @@ from ai_doc.domain.evaluations import (
 )
 from ai_doc.domain.findings import Finding, FindingCategory, FindingSeverity
 from ai_doc.domain.optimization import Candidate, ObjectiveVector
+from ai_doc.domain.probes import (
+    BehavioralObservation,
+    ObservationVerifier,
+    PlanningProbeComparison,
+    PlanningProbeReport,
+    ProbeExpectationKind,
+    ProbeExpectationOutcome,
+    ProbeExpectationResult,
+    ProbeMode,
+    ProbeUsage,
+    ScenarioProbeComparison,
+    TargetProbe,
+    VerifiedObservation,
+)
 from ai_doc.optimizer.recommendation import RecommendationPolicy
 from ai_doc.plugins.registry import ExtensionRegistry
 from ai_doc.providers.base import LLMProvider
@@ -21,6 +35,7 @@ from ai_doc.tokens.counter import TokenCounter
 __all__ = [
     "AnalysisContext",
     "Analyzer",
+    "BehavioralObservation",
     "Candidate",
     "Document",
     "DocumentProfile",
@@ -33,11 +48,22 @@ __all__ = [
     "FindingSeverity",
     "LLMProvider",
     "ObjectiveVector",
+    "ObservationVerifier",
     "PairwiseDimension",
     "PairwiseDimensionResult",
     "PairwiseOutcome",
     "PairwiseSemanticEvaluator",
     "PairwiseSemanticResult",
+    "PlanningProbeComparison",
+    "PlanningProbeReport",
+    "ProbeExpectationKind",
+    "ProbeExpectationOutcome",
+    "ProbeExpectationResult",
+    "ProbeMode",
+    "ProbeUsage",
     "RecommendationPolicy",
+    "ScenarioProbeComparison",
+    "TargetProbe",
     "TokenCounter",
+    "VerifiedObservation",
 ]
