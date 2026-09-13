@@ -22,6 +22,8 @@ class EvaluationScenario(BaseModel):
     task: str
     expected_required: list[str] = Field(default_factory=list)
     expected_forbidden: list[str] = Field(default_factory=list)
+    behavior_required: list[str] = Field(default_factory=list)
+    behavior_forbidden: list[str] = Field(default_factory=list)
     tags: list[str] = Field(default_factory=list)
 
 

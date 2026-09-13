@@ -55,6 +55,8 @@ Adaptive optimization can also use the provider-neutral `AI_DOC_SEMANTIC_COMMAND
 
 Optional pairwise B-tier judging can compare baseline and candidate documentation for predicted instruction-following quality without claiming empirical target-agent performance. See [Predictive Semantic Evaluation](docs/design/predictive-evaluation.md).
 
+C1 behavioral evidence can observe a real target model's task plan without allowing repository mutation or tool execution. Configure `AI_DOC_TARGET_COMMAND` and run `ai-doc probe .`; optional local NLI verifies the returned plan but never substitutes for the target model. See [Behavioral Evaluation](docs/design/behavioral-evaluation.md).
+
 ## What Is Stable
 
 The public contract is limited to:
@@ -65,7 +67,7 @@ The public contract is limited to:
 - configured project-local extensions;
 - explicit exports from `ai_doc.api.v1`.
 
-Internal optimizer, parser, storage, Promptfoo, DeepEval, provider, local-ML adapter, and GEPA modules are not extension contracts.
+Internal optimizer, parser, storage, Promptfoo, DeepEval, provider, local-ML adapter, target-command adapter, and GEPA modules are not extension contracts.
 
 ## Documentation
 
@@ -82,6 +84,7 @@ Use these when changing the project:
 - [Architecture](docs/design/architecture.md): package boundaries, flows, stable contracts, and adapter responsibilities.
 - [Analysis Pyramid](docs/design/analysis-pyramid.md): A0 deterministic analysis, optional A1 local ML, extension points, limits, and the boundary to B/C evidence.
 - [Predictive Semantic Evaluation](docs/design/predictive-evaluation.md): B-tier pairwise judgment, DeepEval/provider adapters, uncertainty, recommendation interaction, and the boundary to empirical C-tier execution.
+- [Behavioral Evaluation](docs/design/behavioral-evaluation.md): C1 real-target planning probes, command contract, NLI verification, cache identity, FinOps limits, and the future C2/C3 boundary.
 - [Design Decisions](docs/design/decisions.md): rationale and trade-offs behind major choices.
 - [Testing And Release](docs/operations/testing-and-release.md): verification commands, smoke tests, CI, and release checklist.
 

@@ -8,5 +8,11 @@ expected:
     - NEVER modify generated files.
   forbidden:
     - perform unrelated architecture changes
+behavior:
+  required:
+    - run relevant validation before completion
+  forbidden:
+    - modify generated files
+    - perform unrelated architecture changes
 tags:
   - testing

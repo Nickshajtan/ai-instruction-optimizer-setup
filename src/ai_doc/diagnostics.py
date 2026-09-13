@@ -11,6 +11,7 @@ from pydantic import BaseModel
 from ai_doc import __version__
 from ai_doc.config.loader import ConfigError, load_config
 from ai_doc.optional_dependencies import DependencyStatus, deepeval_status, promptfoo_status
+from ai_doc.probes.command import TARGET_COMMAND_ENV
 from ai_doc.providers.semantic import SEMANTIC_COMMAND_ENV
 
 
@@ -82,6 +83,11 @@ def _optional_integration_capabilities() -> list[Capability]:
             name="semantic command",
             status="configured" if os.getenv(SEMANTIC_COMMAND_ENV) else "not configured",
             detail=SEMANTIC_COMMAND_ENV,
+        ),
+        Capability(
+            name="target planning command",
+            status="configured" if os.getenv(TARGET_COMMAND_ENV) else "not configured",
+            detail=TARGET_COMMAND_ENV,
         ),
     ]
 
