@@ -28,6 +28,7 @@ dev = [
   "mypy>=2.3.1",
   "types-PyYAML>=6.0.12.12",
 ]
+ml = ["sentence-transformers>=3.0"]
 promptfoo = ["promptfoo>=0.1.0"]
 deepeval = ["deepeval>=1.0"]
 deep = ["promptfoo>=0.1.0", "deepeval>=1.0"]
