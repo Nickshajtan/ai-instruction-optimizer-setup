@@ -4,18 +4,21 @@ from importlib import import_module
 from typing import Any
 
 from ai_doc.ml.base import NLIRelation, NLIResult
+from ai_doc.ml.model_paths import NLI_MODEL_SLOT, resolve_local_model_reference
 from ai_doc.ml.sentence_transformers import LocalModelUnavailableError
 
 
 class SentenceTransformersNLIEngine:
     def __init__(self, model_name: str) -> None:
+        model_reference = resolve_local_model_reference(model_name, NLI_MODEL_SLOT)
         try:
             module = import_module("sentence_transformers")
             model_type = module.CrossEncoder
-            self._model: Any = model_type(model_name, local_files_only=True)
+            self._model: Any = model_type(model_reference, local_files_only=True)
         except (ImportError, OSError, ValueError) as exc:
             raise LocalModelUnavailableError(
-                f"Local NLI model '{model_name}' is unavailable; install ai-doc[ml] and cache the model locally."
+                f"Local NLI model '{model_name}' is unavailable; install ai-doc[ml] and provision "
+                "the model through an explicit path, AI_DOC_MODEL_ROOT, a bundled executable model, or the local cache."
             ) from exc
 
     def classify(self, premise: str, hypothesis: str) -> NLIResult:
