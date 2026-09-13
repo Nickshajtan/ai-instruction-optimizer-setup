@@ -42,6 +42,7 @@ class LocalMLConfig(BaseModel):
 
 class OptimizationConfig(BaseModel):
     engine: EvaluationEngine = EvaluationEngine.DEEPEVAL
+    pairwise_semantic: bool = False
     strategy: OptimizeMode = OptimizeMode.BALANCED
     population: PopulationConfig = Field(default_factory=PopulationConfig)
     search: SearchConfig = Field(default_factory=SearchConfig)
