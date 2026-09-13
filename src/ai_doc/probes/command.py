@@ -47,10 +47,11 @@ class CommandTargetProbe:
     """Run a real target-model planning probe through a provider-neutral command contract."""
 
     def __init__(self, command: str | None = None, *, timeout_seconds: int = DEFAULT_TARGET_TIMEOUT_SECONDS) -> None:
-        self.command = command or os.getenv(TARGET_COMMAND_ENV, "")
-        self.timeout_seconds = timeout_seconds
-        if not self.command.strip():
+        resolved_command = command or os.getenv(TARGET_COMMAND_ENV) or ""
+        if not resolved_command.strip():
             raise TargetProbeError(f"Target probe command is not configured; set {TARGET_COMMAND_ENV}.")
+        self.command: str = resolved_command
+        self.timeout_seconds = timeout_seconds
 
     def run(self, snapshot: DocumentationSnapshot, scenario: EvaluationScenario) -> BehavioralObservation:
         request = _TargetPlanRequest(
