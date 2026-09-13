@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import importlib.util
+import os
 import subprocess
 import sys
 from dataclasses import dataclass
@@ -15,6 +16,8 @@ EXTRA_MODULES = {
     "deepeval": ("deepeval",),
     "deep": ("promptfoo", "deepeval"),
 }
+MODEL_SLOTS = ("similarity", "nli")
+BUNDLED_MODEL_DIR = "ai_doc_models"
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -29,15 +32,31 @@ def main(argv: list[str] | None = None) -> int:
         default="none",
         help="Optional Python integrations to include in the executable.",
     )
+    executable.add_argument(
+        "--model-root",
+        type=Path,
+        default=None,
+        help="Bundle offline ML weights from <root>/similarity and <root>/nli. Requires --extras ml.",
+    )
     args = parser.parse_args(argv)
     if args.command == "executable":
-        return build_executable(mode=args.mode, onefile=not args.onedir, extras=args.extras)
+        return build_executable(
+            mode=args.mode,
+            onefile=not args.onedir,
+            extras=args.extras,
+            model_root=args.model_root,
+        )
     raise AssertionError(args.command)
 
 
-def build_executable(mode: str = "development", onefile: bool = True, extras: str = "none") -> int:
+def build_executable(
+    mode: str = "development",
+    onefile: bool = True,
+    extras: str = "none",
+    model_root: Path | None = None,
+) -> int:
     root = Path(__file__).resolve().parents[1]
-    build = ExecutableBuild(root=root, onefile=onefile, extras=extras)
+    build = ExecutableBuild(root=root, onefile=onefile, extras=extras, model_root=model_root)
     missing = build.missing_extra_modules()
     if missing:
         print(
@@ -47,10 +66,15 @@ def build_executable(mode: str = "development", onefile: bool = True, extras: st
             file=sys.stderr,
         )
         return 1
+    model_error = build.model_bundle_error()
+    if model_error:
+        print(model_error, file=sys.stderr)
+        return 1
     built = build.run()
     checksum_path = build.write_checksum(built)
     print(f"Built {mode} executable: {built}")
     print(f"Extras: {extras}")
+    print(f"Bundled model weights: {'yes' if model_root else 'no'}")
     print(f"Checksum: {checksum_path}")
     return 0
 
@@ -60,6 +84,7 @@ class ExecutableBuild:
     root: Path
     onefile: bool = True
     extras: str = "none"
+    model_root: Path | None = None
 
     @property
     def dist_root(self) -> Path:
@@ -99,6 +124,11 @@ class ExecutableBuild:
         ]
         for module in self.extra_modules():
             command.extend(["--collect-submodules", module])
+        if self.model_root is not None:
+            for slot in MODEL_SLOTS:
+                source = self.model_root / slot
+                destination = f"{BUNDLED_MODEL_DIR}/{slot}"
+                command.extend(["--add-data", f"{source}{os.pathsep}{destination}"])
         if self.onefile:
             command.append("--onefile")
         command.append(str(self.entry))
@@ -130,6 +160,16 @@ class ExecutableBuild:
 
     def missing_extra_modules(self) -> list[str]:
         return [module for module in self.extra_modules() if importlib.util.find_spec(module) is None]
+
+    def model_bundle_error(self) -> str | None:
+        if self.model_root is None:
+            return None
+        if self.extras != "ml":
+            return "--model-root requires --extras ml so the local ML runtime is bundled too."
+        missing = [slot for slot in MODEL_SLOTS if not (self.model_root / slot).is_dir()]
+        if missing:
+            return "Model root must contain directories: " + ", ".join(f"{slot}/" for slot in missing)
+        return None
 
 
 def extra_modules(extras: str) -> tuple[str, ...]:
