@@ -11,6 +11,7 @@ from typing import Annotated
 import typer
 
 from ai_doc.app import load_suite, run_static_check
+from ai_doc.composition import register_configured_extensions, resolve_configured_evaluator
 from ai_doc.config.loader import ConfigError, load_config
 from ai_doc.config.search import OptimizeMode, RuntimeSearchConfig
 from ai_doc.discovery.markdown_discovery import discover_markdown
@@ -87,6 +88,7 @@ def optimize_command(  # pylint: disable=too-many-arguments,too-many-positional-
     try:
         loaded = load_config(project_root, config)
         extensions = load_extensions(project_root, loaded.extensions, debug=debug)
+        register_configured_extensions(loaded, extensions)
         baseline_report = run_static_check(project_root, loaded, extensions=extensions)
         baseline_snapshot = discover_markdown(project_root, loaded, ApproximateTokenCounter())
     except (ConfigError, ExtensionError) as exc:
@@ -116,6 +118,9 @@ def optimize_command(  # pylint: disable=too-many-arguments,too-many-positional-
 
     suite = load_suite(project_root)
     semantic = _build_semantic_stack(runtime, deep)
+    configured_evaluator = resolve_configured_evaluator(loaded, extensions, "deep") if deep else None
+    if configured_evaluator is not None:
+        semantic.evaluator = ScenarioContextEvaluator(configured_evaluator)
     if semantic.provider:
         typer.echo(
             f"Semantic provider enabled from {SEMANTIC_COMMAND_ENV}; generation and invariant safety are active.",
