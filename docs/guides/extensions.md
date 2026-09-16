@@ -1,36 +1,24 @@
 # Extension API
 
-Project-local extensions let repositories add custom checks without forking `ai-doc`.
+Project-local extensions let repositories add custom checks or named runtime components without forking `ai-doc`.
 
-Use this page when the built-in analyzers are not enough and your organization needs a
-repository-specific rule. If you only want to configure which files are analyzed, use
-[Configuration](configuration.md) instead.
+Use this page when the built-in analyzers or evaluators are not enough and your organization needs a repository-specific rule or provider adapter. If you only want to configure which files are analyzed, use [Configuration](configuration.md) instead.
 
-An extension is a Python file listed in `.ai-doc.yaml`. `ai-doc` imports that file and
-calls its `register(registry)` function. The extension can then add static analyzers that
-receive the parsed documentation snapshot and return findings.
+`ai-doc` supports two extension shapes:
+
+- in-process Python extensions loaded from trusted project files;
+- process extensions launched through a portable JSON stdin/stdout protocol.
 
 ## Where Extensions Run
 
-The current extension API is for static analysis only.
-
-Extensions run when a command loads the static analyzer pipeline:
+Extensions run when a command loads the analyzer or evaluation pipeline:
 
 - `ai-doc check`
 - `ai-doc check --deep`, before the optional deep evaluator runs
 - `ai-doc optimize`, for baseline and candidate static gates
+- `ai-doc optimize --deep`, where a configured evaluator can replace the built-in deep evaluator
 
-Extensions do not currently extend:
-
-- `ai-doc init`, `doctor`, `setup`, or `version`
-- Promptfoo or DeepEval evaluator internals
-- candidate generation strategies
-- Pareto recommendation policy
-- token counters, pricing providers, or document profiles
-- packaging/build behavior
-
-This means custom analyzers can add findings to reports, and those findings can influence
-static gates during optimization. They are not a general plugin system for every command.
+Extensions do not currently extend `init`, `doctor`, `setup`, `version`, packaging/build behavior, or every optimizer policy. Deeper Policy Engine extraction, richer tokenization/pricing/context-cost providers, and additional transports remain follow-up work.
 
 ## Stability Contract
 
@@ -40,10 +28,9 @@ Stable imports live under:
 from ai_doc.api.v1 import AnalysisContext, Finding, FindingCategory, FindingSeverity
 ```
 
-Anything outside `ai_doc.api.v1` should be treated as internal unless explicitly
-documented otherwise.
+Anything outside `ai_doc.api.v1` should be treated as internal unless explicitly documented otherwise.
 
-## Configure Extensions
+## In-Process Python Extensions
 
 `.ai-doc.yaml`:
 
@@ -60,14 +47,7 @@ Rules:
 - extension code executes with normal Python privileges;
 - do not configure untrusted extension files.
 
-Because extension code runs with normal Python privileges, only configure files that are
-part of the trusted repository.
-
-## Analyzer Extension
-
-This example reports an informational finding whenever a document mentions generated
-files. Real extensions can enforce organization-specific policies, naming conventions, or
-required runbook links.
+This example reports an informational finding whenever a document mentions generated files.
 
 ```python
 from ai_doc.api.v1 import AnalysisContext, Finding, FindingCategory, FindingSeverity
@@ -97,8 +77,6 @@ def register(registry) -> None:
     registry.add_analyzer(GeneratedFilesPolicy())
 ```
 
-## Registration
-
 Extensions must define:
 
 ```python
@@ -106,17 +84,76 @@ def register(registry) -> None:
     ...
 ```
 
-The registry validates registrations. A custom analyzer must provide:
+The registry validates registrations. Existing analyzer extensions keep using `registry.add_analyzer(...)` unchanged. The registry also supports named evaluators, token counters, recommendation policies, and providers for composition-boundary dependency injection.
 
-```python
-def analyze(self, context: AnalysisContext) -> list[Finding]:
-    ...
+## Process Evaluator Extensions
+
+Process evaluator extensions are provider-neutral. A logical evaluator name such as `instruction-quality` can be backed by Claude, Codex, Gemini, a local model, a rules engine, or any executable that speaks the protocol. Core code only sees the evaluator abstraction.
+
+`.ai-doc.yaml`:
+
+```yaml
+evaluation:
+  deep:
+    evaluator: instruction-quality
+extension_runtime:
+  evaluators:
+    instruction-quality:
+      type: command
+      command: [python, examples/extensions/simple_evaluator.py]
+      timeout: 120
 ```
 
-`AnalysisContext` gives access to configuration, parsed documents, and the document graph.
-`Finding` is the stable report object shown in console and JSON output. Use
-`FindingCategory` and `FindingSeverity` for typed custom findings; their JSON values are
-the same category and severity strings shown in reports.
+Commands are argv arrays and run with `shell=False`. stdout is reserved for protocol JSON. stderr is reserved for diagnostics and may be surfaced on failures.
+
+### Request
+
+The process receives one JSON object on stdin:
+
+```json
+{
+  "protocol": "ai-doc.extension/v1",
+  "operation": "evaluate",
+  "request_id": "opaque-request-id",
+  "payload": {
+    "baseline": {"root": ".", "total_tokens": 10, "documents": []},
+    "candidate": null,
+    "suite": {"scenarios": []}
+  }
+}
+```
+
+### Successful Response
+
+```json
+{
+  "protocol": "ai-doc.extension/v1",
+  "request_id": "same-request-id",
+  "status": "ok",
+  "result": {
+    "engine": "custom-evaluator",
+    "passed": true,
+    "cases": []
+  }
+}
+```
+
+### Error Response
+
+```json
+{
+  "protocol": "ai-doc.extension/v1",
+  "request_id": "same-request-id",
+  "status": "error",
+  "error": {"code": "unavailable", "message": "provider unavailable"}
+}
+```
+
+`ai-doc` treats command-start failures, timeouts, non-zero exits, invalid JSON, unsupported protocol versions, mismatched request IDs, schema validation failures, and explicit extension errors as infrastructure errors. These are distinct from a valid negative evaluation result.
+
+## Security
+
+Both Python extensions and process extensions are trusted project configuration. Documentation content must not choose executables. Configure commands deliberately, avoid logging secrets, and pass provider credentials through the external adapter's trusted environment or config. The process runtime is a protocol boundary, not a sandbox.
 
 ## Failure Behavior
 
