@@ -12,14 +12,15 @@ from ai_doc.domain.findings import Finding
 from ai_doc.domain.optimization import Candidate, CandidateStatus
 from ai_doc.extensions.contracts import (
     AnalyzerResultV1,
+    EvaluationResultV1,
     RecommendationDecisionV1,
+    SemanticProviderResultV1,
     TokenCountResultV1,
     analyzer_request_from_context,
     evaluation_request,
     recommendation_request,
     semantic_provider_request,
     token_count_request,
-    validate_optional_payload_version,
     validate_wire_result,
 )
 from ai_doc.extensions.transport import (
@@ -58,12 +59,7 @@ class ProcessAnalyzer:
 
     def analyze(self, context: AnalysisContext) -> list[Finding]:
         result = self.transport.invoke(ANALYZE_OPERATION, analyzer_request_from_context(context))
-        if isinstance(result, Mapping):
-            raw_findings = validate_wire_result(AnalyzerResultV1, result, "Process analyzer result").findings
-        else:
-            raw_findings = result
-        if not isinstance(raw_findings, list):
-            raise ProcessExtensionError("Process analyzer result must be a findings list.")
+        raw_findings = validate_wire_result(AnalyzerResultV1, result, "Process analyzer result").findings
         try:
             return [Finding.model_validate(item) for item in raw_findings]
         except ValidationError as exc:
@@ -139,9 +135,9 @@ class ProcessSemanticProvider:
 
     def invoke(self, operation: str, payload: dict[str, object]) -> SemanticResponse:
         result = self.transport.invoke(COMPLETE_OPERATION, semantic_provider_request(operation, payload))
-        validate_optional_payload_version(result, "Process provider result")
+        wire_result = validate_wire_result(SemanticProviderResultV1, result, "Process provider result")
         try:
-            return SemanticResponse.model_validate(result)
+            return SemanticResponse.model_validate(wire_result.model_dump(mode="json", exclude={"payload_version"}))
         except ValidationError as exc:
             raise ProcessExtensionError(f"Process provider result failed schema validation:\n{exc}") from exc
 
@@ -149,10 +145,12 @@ def _evaluation_result_from_result(
     result: Any,
     default_engine: str,
 ) -> EvaluationResult:
-    normalized = result
-    if isinstance(result, Mapping):
-        validate_optional_payload_version(result, "Process evaluator result")
-        normalized = {"engine": default_engine, **result}
+    if not isinstance(result, Mapping):
+        raise ProcessExtensionError("Process evaluator result must be an object.")
+    wire_result = validate_wire_result(EvaluationResultV1, result, "Process evaluator result")
+    normalized = wire_result.model_dump(mode="json", exclude={"payload_version"})
+    if normalized.get("engine") is None:
+        normalized["engine"] = default_engine
     try:
         return EvaluationResult.model_validate(normalized)
     except ValidationError as exc:

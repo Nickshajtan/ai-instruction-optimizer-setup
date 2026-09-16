@@ -62,7 +62,33 @@ class AnalyzerResultV1(VersionedWireModel):
 class EvaluationRequestV1(VersionedWireModel):
     baseline: WireSnapshotV1
     candidate: WireSnapshotV1 | None = None
-    suite: dict[str, Any]
+    suite: WireEvaluationSuiteV1
+
+
+class WireEvaluationScenarioV1(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    profile: str
+    task: str
+    expected_required: list[str] = Field(default_factory=list)
+    expected_forbidden: list[str] = Field(default_factory=list)
+    behavior_required: list[str] = Field(default_factory=list)
+    behavior_forbidden: list[str] = Field(default_factory=list)
+    tags: list[str] = Field(default_factory=list)
+
+
+class WireEvaluationSuiteV1(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    scenarios: list[WireEvaluationScenarioV1] = Field(default_factory=list)
+
+
+class EvaluationResultV1(VersionedWireModel):
+    engine: str | None = None
+    passed: bool
+    cases: list[dict[str, Any]] = Field(default_factory=list)
+    raw_summary: dict[str, Any] = Field(default_factory=dict)
 
 
 class TokenCountItemV1(BaseModel):
@@ -108,6 +134,11 @@ class SemanticProviderRequestV1(VersionedWireModel):
     payload: dict[str, Any] = Field(default_factory=dict)
 
 
+class SemanticProviderResultV1(VersionedWireModel):
+    data: dict[str, Any] = Field(default_factory=dict)
+    usage: dict[str, Any] = Field(default_factory=dict)
+
+
 def analyzer_request_from_context(context: AnalysisContext) -> dict[str, Any]:
     request = AnalyzerRequestV1(
         documents=_wire_documents(context.snapshot),
@@ -139,7 +170,7 @@ def evaluation_request(
     request = EvaluationRequestV1(
         baseline=snapshot_to_wire(baseline),
         candidate=snapshot_to_wire(candidate) if candidate is not None else None,
-        suite=suite.model_dump(mode="json"),
+        suite=evaluation_suite_to_wire(suite),
     )
     return request.model_dump(mode="json")
 
@@ -173,6 +204,24 @@ def snapshot_to_wire(snapshot: DocumentationSnapshot) -> WireSnapshotV1:
     )
 
 
+def evaluation_suite_to_wire(suite: EvaluationSuite) -> WireEvaluationSuiteV1:
+    return WireEvaluationSuiteV1(
+        scenarios=[
+            WireEvaluationScenarioV1(
+                id=scenario.id,
+                profile=scenario.profile,
+                task=scenario.task,
+                expected_required=list(scenario.expected_required),
+                expected_forbidden=list(scenario.expected_forbidden),
+                behavior_required=list(scenario.behavior_required),
+                behavior_forbidden=list(scenario.behavior_forbidden),
+                tags=list(scenario.tags),
+            )
+            for scenario in suite.scenarios
+        ]
+    )
+
+
 def candidate_to_wire(candidate: Candidate) -> RecommendationCandidateV1:
     evidence: dict[str, Any] = {}
     if candidate.evidence.generation_reason is not None:
@@ -203,11 +252,6 @@ def validate_wire_result[WireModelT: VersionedWireModel](
         return model.model_validate(result)
     except ValidationError as exc:
         raise ProcessExtensionError(f"{message} failed schema validation:\n{exc}") from exc
-
-
-def validate_optional_payload_version(result: Any, message: str) -> None:
-    if isinstance(result, dict) and "payload_version" in result and result["payload_version"] != PAYLOAD_VERSION:
-        raise ProcessExtensionError(f"{message} has unsupported payload_version: {result['payload_version']!r}.")
 
 
 def _wire_documents(snapshot: DocumentationSnapshot) -> list[WireDocumentV1]:

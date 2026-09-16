@@ -250,7 +250,7 @@ op = request["operation"]
 payload = request["payload"]
 result = {}
 if op == "analyze":
-    result = {"findings": [{
+    result = {"payload_version": 1, "findings": [{
         "code": "PROCESS_ANALYZER",
         "category": "risk",
         "severity": "info",
@@ -261,19 +261,19 @@ if op == "analyze":
         "suggestion": None
     }]}
 elif op == "count_tokens":
-    result = {"counts": {item["id"]: 11 for item in payload["items"]}}
+    result = {"payload_version": 1, "counts": {item["id"]: 11 for item in payload["items"]}}
 elif op == "evaluate":
-    result = {"engine": "process-evaluator", "passed": True, "cases": []}
+    result = {"payload_version": 1, "engine": "process-evaluator", "passed": True, "cases": []}
 elif op == "recommend":
     selected = next((item["id"] for item in payload["candidates"] if item["id"] != payload["baseline_id"]), None)
-    result = {"candidate_id": selected, "reason": "process selected"}
+    result = {"payload_version": 1, "candidate_id": selected, "reason": "process selected"}
 elif op == "complete":
     requested = payload["operation"]
     inner = payload["payload"]
     if requested == "discover_invariants":
-        result = {"data": {"invariants": []}, "usage": {"requests": 1, "input_tokens": 2}}
+        result = {"payload_version": 1, "data": {"invariants": []}, "usage": {"requests": 1, "input_tokens": 2}}
     elif requested == "verify_invariant":
-        result = {"data": {"status": "preserved"}, "usage": {"requests": 1, "input_tokens": 2}}
+        result = {"payload_version": 1, "data": {"status": "preserved"}, "usage": {"requests": 1, "input_tokens": 2}}
     elif requested == "generate_candidate":
         docs = dict(inner["documents"])
         docs["AGENTS.md"] += "\\nProcess provider generated.\\n"
@@ -290,10 +290,11 @@ elif op == "complete":
                 }]},
                 "documents": docs
             },
-            "usage": {"requests": 1, "input_tokens": 5, "output_tokens": 6}
+            "usage": {"requests": 1, "input_tokens": 5, "output_tokens": 6},
+            "payload_version": 1
         }
     else:
-        result = {"data": {}, "usage": {"requests": 1}}
+        result = {"payload_version": 1, "data": {}, "usage": {"requests": 1}}
 response = {
     "protocol": request["protocol"],
     "request_id": request["request_id"],
@@ -350,7 +351,7 @@ import sys
 
 code = sys.argv[1]
 request = json.loads(sys.stdin.read())
-result = {"findings": [{
+result = {"payload_version": 1, "findings": [{
     "code": code,
     "category": "risk",
     "severity": "info",
@@ -508,7 +509,7 @@ current = int(calls.read_text(encoding="utf-8")) if calls.exists() else 0
 calls.write_text(str(current + 1), encoding="utf-8")
 request = json.loads(sys.stdin.read())
 payload = request["payload"]
-result = {"counts": {item["id"]: 1 for item in payload["items"]}}
+result = {"payload_version": 1, "counts": {item["id"]: 1 for item in payload["items"]}}
 print(json.dumps({
     "protocol": request["protocol"],
     "request_id": request["request_id"],
