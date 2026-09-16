@@ -9,6 +9,7 @@ from markdown_it.token import Token
 from ai_doc.domain.analysis import InstructionUnit, Modality, NormalizationPolicy, Polarity, TextUnit, TextUnitKind
 from ai_doc.domain.documents import Document
 
+_MIN_PROPOSITION_LENGTH = 3
 _WHITESPACE_RE = re.compile(r"\s+")
 _INLINE_MARKUP_RE = re.compile(r"[`*_]")
 _CODE_RE = re.compile(r"`[^`]+`")
@@ -75,7 +76,7 @@ def classify_literal_instruction(unit: TextUnit, text: str | None = None) -> Ins
     modal = match.group("modal").lower()
     modality, polarity = _modality_and_polarity(modal)
     proposition = normalize_text(match.group("body"), NormalizationPolicy.LITERAL_PROPOSITION)
-    if len(proposition) < 3:
+    if len(proposition) < _MIN_PROPOSITION_LENGTH:
         return None
     return InstructionUnit(
         text=evidence,
