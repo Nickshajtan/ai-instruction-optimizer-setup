@@ -3,11 +3,12 @@ from pathlib import Path
 from ai_doc.config.models import DEFAULT_CONFIG
 from ai_doc.discovery.markdown_discovery import discover_markdown
 from ai_doc.domain.analysis import NormalizationPolicy, Polarity, TextUnitKind
+from ai_doc.domain.documents import Document
 from ai_doc.markdown.extraction import DeterministicInstructionExtractor, extract_text_units, normalize_text
 from ai_doc.tokens.counter import ApproximateTokenCounter
 
 
-def _document(tmp_path: Path, text: str):  # type: ignore[no-untyped-def]
+def _document(tmp_path: Path, text: str) -> Document:
     (tmp_path / "AGENTS.md").write_text(text, encoding="utf-8")
     return discover_markdown(tmp_path, DEFAULT_CONFIG, ApproximateTokenCounter()).documents[0]
 
