@@ -20,8 +20,7 @@ class ConfigError(ValueError):
 
 
 class ConfigLoadStrategy(Protocol):
-    def load(self) -> AiDocConfig:
-        ...
+    def load(self) -> AiDocConfig: ...
 
 
 class ConfigFileReader:
@@ -57,8 +56,7 @@ class NestedConfigMergeContext:
 class NestedConfigMergeRule(Protocol):
     field_name: str
 
-    def merge(self, context: NestedConfigMergeContext, nested: AiDocConfig, relative_dir: str, path: Path) -> None:
-        ...
+    def merge(self, context: NestedConfigMergeContext, nested: AiDocConfig, relative_dir: str, path: Path) -> None: ...
 
 
 class IncludeMergeRule:
@@ -80,10 +78,7 @@ class ProfilesMergeRule:
 
     def merge(self, context: NestedConfigMergeContext, nested: AiDocConfig, relative_dir: str, path: Path) -> None:
         context.nested_profiles.update(
-            {
-                _prefix_pattern(relative_dir, pattern, path): profile
-                for pattern, profile in nested.profiles.items()
-            }
+            {_prefix_pattern(relative_dir, pattern, path): profile for pattern, profile in nested.profiles.items()}
         )
 
 
@@ -92,10 +87,7 @@ class LoadingMergeRule:
 
     def merge(self, context: NestedConfigMergeContext, nested: AiDocConfig, relative_dir: str, path: Path) -> None:
         context.merged.loading.update(
-            {
-                _prefix_pattern(relative_dir, pattern, path): loading
-                for pattern, loading in nested.loading.items()
-            }
+            {_prefix_pattern(relative_dir, pattern, path): loading for pattern, loading in nested.loading.items()}
         )
 
 
@@ -104,8 +96,7 @@ class ExtensionsMergeRule:
 
     def merge(self, context: NestedConfigMergeContext, nested: AiDocConfig, relative_dir: str, path: Path) -> None:
         context.merged.extensions.extend(
-            ExtensionConfig(path=_prefix_pattern(relative_dir, extension.path, path))
-            for extension in nested.extensions
+            ExtensionConfig(path=_prefix_pattern(relative_dir, extension.path, path)) for extension in nested.extensions
         )
 
 
@@ -124,6 +115,13 @@ class OptimizationMergeRule:
         context.merged.optimization = nested.optimization
 
 
+class ExtensionRuntimeMergeRule:
+    field_name = "extension_runtime"
+
+    def merge(self, context: NestedConfigMergeContext, nested: AiDocConfig, _relative_dir: str, _path: Path) -> None:
+        context.merged.extension_runtime.evaluators.update(nested.extension_runtime.evaluators)
+
+
 DEFAULT_NESTED_MERGE_RULES: tuple[NestedConfigMergeRule, ...] = (
     IncludeMergeRule(),
     ExcludeMergeRule(),
@@ -133,6 +131,7 @@ DEFAULT_NESTED_MERGE_RULES: tuple[NestedConfigMergeRule, ...] = (
     DictUpdateMergeRule("budgets"),
     DictUpdateMergeRule("pricing"),
     DictUpdateMergeRule("evaluation"),
+    ExtensionRuntimeMergeRule(),
     OptimizationMergeRule(),
 )
 
@@ -202,9 +201,7 @@ class ConfigLoader:
 
 def load_config(root: Path, config_path: Path | None = None) -> AiDocConfig:
     strategy: ConfigLoadStrategy = (
-        ExplicitConfigLoadStrategy(config_path)
-        if config_path is not None
-        else ProjectConfigLoadStrategy(root)
+        ExplicitConfigLoadStrategy(config_path) if config_path is not None else ProjectConfigLoadStrategy(root)
     )
     return ConfigLoader(strategy).load()
 
@@ -222,11 +219,7 @@ def _iter_nested_config_paths(root: Path, exclude: list[str]) -> list[Path]:
     for current, dirs, files in os.walk(root):
         current_path = Path(current)
         relative_current = current_path.relative_to(root).as_posix()
-        dirs[:] = [
-            directory
-            for directory in dirs
-            if not _should_prune_directory(relative_current, directory, exclude)
-        ]
+        dirs[:] = [directory for directory in dirs if not _should_prune_directory(relative_current, directory, exclude)]
         if ".ai-doc.yaml" not in files:
             continue
         config_path = current_path / ".ai-doc.yaml"
