@@ -562,10 +562,16 @@ class SearchController:  # pylint: disable=too-many-instance-attributes
     ) -> OptimizationRun:
         frontier = self.selector.frontier(state.candidates)
         recommended = self.recommendation.choose(baseline_candidate, frontier)
+        decision_reason = getattr(getattr(self.recommendation, "last_decision", None), "reason", None)
+        if isinstance(decision_reason, str):
+            if recommended is not None:
+                recommended.evidence.recommendation_reason = decision_reason
+            else:
+                baseline_candidate.evidence.recommendation_reason = decision_reason
         reason = (
-            f"recommended {recommended.id}: non-dominated and policy-qualified"
+            decision_reason or f"recommended {recommended.id}: non-dominated and policy-qualified"
             if recommended
-            else "baseline/no-change retained: no candidate satisfied recommendation policy"
+            else decision_reason or "baseline/no-change retained: no candidate satisfied recommendation policy"
         )
         return OptimizationRun(
             run_id=run_dir.name,

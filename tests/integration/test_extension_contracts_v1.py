@@ -53,6 +53,12 @@ def _run_json(args: list[str]) -> dict[str, object]:
     return json.loads(result.output[result.output.index("{") :])
 
 
+def _run_json_with_exit(args: list[str], exit_code: int) -> dict[str, object]:
+    result = CliRunner().invoke(app, args)
+    assert result.exit_code == exit_code, result.output
+    return json.loads(result.output[result.output.index("{") :])
+
+
 def test_l3_python_token_counter_affects_static_report(tmp_path: Path) -> None:
     _write_project(
         tmp_path,
@@ -201,6 +207,36 @@ def register(registry):
     assert report["run"]["total_cost"]["generation_input_tokens"] >= 5
 
 
+def test_l3_python_provider_usage_stops_at_core_request_budget(tmp_path: Path) -> None:
+    _write_project(
+        tmp_path,
+        """
+components:
+  provider: company
+extensions:
+  - path: .ai-doc/extensions/contracts.py
+""",
+    )
+    _extension(
+        tmp_path,
+        """
+from ai_doc.api.v1 import ProviderUsage, SemanticResponse
+
+class CompanyProvider:
+    def invoke(self, operation, payload):
+        return SemanticResponse(data={"invariants": []}, usage=ProviderUsage(requests=1, input_tokens=3))
+
+def register(registry):
+    registry.add_provider("company", CompanyProvider())
+""",
+    )
+
+    report = _run_json_with_exit(["optimize", str(tmp_path), "--format", "json", "--max-requests", "1"], 4)
+
+    assert report["run"]["stopped_reason"] == "stopped_request_budget"
+    assert report["run"]["total_cost"]["evaluation_requests"] == 1
+
+
 def _process_script(root: Path) -> Path:
     script = root / "process_extension.py"
     script.write_text(
@@ -273,6 +309,11 @@ print(json.dumps(response))
 
 def _command_yaml(script: Path) -> str:
     return f'["{sys.executable.replace(chr(92), "/")}", "{script.as_posix()}"]'
+
+
+def _command_yaml_with_args(script: Path, *args: Path) -> str:
+    parts = [sys.executable.replace(chr(92), "/"), script.as_posix(), *(arg.as_posix() for arg in args)]
+    return "[" + ", ".join(json.dumps(part) for part in parts) + "]"
 
 
 def test_l4_process_analyzer_and_token_counter_affect_check(tmp_path: Path) -> None:
@@ -357,3 +398,80 @@ extension_runtime:
 
     assert "process provider generated" in json.dumps(report)
     assert report["run"]["total_cost"]["generation_requests"] >= 1
+
+
+def test_l4_process_provider_usage_stops_at_core_request_budget(tmp_path: Path) -> None:
+    script = _process_script(tmp_path)
+    _write_project(
+        tmp_path,
+        f"""
+components:
+  provider: process-provider
+extension_runtime:
+  providers:
+    process-provider:
+      command: {_command_yaml(script)}
+""",
+    )
+
+    report = _run_json_with_exit(["optimize", str(tmp_path), "--format", "json", "--max-requests", "1"], 4)
+
+    assert report["run"]["stopped_reason"] == "stopped_request_budget"
+    assert report["run"]["total_cost"]["evaluation_requests"] == 1
+
+
+def test_l4_process_token_counter_batches_repository_discovery(tmp_path: Path) -> None:
+    calls_path = tmp_path / "token_counter_calls.txt"
+    script = tmp_path / "batching_counter.py"
+    script.write_text(
+        """
+from __future__ import annotations
+import json
+import sys
+from pathlib import Path
+
+calls = Path(sys.argv[1])
+current = int(calls.read_text(encoding="utf-8")) if calls.exists() else 0
+calls.write_text(str(current + 1), encoding="utf-8")
+request = json.loads(sys.stdin.read())
+payload = request["payload"]
+result = {"counts": {item["id"]: 1 for item in payload["items"]}}
+print(json.dumps({
+    "protocol": request["protocol"],
+    "request_id": request["request_id"],
+    "status": "ok",
+    "result": result,
+}))
+""",
+        encoding="utf-8",
+    )
+    (tmp_path / ".ai-doc.yaml").write_text(
+        f"""
+version: 1
+include: ['docs/**/*.md']
+profiles:
+  'docs/**': reference
+components:
+  token_counter: process-counter
+extension_runtime:
+  token_counters:
+    process-counter:
+      command: {_command_yaml_with_args(script, calls_path)}
+""",
+        encoding="utf-8",
+    )
+    docs = tmp_path / "docs"
+    docs.mkdir()
+    section_count = 15
+    document_count = 4
+    for index in range(document_count):
+        content = "\n\n".join(f"## Section {section}\n\nBody {section}." for section in range(section_count))
+        (docs / f"guide-{index}.md").write_text(f"# Guide {index}\n\n{content}\n", encoding="utf-8")
+
+    report = _run_json(["check", str(tmp_path), "--format", "json"])
+
+    process_invocations = int(calls_path.read_text(encoding="utf-8"))
+    token_countable_units = document_count + (document_count * (section_count + 1))
+    assert report["token_counter"] == "process-counter"
+    assert token_countable_units >= 60
+    assert process_invocations <= 8

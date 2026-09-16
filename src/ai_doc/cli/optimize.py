@@ -18,12 +18,13 @@ from ai_doc.composition import (
     resolve_token_counter,
 )
 from ai_doc.config.loader import ConfigError, load_config
-from ai_doc.config.models import DEFAULT_CONFIG, AiDocConfig
+from ai_doc.config.models import AiDocConfig
 from ai_doc.config.search import OptimizeMode, RuntimeSearchConfig
 from ai_doc.discovery.markdown_discovery import discover_markdown
 from ai_doc.domain.evaluations import Evaluator, PairwiseSemanticEvaluator
 from ai_doc.evaluators.context import ScenarioContextEvaluator
 from ai_doc.evaluators.deepeval import DeepEvalEvaluator, DeepEvalUnavailableError
+from ai_doc.extensions.process import ProcessExtensionError
 from ai_doc.optimizer.generator import SemanticCandidateGenerator
 from ai_doc.optimizer.invariants import SemanticInvariantDiscoverer, SemanticInvariantVerifier
 from ai_doc.optimizer.prompt_suboptimizer import PromptSubOptimizer
@@ -93,7 +94,7 @@ def optimize_command(  # pylint: disable=too-many-arguments,too-many-positional-
         token_counter = resolve_token_counter(loaded, extensions)
         baseline_report = run_static_check(project_root, loaded, extensions=extensions, token_counter=token_counter)
         baseline_snapshot = discover_markdown(project_root, loaded, token_counter)
-    except (ConfigError, ExtensionError) as exc:
+    except (ConfigError, ExtensionError, ProcessExtensionError, KeyError, ValueError) as exc:
         typer.echo(str(exc), err=True)
         raise typer.Exit(1) from exc
 
@@ -181,18 +182,11 @@ def optimize_command(  # pylint: disable=too-many-arguments,too-many-positional-
 
 
 def _build_semantic_stack(
-    config: AiDocConfig | RuntimeSearchConfig,
-    extensions: ExtensionRegistry | None = None,
-    runtime: RuntimeSearchConfig | None = None,
-    deep: bool = False,
+    config: AiDocConfig,
+    extensions: ExtensionRegistry,
+    runtime: RuntimeSearchConfig,
+    deep: bool,
 ) -> SemanticStack:
-    if isinstance(config, RuntimeSearchConfig):
-        runtime = config
-        config = DEFAULT_CONFIG.model_copy(deep=True)
-    if runtime is None:
-        raise TypeError("runtime search configuration is required")
-    if extensions is None:
-        extensions = register_configured_extensions(config, ExtensionRegistry())
     if runtime.mode == OptimizeMode.CONSERVATIVE:
         provider = None
     else:

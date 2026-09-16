@@ -233,26 +233,41 @@ Every process operation receives one JSON object on stdin:
 }
 ```
 
+The protocol envelope version (`ai-doc.extension/v1`), operation name, and payload schema
+version are separate compatibility concepts. Each capability payload includes
+`"payload_version": 1`. Process adapters validate versioned result payloads when a result
+schema includes `payload_version`; existing v1 commands that omit result
+`payload_version` remain compatible.
+
 Current operations:
 
-| Operation | Capability | Result |
+| Operation | Payload v1 | Result |
 |---|---|---|
-| `analyze` | analyzer | `{"findings": [...]}` or a findings list |
-| `evaluate` | evaluator | `EvaluationResult` fields |
-| `count_tokens` | token counter | `{"counts": {"item-id": 123}}` |
-| `recommend` | recommendation policy | `{"candidate_id": "C001"}` or `{"candidate_id": null}` |
-| `complete` | semantic provider | `SemanticResponse` fields: `data` and `usage` |
+| `analyze` | `payload_version`, document text/profile/token counts, link graph, and selected analysis budget metadata | `{"payload_version": 1, "findings": [...]}` or legacy findings list |
+| `evaluate` | `payload_version`, baseline snapshot, optional candidate snapshot, and evaluation suite JSON | `EvaluationResult` fields, optionally with `payload_version: 1` |
+| `count_tokens` | `payload_version`, optional `model`, and `items` with `id` and `text` | `{"payload_version": 1, "counts": {"item-id": 123}}` |
+| `recommend` | `payload_version`, `baseline_id`, and eligible candidate summaries containing ids, status, objective vector, cost, rejection reasons, and limited evidence | `{"payload_version": 1, "candidate_id": "C001", "reason": "..."}` or `candidate_id: null` |
+| `complete` | `payload_version`, stable semantic `operation`, and JSON-compatible `payload` | `SemanticResponse` fields: `data` and `usage`, optionally with `payload_version: 1` |
 
 `ProcessTransport.describe()` can query the optional `describe` operation for a lightweight
-manifest of supported capabilities. Existing commands remain compatible if they do not
-implement `describe`; selected operations still fail explicitly if the process returns an
-error or invalid result.
+manifest of supported capabilities. In v1 this is introspection only: `ai-doc` does not
+call `describe` to validate configured capability support before production execution.
+Existing commands remain compatible if they do not implement `describe`; selected
+operations still fail explicitly if the process returns an error or invalid result.
 
 `ai-doc` treats command-start failures, timeouts, non-zero exits, invalid JSON, unsupported protocol versions, mismatched request IDs, schema validation failures, and explicit extension errors as infrastructure errors. These are distinct from a valid negative evaluation result.
 
 ## Security
 
-Both Python extensions and process extensions are trusted project configuration. Documentation content must not choose executables. Configure commands deliberately, avoid logging secrets, and pass provider credentials through the external adapter's trusted environment or config. The process runtime is a protocol boundary, not a sandbox.
+Both Python extensions and process extensions are trusted project configuration. Python
+extensions execute arbitrary in-process code. Process extensions execute arbitrary
+external commands. `shell=False` avoids shell parsing, but it does not sandbox the
+command. Documentation content must not choose executables. Process extensions may
+receive project documentation content and selected metadata. By default, process
+extensions inherit the parent process environment; configured environment overlays add
+to that environment rather than replacing it. Configure commands deliberately, avoid
+logging secrets, and pass provider credentials only to trusted adapters. The process
+runtime is a protocol boundary, not a sandbox.
 
 ## Failure Behavior
 

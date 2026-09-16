@@ -15,6 +15,7 @@ from ai_doc.domain.documents import DocumentationSnapshot, DocumentProfile
 from ai_doc.domain.evaluations import EvaluationResult, EvaluationSuite
 from ai_doc.evaluators.deepeval import DeepEvalEvaluator, DeepEvalUnavailableError
 from ai_doc.evaluators.promptfoo import PromptfooEvaluator, PromptfooUnavailableError
+from ai_doc.extensions.process import ProcessExtensionError
 from ai_doc.optional_dependencies import (
     DependencyStatus,
     OptionalDependencyError,
@@ -71,7 +72,7 @@ def check_command(
     except ConfigError as exc:
         typer.echo(str(exc), err=True)
         raise typer.Exit(1) from exc
-    except ExtensionError as exc:
+    except (ExtensionError, ProcessExtensionError, KeyError, ValueError) as exc:
         typer.echo(str(exc), err=True)
         raise typer.Exit(1) from exc
     if deep:

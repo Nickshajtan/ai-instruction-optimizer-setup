@@ -5,6 +5,7 @@ from pathlib import Path
 
 from ai_doc.app import run_static_check
 from ai_doc.cli.optimize import _build_semantic_stack
+from ai_doc.composition import register_configured_extensions
 from ai_doc.config.models import DEFAULT_CONFIG
 from ai_doc.config.search import OptimizeMode, RuntimeSearchConfig
 from ai_doc.discovery.markdown_discovery import discover_markdown
@@ -20,6 +21,7 @@ from ai_doc.optimizer.semantic import (
     ProviderSemanticEvaluator,
     ProviderSemanticInvariantService,
 )
+from ai_doc.plugins.registry import ExtensionRegistry
 from ai_doc.providers.semantic import BudgetedSemanticProvider, CommandSemanticProvider
 from ai_doc.tokens.counter import ApproximateTokenCounter
 
@@ -105,7 +107,9 @@ def test_cli_semantic_stack_wires_all_provider_budgets(monkeypatch) -> None:
     runtime.search.max_cost_usd = Decimal("0.07")
     runtime.pairwise_semantic = True
     monkeypatch.setenv("AI_DOC_SEMANTIC_COMMAND", _fixture_command())
-    stack = _build_semantic_stack(runtime, deep=True)
+    config = DEFAULT_CONFIG.model_copy(deep=True)
+    extensions = register_configured_extensions(config, ExtensionRegistry())
+    stack = _build_semantic_stack(config, extensions, runtime, deep=True)
     assert isinstance(stack.provider, BudgetedSemanticProvider)
     assert stack.provider.max_requests == 7
     assert stack.provider.max_input_tokens == 700
@@ -121,7 +125,9 @@ def test_cli_pairwise_stack_uses_deepeval_without_command(monkeypatch) -> None:
     runtime = RuntimeSearchConfig(mode=OptimizeMode.BALANCED, pairwise_semantic=True)
     monkeypatch.delenv("AI_DOC_SEMANTIC_COMMAND", raising=False)
 
-    stack = _build_semantic_stack(runtime, deep=False)
+    config = DEFAULT_CONFIG.model_copy(deep=True)
+    extensions = register_configured_extensions(config, ExtensionRegistry())
+    stack = _build_semantic_stack(config, extensions, runtime, deep=False)
 
     assert stack.provider is None
     assert stack.evaluator is None

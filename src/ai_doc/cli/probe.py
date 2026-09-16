@@ -10,6 +10,7 @@ from ai_doc.config.loader import ConfigError, load_config
 from ai_doc.config.models import AiDocConfig
 from ai_doc.discovery.markdown_discovery import discover_markdown
 from ai_doc.evaluators.suite import load_evaluation_suite
+from ai_doc.extensions.process import ProcessExtensionError
 from ai_doc.ml.nli_sentence_transformers import SentenceTransformersNLIEngine
 from ai_doc.ml.sentence_transformers import LocalModelUnavailableError
 from ai_doc.plugins.loader import ExtensionError, load_extensions
@@ -42,7 +43,7 @@ def probe_command(
         baseline = discover_markdown(project_root, loaded, token_counter)
         suite = load_evaluation_suite(project_root)
         probe = CommandTargetProbe()
-    except (ConfigError, ExtensionError, TargetProbeError, OSError) as exc:
+    except (ConfigError, ExtensionError, ProcessExtensionError, KeyError, ValueError, TargetProbeError, OSError) as exc:
         typer.echo(str(exc), err=True)
         raise typer.Exit(1) from exc
 
@@ -58,7 +59,7 @@ def probe_command(
             return
         candidate_snapshot = discover_markdown(candidate.resolve(), loaded, token_counter)
         candidate_report = runner.run(candidate_snapshot, suite)
-    except (TargetProbeError, OSError) as exc:
+    except (ProcessExtensionError, TargetProbeError, OSError) as exc:
         typer.echo(str(exc), err=True)
         raise typer.Exit(1) from exc
 

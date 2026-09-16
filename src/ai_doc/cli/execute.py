@@ -10,6 +10,7 @@ from ai_doc.config.loader import ConfigError, load_config
 from ai_doc.config.models import AiDocConfig
 from ai_doc.discovery.markdown_discovery import discover_markdown
 from ai_doc.evaluators.suite import load_evaluation_suite
+from ai_doc.extensions.process import ProcessExtensionError
 from ai_doc.ml.nli_sentence_transformers import SentenceTransformersNLIEngine
 from ai_doc.ml.sentence_transformers import LocalModelUnavailableError
 from ai_doc.plugins.loader import ExtensionError, load_extensions
@@ -40,7 +41,16 @@ def execute_command(
             confidence_threshold=loaded.local_ml.nli_confidence_threshold,
         )
         report = ExecutionProbeRunner(probe, verifier).run(snapshot, suite)
-    except (ConfigError, ExtensionError, TargetProbeError, UnsafeWorkspaceError, OSError) as exc:
+    except (
+        ConfigError,
+        ExtensionError,
+        ProcessExtensionError,
+        KeyError,
+        ValueError,
+        TargetProbeError,
+        UnsafeWorkspaceError,
+        OSError,
+    ) as exc:
         typer.echo(str(exc), err=True)
         raise typer.Exit(1) from exc
 
