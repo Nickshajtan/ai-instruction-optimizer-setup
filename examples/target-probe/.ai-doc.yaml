@@ -1,0 +1,5 @@
+version: 1
+include:
+  - AGENTS.md
+profiles:
+  AGENTS.md: instruction

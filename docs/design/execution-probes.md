@@ -8,7 +8,7 @@ A1 local semantic ML
 B  predictive semantic judgment
 C1 real target planning
 C2 real target execution
-C3 repeated execution benchmark (future)
+C3 repeated execution benchmark (not current architecture)
 ```
 
 ## Safety Boundary
@@ -71,8 +71,8 @@ A target-reported `status: succeeded` is useful metadata, but it is not by itsel
 
 ## FinOps
 
-C2 performs one target execution per configured scenario. It does not repeat executions automatically. Repeated runs and statistical confidence belong to C3 and should be opt-in because they multiply target cost and latency.
+C2 performs one target execution per configured scenario. It does not repeat executions automatically. Repeated runs and statistical confidence are intentionally outside the current architecture because they multiply target cost and latency.
 
 ## Relationship To The Old Benchmark PR
 
-C2 produces the raw observations that a future C3 statistical layer actually needs. That makes a separate generic benchmark/evidence framework much less valuable. The preferred direction is to keep execution observations as the source of truth and add only the small amount of repetition/pairing/statistics that proves necessary later, rather than merge a second parallel evidence model now.
+C2 produces the raw observations that any later statistical layer would need. That makes a separate generic benchmark/evidence framework much less valuable. The preferred direction is to keep execution observations as the source of truth and add only the small amount of repetition/pairing/statistics that proves necessary later, rather than merge a second parallel evidence model now.

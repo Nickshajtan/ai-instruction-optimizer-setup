@@ -1,0 +1,16 @@
+version: 1
+include:
+  - AGENTS.md
+profiles:
+  AGENTS.md: instruction
+evaluation:
+  deep:
+    evaluator: instruction-quality
+extension_runtime:
+  evaluators:
+    instruction-quality:
+      type: command
+      command:
+        - python
+        - examples/extensions/simple_evaluator.py
+      timeout: 30

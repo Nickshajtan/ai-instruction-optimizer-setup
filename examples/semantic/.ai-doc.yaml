@@ -1,0 +1,7 @@
+version: 1
+include:
+  - AGENTS.md
+profiles:
+  AGENTS.md: instruction
+local_ml:
+  enabled: false

@@ -3,9 +3,15 @@ version: 1
 include:
   - AGENTS.md
   - CLAUDE.md
+  - GEMINI.md
   - ".ai/**/*.md"
   - ".codex/**/*.md"
   - ".claude/**/*.md"
+  - ".gemini/**/*.md"
+  - ".agents/skills/**/SKILL.md"
+  - ".github/copilot-instructions.md"
+  - ".github/instructions/**/*.instructions.md"
+  - ".cursor/rules/**/*.mdc"
   - "docs/**/*.md"
 
 exclude:
@@ -21,9 +27,16 @@ profiles:
   AGENTS.md: instruction
   docs/AGENTS.md: instruction
   docs/CLAUDE.md: instruction
+  GEMINI.md: instruction
+  docs/GEMINI.md: instruction
   ".ai/skills/**/SKILL.md": skill
   ".codex/skills/**/SKILL.md": skill
   ".claude/skills/**/SKILL.md": skill
+  ".gemini/skills/**/SKILL.md": skill
+  ".agents/skills/**/SKILL.md": skill
+  ".github/copilot-instructions.md": instruction
+  ".github/instructions/**/*.instructions.md": instruction
+  ".cursor/rules/**/*.mdc": instruction
   "docs/adr/**": adr
   "docs/**": reference
 

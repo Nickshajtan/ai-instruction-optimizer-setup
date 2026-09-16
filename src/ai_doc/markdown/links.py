@@ -5,6 +5,8 @@ from urllib.parse import unquote, urlparse
 
 from ai_doc.domain.documents import DocumentLink
 
+LOCAL_MARKDOWN_SUFFIXES = (".md", ".mdc")
+
 
 def resolve_links(
     root: Path, document_path: Path, links: tuple[DocumentLink, ...]
@@ -16,7 +18,7 @@ def resolve_links(
             resolved.append(link)
             continue
         target_path = unquote(parsed.path)
-        if not target_path.lower().endswith(".md"):
+        if not target_path.lower().endswith(LOCAL_MARKDOWN_SUFFIXES):
             resolved.append(link)
             continue
         absolute = (document_path.parent / target_path).resolve()

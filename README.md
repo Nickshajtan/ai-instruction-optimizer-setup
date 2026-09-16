@@ -1,19 +1,223 @@
 # AI Documentation Optimizer
 
-`ai-doc` is a Python CLI for analyzing Markdown documentation used by AI coding agents.
-It reports clarity, structure, and context-cost issues, supports optional lexical/semantic
-evaluation, and can generate optimization candidates without modifying source files.
+`ai-doc` analyzes and improves the repository interface consumed by coding agents:
+`AGENTS.md`, `CLAUDE.md`, `GEMINI.md`, GitHub Copilot instructions, Cursor rules,
+agent skills, and related documentation.
 
-## Install And Run
+It is not just a Markdown linter. It helps answer:
 
-Editable install for local development:
+- Are agent instructions clear, consistent, and reachable?
+- Which files are always loaded, on demand, or path scoped?
+- Did a proposed documentation change preserve critical behavior?
+- What does a real target agent plan to do, and what does it actually do?
+
+The first useful workflow is local and deterministic:
 
 ```bash
 python -m pip install -e ".[dev]"
-ai-doc check examples/basic
-ai-doc optimize examples/basic --strategy balanced --show-frontier
-ai-doc doctor examples/basic
+ai-doc init .
+ai-doc check .
 ```
+
+## Evidence Pyramid
+
+```text
+                         C2
+                    real execution
+                         |
+                         C1
+                    real planning
+                         |
+                          B
+                 predictive judge
+                         |
+                         A1
+                local semantic ML
+                         |
+                         A0
+              deterministic static
+
+higher: stronger behavioral evidence and greater runtime/cost
+lower:  cheaper, faster, and suitable for every PR
+```
+
+Higher tiers are not universally "more correct"; they answer different questions.
+
+- A0/A1 analyze the repository instruction interface itself.
+- B predicts whether a baseline or candidate instruction set is semantically better.
+- C1 observes what a real target agent plans to do.
+- C2 observes what a real target agent actually does in an isolated workspace copy.
+- C3 repeated execution/statistical benchmarking is intentionally not part of the current
+  architecture.
+
+## Command Map
+
+| Command | Purpose | Evidence | External model required |
+|---|---|---|---|
+| `ai-doc check .` | Analyze repository instructions and docs | A0, optional A1 | No |
+| `ai-doc optimize .` | Generate and evaluate candidate documentation improvements | A0/A1 plus optional B | Depends on configured semantic provider/evaluator |
+| `ai-doc probe .` | Observe target planning for configured scenarios | C1 | Yes, except fake/demo adapters |
+| `ai-doc execute .` | Observe target execution in an isolated workspace copy | C2 | Yes, except fake/demo adapters |
+| `ai-doc doctor .` | Inspect runtime/configuration capabilities | diagnostics | No |
+| `ai-doc init .` | Create starter `.ai-doc.yaml` and eval scaffold | setup | No |
+
+## Quick Start
+
+Run the deterministic example:
+
+```bash
+ai-doc check examples/basic
+```
+
+Try the process-extension runtime without paid services:
+
+```bash
+ai-doc check examples/extensions --deep --non-interactive
+```
+
+Try C1/C2 with the fake target adapter:
+
+```bash
+export AI_DOC_TARGET_COMMAND="python fake_target.py"
+ai-doc probe examples/target-probe
+ai-doc execute examples/target-probe
+```
+
+On Windows PowerShell:
+
+```powershell
+$env:AI_DOC_TARGET_COMMAND = "$((Get-Command python).Source) fake_target.py"
+ai-doc probe examples/target-probe
+ai-doc execute examples/target-probe
+```
+
+The fake target is executed with `examples/target-probe` as its working directory, so the
+command names `fake_target.py` directly.
+
+## What Files Are Discovered
+
+These are built-in defaults. Project configuration can add or remove patterns.
+
+| Ecosystem | Instructions | Skills / scoped rules |
+|---|---|---|
+| Generic/interoperable | `AGENTS.md` | `.agents/skills/**/SKILL.md` where supported |
+| Codex | `AGENTS.md` | `.codex/skills/**/SKILL.md` |
+| Claude | `CLAUDE.md` | `.claude/skills/**/SKILL.md` |
+| Gemini | `GEMINI.md` | `.gemini/skills/**/SKILL.md`, `.agents/skills/**/SKILL.md` |
+| GitHub Copilot | `.github/copilot-instructions.md`, `AGENTS.md` | `.github/instructions/**/*.instructions.md` |
+| Cursor | `AGENTS.md` | `.cursor/rules/**/*.mdc` |
+
+Copilot `.instructions.md` files and Cursor `.mdc` rules are parsed as Markdown-like
+documents with their frontmatter preserved in the document text. `ai-doc` does not add
+Gemini, Copilot, Cursor, Claude, or Codex SDK integrations to core merely because it
+discovers their instruction files.
+
+## Configuration Hierarchy
+
+```text
+built-in defaults
+        |
+root .ai-doc.yaml
+        |
+nested .ai-doc.yaml
+        |
+CLI/runtime overrides where applicable
+```
+
+Nested configuration is scoped, not a generic deep override.
+
+- `include`, `exclude`, `profiles`, `loading`, and `extensions` accumulate with paths
+  scoped relative to the nested config directory.
+- `budgets`, `pricing`, and `evaluation` merge like dictionaries.
+- `extension_runtime.evaluators` merges by logical evaluator name.
+- `optimization` is replaced when a nested config explicitly sets it.
+- An explicit `--config` file does not implicitly merge nested `.ai-doc.yaml` files.
+
+Generated starter config stays concise. It includes user-facing discovery/profile
+defaults but does not serialize empty/default-only sections merely to mirror every
+Pydantic field.
+
+## External Capability Runtime
+
+Process-backed capabilities use a provider-neutral runtime:
+
+```text
+logical capability
+        |
+configured or registered implementation
+        |
+process adapter where applicable
+        |
+ProcessTransport
+        |
+external executable
+```
+
+For the current process evaluator path, configuration names a logical evaluator and maps
+it to a command under `extension_runtime.evaluators`. The command speaks the
+`ai-doc.extension/v1` stdin/stdout protocol. Details live in
+[Extension Runtime Configuration](docs/guides/extension-runtime-configuration.md) and
+[Extension API](docs/guides/extensions.md).
+
+## Examples
+
+The examples are executable and covered by deterministic CI:
+
+- [basic](examples/basic/README.md): minimum A0 static workflow.
+- [extensions](examples/extensions/README.md): process-backed evaluator runtime.
+- [conflicting-instructions](examples/conflicting-instructions/README.md): known
+  deterministic findings.
+- [hierarchical-config](examples/hierarchical-config/README.md): nested config merge and
+  scoping semantics.
+- [semantic](examples/semantic/README.md): optional A1 local semantic analysis.
+- [multi-agent](examples/multi-agent/README.md): coexistence of major agent ecosystems.
+- [target-probe](examples/target-probe/README.md): deterministic C1/C2 fake target.
+
+## Optional Local Semantic ML
+
+A1 local semantic analysis uses locally provisioned sentence-transformer/NLI models:
+
+```bash
+python -m pip install -e ".[ml]"
+```
+
+Normal `ai-doc check` runs do not silently download models. Configure `local_ml`
+explicitly and provide local model artifacts through explicit paths, `AI_DOC_MODEL_ROOT`,
+a local cache, or a packaged model bundle. See
+[Analysis Pyramid](docs/design/analysis-pyramid.md) and
+[Packaging](docs/operations/packaging.md).
+
+## Optional Predictive Evaluation
+
+`ai-doc optimize` and `ai-doc check --deep` can use optional evaluator/provider
+integrations for B-tier predictive evidence. Promptfoo and DeepEval remain optional, and
+provider-backed semantic optimization uses the provider-neutral `AI_DOC_SEMANTIC_COMMAND`
+contract. See [Semantic Optimization](docs/guides/semantic-optimization.md) and
+[Predictive Semantic Evaluation](docs/design/predictive-evaluation.md).
+
+## C1 Planning And C2 Execution
+
+C1 planning:
+
+```bash
+export AI_DOC_TARGET_COMMAND='your-target-adapter'
+ai-doc probe .
+```
+
+C2 execution:
+
+```bash
+export AI_DOC_TARGET_COMMAND='your-target-adapter'
+ai-doc execute .
+```
+
+The target command is trusted project/runtime configuration and runs with `shell=False`.
+C2 uses a temporary workspace copy and independently records filesystem deltas. This is
+workspace isolation, not an OS sandbox. See
+[Behavioral Evaluation](docs/design/behavioral-evaluation.md) and
+[Execution Probes](docs/design/execution-probes.md).
+
+## Distribution
 
 Source-checkout mode for use from a target repository's `.tools/ai-doc` directory:
 
@@ -35,28 +239,6 @@ Standalone executable build:
 python -m tools.build executable
 ```
 
-Optional local semantic static analysis (A1):
-
-```bash
-python -m pip install -e ".[ml]"
-```
-
-A1 uses locally provisioned sentence-transformer/NLI models and never requires an external inference API. Model artifacts are not downloaded silently by normal `ai-doc check` runs; enable and configure `local_ml` explicitly. Models can come from explicit local paths, `AI_DOC_MODEL_ROOT`, a local cache, or a fully embedded standalone model bundle. See [Analysis Pyramid](docs/design/analysis-pyramid.md) and [Packaging](docs/operations/packaging.md).
-
-Optional deep-evaluation setup:
-
-```bash
-python -m pip install -e ".[deep]"
-ai-doc setup --deep
-ai-doc check examples/basic --deep
-```
-
-Adaptive optimization can also use the provider-neutral `AI_DOC_SEMANTIC_COMMAND` contract for semantic generation, invariant safety, evaluation, and eligible prompt suboptimization. See [Semantic Optimization](docs/guides/semantic-optimization.md) for the command contract, budget semantics, and evidence model.
-
-Optional pairwise B-tier judging can compare baseline and candidate documentation for predicted instruction-following quality without claiming empirical target-agent performance. See [Predictive Semantic Evaluation](docs/design/predictive-evaluation.md).
-
-C1 behavioral evidence can observe a real target model's task plan without allowing repository mutation or tool execution. Configure `AI_DOC_TARGET_COMMAND` and run `ai-doc probe .`; optional local NLI verifies the returned plan but never substitutes for the target model. See [Behavioral Evaluation](docs/design/behavioral-evaluation.md).
-
 ## What Is Stable
 
 The public contract is limited to:
@@ -67,7 +249,8 @@ The public contract is limited to:
 - configured project-local extensions;
 - explicit exports from `ai_doc.api.v1`.
 
-Internal optimizer, parser, storage, Promptfoo, DeepEval, provider, local-ML adapter, target-command adapter, and GEPA modules are not extension contracts.
+Internal optimizer, parser, storage, Promptfoo, DeepEval, provider, local-ML adapter,
+target-command adapter, and GEPA modules are not extension contracts.
 
 ## Documentation
 
@@ -76,15 +259,16 @@ Use these when you want to run or configure the tool:
 - [Getting Started](docs/guides/getting-started.md): install modes, first run, and common commands.
 - [Runbook](docs/operations/runbook.md): routine operation, CI usage, diagnosis, and recovery.
 - [Configuration](docs/guides/configuration.md): `.ai-doc.yaml`, profiles, budgets, evals, optimization, and extensions.
-- [Semantic Optimization](docs/guides/semantic-optimization.md): semantic generation/evaluation, invariant safety, task-selected context, budgets, Pareto comparison, repair, and evidence.
+- [Semantic Optimization](docs/guides/semantic-optimization.md): semantic generation/evaluation, invariant safety, budgets, Pareto comparison, repair, and evidence.
 
 Use these when changing the project:
 
 - [Standards](docs/standards.md): normative coding, API, CLI, configuration, security, testing, and documentation rules.
 - [Architecture](docs/design/architecture.md): package boundaries, flows, stable contracts, and adapter responsibilities.
 - [Analysis Pyramid](docs/design/analysis-pyramid.md): A0 deterministic analysis, optional A1 local ML, extension points, limits, and the boundary to B/C evidence.
-- [Predictive Semantic Evaluation](docs/design/predictive-evaluation.md): B-tier pairwise judgment, DeepEval/provider adapters, uncertainty, recommendation interaction, and the boundary to empirical C-tier execution.
-- [Behavioral Evaluation](docs/design/behavioral-evaluation.md): C1 real-target planning probes, command contract, NLI verification, cache identity, FinOps limits, and the future C2/C3 boundary.
+- [Predictive Semantic Evaluation](docs/design/predictive-evaluation.md): B-tier pairwise judgment, uncertainty, recommendation interaction, and the boundary to empirical C-tier evidence.
+- [Behavioral Evaluation](docs/design/behavioral-evaluation.md): C1 real-target planning probes and the target command contract.
+- [Execution Probes](docs/design/execution-probes.md): C2 execution probes, workspace isolation, and filesystem deltas.
 - [Design Decisions](docs/design/decisions.md): rationale and trade-offs behind major choices.
 - [Testing And Release](docs/operations/testing-and-release.md): verification commands, smoke tests, CI, and release checklist.
 
@@ -93,16 +277,6 @@ Use these for integration or distribution:
 - [Extension API](docs/guides/extensions.md): stable `ai_doc.api.v1` imports and custom analyzer extensions.
 - [Packaging](docs/operations/packaging.md): source checkout, wheel, executable builds, checksums, local model bundles, and limitations.
 - [Deferred Work](docs/design/deferred.md): intentionally postponed capabilities and known limitations.
-
-Documentation maintenance rules:
-
-- Keep usage instructions in [Getting Started](docs/guides/getting-started.md) or [Runbook](docs/operations/runbook.md).
-- Keep architecture rationale in [Architecture](docs/design/architecture.md) or [Design Decisions](docs/design/decisions.md).
-- Keep normative project rules in [Standards](docs/standards.md).
-- Keep general documentation-writing guidance in [docs/AGENTS.md](docs/AGENTS.md).
-- Keep agent-only workflow instructions in `.ai/skills/`.
-- Keep Codex and Claude routing in `.codex/skills/` and `.claude/skills/` adapter skills.
-- Keep root-level `README.md`, `ARCHITECTURE.md`, and `DEFERRED.md` as entry points, not competing sources of truth.
 
 ## Exit Codes
 

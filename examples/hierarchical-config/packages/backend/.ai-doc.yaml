@@ -1,0 +1,12 @@
+version: 1
+include:
+  - AGENTS.md
+  - "docs/**/*.md"
+exclude:
+  - "docs/private.md"
+profiles:
+  AGENTS.md: instruction
+  "docs/**": reference
+budgets:
+  instruction:
+    warning_tokens: 200
