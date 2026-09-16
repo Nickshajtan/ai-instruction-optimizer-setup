@@ -5,17 +5,18 @@ from typing import Annotated
 
 import typer
 
+from ai_doc.composition import register_configured_extensions, resolve_token_counter
 from ai_doc.config.loader import ConfigError, load_config
 from ai_doc.config.models import AiDocConfig
 from ai_doc.discovery.markdown_discovery import discover_markdown
 from ai_doc.evaluators.suite import load_evaluation_suite
 from ai_doc.ml.nli_sentence_transformers import SentenceTransformersNLIEngine
 from ai_doc.ml.sentence_transformers import LocalModelUnavailableError
+from ai_doc.plugins.loader import ExtensionError, load_extensions
 from ai_doc.probes.command import CommandTargetProbe, TargetProbeError
 from ai_doc.probes.runner import PlanningProbeRunner, compare_planning_reports
 from ai_doc.probes.verification import PlanningObservationVerifier
 from ai_doc.root import discover_project_root
-from ai_doc.tokens.counter import ApproximateTokenCounter
 
 
 def probe_command(
@@ -35,10 +36,13 @@ def probe_command(
     project_root = discover_project_root(path, root)
     try:
         loaded = load_config(project_root, config)
-        baseline = discover_markdown(project_root, loaded, ApproximateTokenCounter())
+        extensions = load_extensions(project_root, loaded.extensions)
+        register_configured_extensions(loaded, extensions)
+        token_counter = resolve_token_counter(loaded, extensions)
+        baseline = discover_markdown(project_root, loaded, token_counter)
         suite = load_evaluation_suite(project_root)
         probe = CommandTargetProbe()
-    except (ConfigError, TargetProbeError, OSError) as exc:
+    except (ConfigError, ExtensionError, TargetProbeError, OSError) as exc:
         typer.echo(str(exc), err=True)
         raise typer.Exit(1) from exc
 
@@ -52,7 +56,7 @@ def probe_command(
         if candidate is None:
             typer.echo(baseline_report.model_dump_json(indent=2))
             return
-        candidate_snapshot = discover_markdown(candidate.resolve(), loaded, ApproximateTokenCounter())
+        candidate_snapshot = discover_markdown(candidate.resolve(), loaded, token_counter)
         candidate_report = runner.run(candidate_snapshot, suite)
     except (TargetProbeError, OSError) as exc:
         typer.echo(str(exc), err=True)

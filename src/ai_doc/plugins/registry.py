@@ -7,7 +7,7 @@ from typing import TypeVar, cast
 from ai_doc.analyzers.base import Analyzer
 from ai_doc.domain.evaluations import Evaluator
 from ai_doc.optimizer.recommendation import RecommendationPolicy
-from ai_doc.providers.base import LLMProvider
+from ai_doc.providers.semantic import SemanticProvider
 from ai_doc.tokens.counter import TokenCounter
 
 
@@ -44,11 +44,11 @@ class RecommendationPolicyRegistrationValidator:
 
 
 class ProviderRegistrationValidator:
-    def validate(self, provider: object) -> LLMProvider:
-        generate_structured = getattr(provider, "generate_structured", None)
-        if not callable(generate_structured):
-            raise TypeError("Provider registration must provide an object with generate_structured(request, schema).")
-        return cast(LLMProvider, provider)
+    def validate(self, provider: object) -> SemanticProvider:
+        invoke = getattr(provider, "invoke", None)
+        if not callable(invoke):
+            raise TypeError("Provider registration must provide an object with invoke(operation, payload).")
+        return cast(SemanticProvider, provider)
 
 
 T = TypeVar("T")
@@ -107,7 +107,7 @@ class ExtensionRegistry:
             "recommendation policy",
             (recommendation_policy_validator or RecommendationPolicyRegistrationValidator()).validate,
         )
-        self._providers = NamedComponentRegistry(
+        self._providers: NamedComponentRegistry[SemanticProvider] = NamedComponentRegistry(
             "provider",
             (provider_validator or ProviderRegistrationValidator()).validate,
         )
@@ -129,7 +129,7 @@ class ExtensionRegistry:
         return self._recommendation_policies.entries()
 
     @property
-    def providers(self) -> tuple[RegistryEntry[LLMProvider], ...]:
+    def providers(self) -> tuple[RegistryEntry[SemanticProvider], ...]:
         return self._providers.entries()
 
     def add_analyzer(self, analyzer: object) -> None:
@@ -156,5 +156,5 @@ class ExtensionRegistry:
     def add_provider(self, name: str, provider: object) -> None:
         self._providers.add(name, provider)
 
-    def resolve_provider(self, name: str) -> LLMProvider:
+    def resolve_provider(self, name: str) -> SemanticProvider:
         return self._providers.resolve(name)

@@ -176,13 +176,13 @@ ProcessTransport
 external executable
 ```
 
-For the current process evaluator path, configuration names a logical evaluator and maps
-it to a command under `extension_runtime.evaluators`. The command speaks the
-`ai-doc.extension/v1` stdin/stdout protocol. Details live in
+For process-backed extensions, configuration maps logical component names to commands
+under `extension_runtime`. Analyzer, evaluator, token-counter, recommendation-policy, and
+semantic-provider commands speak the shared `ai-doc.extension/v1` stdin/stdout protocol.
+`components` and mode-specific evaluator config select which named implementations affect
+production behavior. Details live in
 [Extension Runtime Configuration](docs/guides/extension-runtime-configuration.md) and
-[Extension API](docs/guides/extensions.md). Other registry surfaces exported through
-`ai_doc.api.v1` are programmatic composition boundaries unless their configuration path
-is explicitly documented.
+[Extension API](docs/guides/extensions.md).
 
 ## Examples
 
@@ -271,8 +271,8 @@ The public contract is limited to:
 - CLI commands, options, and exit codes;
 - JSON output schemas;
 - `.ai-doc.yaml` configuration;
-- documented project-local extensions, including configured static analyzers and
-  process-backed evaluators;
+- documented project-local extensions for analyzers, evaluators, token counters,
+  recommendation policies, and semantic providers;
 - explicit exports from `ai_doc.api.v1`.
 
 Internal optimizer, parser, storage, Promptfoo, DeepEval, provider, local-ML adapter,

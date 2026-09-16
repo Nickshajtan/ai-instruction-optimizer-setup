@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import os
 from dataclasses import dataclass
 from decimal import Decimal
 from enum import StrEnum
@@ -11,8 +10,15 @@ from typing import Annotated
 import typer
 
 from ai_doc.app import load_suite, run_static_check
-from ai_doc.composition import register_configured_extensions, resolve_configured_evaluator
+from ai_doc.composition import (
+    register_configured_extensions,
+    resolve_configured_evaluator,
+    resolve_recommendation_policy,
+    resolve_semantic_provider,
+    resolve_token_counter,
+)
 from ai_doc.config.loader import ConfigError, load_config
+from ai_doc.config.models import DEFAULT_CONFIG, AiDocConfig
 from ai_doc.config.search import OptimizeMode, RuntimeSearchConfig
 from ai_doc.discovery.markdown_discovery import discover_markdown
 from ai_doc.domain.evaluations import Evaluator, PairwiseSemanticEvaluator
@@ -30,17 +36,12 @@ from ai_doc.optimizer.semantic import (
     ProviderSemanticInvariantService,
 )
 from ai_doc.plugins.loader import ExtensionError, load_extensions
-from ai_doc.providers.semantic import (
-    SEMANTIC_COMMAND_ENV,
-    BudgetedSemanticProvider,
-    CommandSemanticProvider,
-    SemanticProvider,
-)
+from ai_doc.plugins.registry import ExtensionRegistry
+from ai_doc.providers.semantic import SEMANTIC_COMMAND_ENV, SemanticProvider
 from ai_doc.reporting.console import render_search_optimize_console
 from ai_doc.reporting.json import render_json
 from ai_doc.reporting.models import SearchOptimizeReport
 from ai_doc.root import discover_project_root
-from ai_doc.tokens.counter import ApproximateTokenCounter
 
 
 class OutputFormat(StrEnum):
@@ -89,8 +90,9 @@ def optimize_command(  # pylint: disable=too-many-arguments,too-many-positional-
         loaded = load_config(project_root, config)
         extensions = load_extensions(project_root, loaded.extensions, debug=debug)
         register_configured_extensions(loaded, extensions)
-        baseline_report = run_static_check(project_root, loaded, extensions=extensions)
-        baseline_snapshot = discover_markdown(project_root, loaded, ApproximateTokenCounter())
+        token_counter = resolve_token_counter(loaded, extensions)
+        baseline_report = run_static_check(project_root, loaded, extensions=extensions, token_counter=token_counter)
+        baseline_snapshot = discover_markdown(project_root, loaded, token_counter)
     except (ConfigError, ExtensionError) as exc:
         typer.echo(str(exc), err=True)
         raise typer.Exit(1) from exc
@@ -117,13 +119,13 @@ def optimize_command(  # pylint: disable=too-many-arguments,too-many-positional-
         runtime.search.generations = 1
 
     suite = load_suite(project_root)
-    semantic = _build_semantic_stack(runtime, deep)
+    semantic = _build_semantic_stack(loaded, extensions, runtime, deep)
     configured_evaluator = resolve_configured_evaluator(loaded, extensions, "deep") if deep else None
     if configured_evaluator is not None:
         semantic.evaluator = ScenarioContextEvaluator(configured_evaluator)
     if semantic.provider:
         typer.echo(
-            f"Semantic provider enabled from {SEMANTIC_COMMAND_ENV}; generation and invariant safety are active.",
+            f"Semantic provider enabled; {SEMANTIC_COMMAND_ENV} or configured provider may be used.",
             err=True,
         )
     if deep:
@@ -137,6 +139,12 @@ def optimize_command(  # pylint: disable=too-many-arguments,too-many-positional-
             runtime,
             output_root,
             extensions=extensions,
+            token_counter=token_counter,
+            recommendation_policy=resolve_recommendation_policy(
+                loaded,
+                extensions,
+                default_policy=SearchController.default_recommendation_policy(runtime),
+            ),
             evaluator=semantic.evaluator,
             pairwise_semantic_evaluator=semantic.pairwise_evaluator,
             semantic_generator=semantic.generator,
@@ -172,21 +180,36 @@ def optimize_command(  # pylint: disable=too-many-arguments,too-many-positional-
     raise typer.Exit(4 if not result.run.recommended_candidate_id else 0)
 
 
-def _build_semantic_stack(runtime: RuntimeSearchConfig, deep: bool) -> SemanticStack:
-    enabled = bool(os.getenv(SEMANTIC_COMMAND_ENV)) and runtime.mode != OptimizeMode.CONSERVATIVE
-    if not enabled:
+def _build_semantic_stack(
+    config: AiDocConfig | RuntimeSearchConfig,
+    extensions: ExtensionRegistry | None = None,
+    runtime: RuntimeSearchConfig | None = None,
+    deep: bool = False,
+) -> SemanticStack:
+    if isinstance(config, RuntimeSearchConfig):
+        runtime = config
+        config = DEFAULT_CONFIG.model_copy(deep=True)
+    if runtime is None:
+        raise TypeError("runtime search configuration is required")
+    if extensions is None:
+        extensions = register_configured_extensions(config, ExtensionRegistry())
+    if runtime.mode == OptimizeMode.CONSERVATIVE:
+        provider = None
+    else:
+        provider = resolve_semantic_provider(
+            config,
+            extensions,
+            max_requests=runtime.search.max_llm_requests,
+            max_input_tokens=runtime.search.max_input_tokens,
+            max_output_tokens=runtime.search.max_output_tokens,
+            max_cost_usd=runtime.search.max_cost_usd,
+        )
+    if provider is None:
         evaluator = ScenarioContextEvaluator(DeepEvalEvaluator()) if deep else None
         deepeval_pairwise: PairwiseSemanticEvaluator | None = (
             DeepEvalEvaluator() if runtime.pairwise_semantic and runtime.mode != OptimizeMode.CONSERVATIVE else None
         )
         return SemanticStack(evaluator=evaluator, pairwise_evaluator=deepeval_pairwise)
-    provider = BudgetedSemanticProvider(
-        CommandSemanticProvider(),
-        runtime.search.max_llm_requests,
-        max_input_tokens=runtime.search.max_input_tokens,
-        max_output_tokens=runtime.search.max_output_tokens,
-        max_cost_usd=runtime.search.max_cost_usd,
-    )
     invariant_service = ProviderSemanticInvariantService(provider)
     evaluator = ScenarioContextEvaluator(ProviderSemanticEvaluator(provider)) if deep else None
     provider_pairwise: PairwiseSemanticEvaluator | None = (

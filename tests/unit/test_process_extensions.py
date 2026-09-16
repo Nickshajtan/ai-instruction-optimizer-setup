@@ -119,6 +119,12 @@ def test_process_transport_invokes_generic_operation(tmp_path: Path) -> None:
     assert result["payload"] == {"value": 42}
 
 
+def test_process_transport_can_query_describe_manifest(tmp_path: Path) -> None:
+    result = _transport(tmp_path, "ok").describe()
+
+    assert result["operation"] == "describe"
+
+
 @pytest.mark.parametrize(
     ("mode", "message"),
     [

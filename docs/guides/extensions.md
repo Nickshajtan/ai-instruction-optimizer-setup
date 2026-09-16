@@ -2,10 +2,10 @@
 
 Project-local extensions let repositories add custom checks or named runtime components without forking `ai-doc`.
 
-Use this page when the built-in analyzers or the process-backed evaluator runtime are not
-enough and your organization needs a repository-specific rule or evaluator adapter. If
-you only want to configure which files are analyzed, use [Configuration](configuration.md)
-instead.
+Use this page when the built-in analyzers, token counter, evaluators, recommendation
+policy, or semantic provider are not enough and your organization needs a
+repository-specific implementation. If you only want to configure which files are
+analyzed, use [Configuration](configuration.md) instead.
 
 `ai-doc` supports two extension shapes:
 
@@ -22,10 +22,8 @@ Extensions run when a command loads the analyzer or evaluation pipeline:
 - `ai-doc optimize --deep`, where a configured evaluator can replace the built-in deep evaluator
 
 Extensions do not currently extend `init`, `doctor`, `setup`, `version`, packaging/build
-behavior, runtime-specific loading models, pricing/token models, or every optimizer
-policy. Deeper Policy Engine extraction, richer tokenization/pricing/context-cost
-providers, recommendation-policy extension contracts, and additional transports remain
-follow-up work.
+behavior, runtime-specific loading models, pricing models, custom document profiles, or
+candidate mutation strategies.
 
 ## Stability Contract
 
@@ -35,8 +33,7 @@ Stable imports live under:
 from ai_doc.api.v1 import AnalysisContext, Finding, FindingCategory, FindingSeverity
 ```
 
-Process runtime helpers that are intended for programmatic composition are also exported
-from `ai_doc.api.v1`:
+Process runtime helpers are also exported from `ai_doc.api.v1`:
 
 ```python
 from ai_doc.api.v1 import PROTOCOL_VERSION, ProcessEvaluator, ProcessExtensionError, ProcessTransport
@@ -46,11 +43,24 @@ Anything outside `ai_doc.api.v1` should be treated as internal unless explicitly
 
 Export from `ai_doc.api.v1` does not automatically mean a component is configurable from
 `.ai-doc.yaml`, process-backed, dynamically loadable as a project extension, or stable in
-every possible composition role. The supported public extension contracts today are:
+every possible composition role. Extension support is described in four levels:
 
-- configured in-process static analyzers through `extensions`;
-- configured process-backed evaluators through `extension_runtime.evaluators`;
-- programmatic composition with exported API types when embedding or testing `ai-doc`.
+| Level | Meaning |
+|---|---|
+| L1 public API | Stable public Python types exported from `ai_doc.api.v1`. |
+| L2 programmatic DI | Components can be registered and resolved through `ExtensionRegistry`. |
+| L3 project extension | A configured Python extension can register and select the component for a real CLI path. |
+| L4 process extension | A configured command can implement the component through `ai-doc.extension/v1`. |
+
+Current capability matrix:
+
+| Capability | L1 | L2 | L3 Python | L4 process | Production path |
+|---|---:|---:|---:|---:|---|
+| Analyzer | yes | yes | yes | yes | `check`, optimizer static gates |
+| Evaluator | yes | yes | yes | yes | `check --deep`, `optimize --deep` |
+| Token counter | yes | yes | yes | yes | discovery, reports, FinOps, optimization snapshots |
+| Recommendation policy | yes | yes | yes | yes | optimizer final recommendation |
+| Semantic provider | yes | yes | yes | yes | semantic generation, invariants, evaluation, pairwise, GEPA |
 
 ## In-Process Python Extensions
 
@@ -110,17 +120,43 @@ The registry validates registrations. Existing analyzer extensions keep using
 `registry.add_analyzer(...)` unchanged.
 
 The registry also has named evaluator, token-counter, recommendation-policy, and provider
-slots for composition-boundary dependency injection. Those slots are not all supported
-project extension contracts. In particular, production configuration currently exposes a
-process-backed path for named evaluators; custom token/loading models and recommendation
-policies still require separate design before they are documented as supported project
-extensions.
+slots. Registering a named capability makes it available; the project still must select
+that implementation through configuration before it affects production behavior.
 
-## Process Evaluator Extensions
+Example:
 
-Process evaluator extensions are provider-neutral. A logical evaluator name such as `instruction-quality` can be backed by Claude, Codex, Gemini, a local model, a rules engine, or any executable that speaks the protocol. Core code only sees the evaluator abstraction.
+```python
+def register(registry) -> None:
+    registry.add_analyzer(CustomAnalyzer())
+    registry.add_token_counter("company", CompanyTokenCounter())
+    registry.add_evaluator("company", CompanyEvaluator())
+    registry.add_recommendation_policy("company", CompanyPolicy())
+    registry.add_provider("company", CompanySemanticProvider())
+```
 
-Inside `ai-doc`, the process runtime is split into a generic `ProcessTransport` and a capability-specific `ProcessEvaluator`. The transport owns process execution and the `ai-doc.extension/v1` envelope. The evaluator owns only the `evaluate` payload and `EvaluationResult` validation.
+Then select the named components:
+
+```yaml
+components:
+  token_counter: company
+  recommendation_policy: company
+  provider: company
+evaluation:
+  deep:
+    evaluator: company
+```
+
+## Process Extensions
+
+Process extensions are provider-neutral. A logical component name can be backed by
+Claude, Codex, Gemini, a local model, a rules engine, or any executable that speaks the
+protocol. Core code only sees the selected capability abstraction.
+
+Inside `ai-doc`, the process runtime is split into a generic `ProcessTransport` and
+capability-specific adapters such as `ProcessAnalyzer`, `ProcessEvaluator`,
+`ProcessTokenCounter`, `ProcessRecommendationPolicy`, and `ProcessSemanticProvider`. The
+transport owns process execution and the `ai-doc.extension/v1` envelope. Capability
+adapters own their operation payloads and result validation.
 
 `.ai-doc.yaml`:
 
@@ -129,29 +165,45 @@ evaluation:
   deep:
     evaluator: instruction-quality
 extension_runtime:
+  analyzers:
+    company-analyzer:
+      type: command
+      command: [python, examples/extensions/company.py]
   evaluators:
     instruction-quality:
       type: command
       command: [python, examples/extensions/simple_evaluator.py]
       timeout: 120
+  token_counters:
+    company-counter:
+      type: command
+      command: [python, examples/extensions/company.py]
+  recommendation_policies:
+    company-policy:
+      type: command
+      command: [python, examples/extensions/company.py]
+  providers:
+    company-provider:
+      type: command
+      command: [python, examples/extensions/company.py]
+components:
+  token_counter: company-counter
+  recommendation_policy: company-policy
+  provider: company-provider
 ```
 
 Commands are argv arrays and run with `shell=False`. stdout is reserved for protocol JSON. stderr is reserved for diagnostics and may be surfaced on failures.
 
-### Request
+### Envelope
 
-The process receives one JSON object on stdin:
+Every process operation receives one JSON object on stdin:
 
 ```json
 {
   "protocol": "ai-doc.extension/v1",
-  "operation": "evaluate",
+  "operation": "...",
   "request_id": "opaque-request-id",
-  "payload": {
-    "baseline": {"root": ".", "total_tokens": 10, "documents": []},
-    "candidate": null,
-    "suite": {"scenarios": []}
-  }
+  "payload": {}
 }
 ```
 
@@ -180,6 +232,21 @@ The process receives one JSON object on stdin:
   "error": {"code": "unavailable", "message": "provider unavailable"}
 }
 ```
+
+Current operations:
+
+| Operation | Capability | Result |
+|---|---|---|
+| `analyze` | analyzer | `{"findings": [...]}` or a findings list |
+| `evaluate` | evaluator | `EvaluationResult` fields |
+| `count_tokens` | token counter | `{"counts": {"item-id": 123}}` |
+| `recommend` | recommendation policy | `{"candidate_id": "C001"}` or `{"candidate_id": null}` |
+| `complete` | semantic provider | `SemanticResponse` fields: `data` and `usage` |
+
+`ProcessTransport.describe()` can query the optional `describe` operation for a lightweight
+manifest of supported capabilities. Existing commands remain compatible if they do not
+implement `describe`; selected operations still fail explicitly if the process returns an
+error or invalid result.
 
 `ai-doc` treats command-start failures, timeouts, non-zero exits, invalid JSON, unsupported protocol versions, mismatched request IDs, schema validation failures, and explicit extension errors as infrastructure errors. These are distinct from a valid negative evaluation result.
 

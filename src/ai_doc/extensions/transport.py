@@ -10,6 +10,7 @@ from typing import Any
 PROTOCOL_VERSION = "ai-doc.extension/v1"
 DEFAULT_TIMEOUT_SECONDS = 120.0
 DIAGNOSTIC_LIMIT = 4000
+DESCRIBE_OPERATION = "describe"
 
 
 class ProcessExtensionError(RuntimeError):
@@ -48,6 +49,9 @@ class ProcessTransport:
         }
         response = self._invoke(request)
         return _result_from_response(response, request_id)
+
+    def describe(self) -> Any:
+        return self.invoke(DESCRIBE_OPERATION, {})
 
     def _invoke(self, request: Mapping[str, Any]) -> dict[str, Any]:
         payload = json.dumps(request, separators=(",", ":"))

@@ -5,18 +5,19 @@ from typing import Annotated
 
 import typer
 
+from ai_doc.composition import register_configured_extensions, resolve_token_counter
 from ai_doc.config.loader import ConfigError, load_config
 from ai_doc.config.models import AiDocConfig
 from ai_doc.discovery.markdown_discovery import discover_markdown
 from ai_doc.evaluators.suite import load_evaluation_suite
 from ai_doc.ml.nli_sentence_transformers import SentenceTransformersNLIEngine
 from ai_doc.ml.sentence_transformers import LocalModelUnavailableError
+from ai_doc.plugins.loader import ExtensionError, load_extensions
 from ai_doc.probes.command import TargetProbeError
 from ai_doc.probes.execution import CommandExecutionProbe
 from ai_doc.probes.execution_runner import ExecutionActionVerifier, ExecutionProbeRunner
 from ai_doc.probes.workspace import UnsafeWorkspaceError
 from ai_doc.root import discover_project_root
-from ai_doc.tokens.counter import ApproximateTokenCounter
 
 
 def execute_command(
@@ -29,7 +30,9 @@ def execute_command(
     project_root = discover_project_root(path, root)
     try:
         loaded = load_config(project_root, config)
-        snapshot = discover_markdown(project_root, loaded, ApproximateTokenCounter())
+        extensions = load_extensions(project_root, loaded.extensions)
+        register_configured_extensions(loaded, extensions)
+        snapshot = discover_markdown(project_root, loaded, resolve_token_counter(loaded, extensions))
         suite = load_evaluation_suite(project_root)
         probe = CommandExecutionProbe()
         verifier = ExecutionActionVerifier(
@@ -37,7 +40,7 @@ def execute_command(
             confidence_threshold=loaded.local_ml.nli_confidence_threshold,
         )
         report = ExecutionProbeRunner(probe, verifier).run(snapshot, suite)
-    except (ConfigError, TargetProbeError, UnsafeWorkspaceError, OSError) as exc:
+    except (ConfigError, ExtensionError, TargetProbeError, UnsafeWorkspaceError, OSError) as exc:
         typer.echo(str(exc), err=True)
         raise typer.Exit(1) from exc
 

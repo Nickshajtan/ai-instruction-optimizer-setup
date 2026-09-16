@@ -75,8 +75,18 @@ class CommandExtensionConfig(BaseModel):
     timeout: float = Field(default=120, gt=0)
 
 
+class ComponentSelectionConfig(BaseModel):
+    token_counter: str = "approximate"
+    recommendation_policy: str = "default"
+    provider: str | None = None
+
+
 class ExtensionRuntimeConfig(BaseModel):
+    analyzers: dict[str, CommandExtensionConfig] = Field(default_factory=dict)
     evaluators: dict[str, CommandExtensionConfig] = Field(default_factory=dict)
+    token_counters: dict[str, CommandExtensionConfig] = Field(default_factory=dict)
+    recommendation_policies: dict[str, CommandExtensionConfig] = Field(default_factory=dict)
+    providers: dict[str, CommandExtensionConfig] = Field(default_factory=dict)
 
 
 class AiDocConfig(BaseModel):
@@ -122,6 +132,7 @@ class AiDocConfig(BaseModel):
     pricing: dict[str, PricingConfig] = Field(default_factory=dict)
     loading: dict[str, LoadingConfig] = Field(default_factory=dict)
     extensions: list[ExtensionConfig] = Field(default_factory=list)
+    components: ComponentSelectionConfig = Field(default_factory=ComponentSelectionConfig)
     extension_runtime: ExtensionRuntimeConfig = Field(default_factory=ExtensionRuntimeConfig)
 
 
