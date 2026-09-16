@@ -38,11 +38,6 @@ class ProcessEvaluator:
         self.transport = transport
         self.engine = engine
 
-    @property
-    def command(self) -> tuple[str, ...]:
-        command = self.transport.command  # type: ignore[attr-defined]
-        return tuple(command)
-
     def evaluate(
         self,
         baseline: DocumentationSnapshot,
