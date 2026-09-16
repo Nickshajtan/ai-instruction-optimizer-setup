@@ -340,6 +340,79 @@ extension_runtime:
     assert "PROCESS_ANALYZER" in json.dumps(report)
 
 
+def test_analyzers_are_additive_across_python_and_process_extensions(tmp_path: Path) -> None:
+    process_script = tmp_path / "named_analyzer.py"
+    process_script.write_text(
+        """
+from __future__ import annotations
+import json
+import sys
+
+code = sys.argv[1]
+request = json.loads(sys.stdin.read())
+result = {"findings": [{
+    "code": code,
+    "category": "risk",
+    "severity": "info",
+    "path": "AGENTS.md",
+    "section": None,
+    "message": f"{code} ran",
+    "evidence": {},
+    "suggestion": None
+}]}
+print(json.dumps({
+    "protocol": request["protocol"],
+    "request_id": request["request_id"],
+    "status": "ok",
+    "result": result,
+}))
+""",
+        encoding="utf-8",
+    )
+    _write_project(
+        tmp_path,
+        f"""
+extensions:
+  - path: .ai-doc/extensions/contracts.py
+extension_runtime:
+  analyzers:
+    process-alpha:
+      command: {_command_yaml_with_args(process_script, Path("PROCESS_ALPHA"))}
+    process-beta:
+      command: {_command_yaml_with_args(process_script, Path("PROCESS_BETA"))}
+""",
+    )
+    _extension(
+        tmp_path,
+        """
+from ai_doc.api.v1 import Finding
+
+class PythonAnalyzer:
+    def analyze(self, context):
+        return [Finding(
+            code="PYTHON_ANALYZER",
+            category="risk",
+            severity="info",
+            path="AGENTS.md",
+            section=None,
+            message="python analyzer ran",
+            evidence={},
+            suggestion=None,
+        )]
+
+def register(registry):
+    registry.add_analyzer(PythonAnalyzer())
+""",
+    )
+
+    report = _run_json(["check", str(tmp_path), "--format", "json"])
+
+    codes = [finding["code"] for finding in report["findings"]]
+    assert "PYTHON_ANALYZER" in codes
+    assert "PROCESS_ALPHA" in codes
+    assert "PROCESS_BETA" in codes
+
+
 def test_l4_process_evaluator_affects_deep_check(tmp_path: Path) -> None:
     script = _process_script(tmp_path)
     _write_project(

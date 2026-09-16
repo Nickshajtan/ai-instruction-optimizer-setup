@@ -122,6 +122,8 @@ The registry validates registrations. Existing analyzer extensions keep using
 The registry also has named evaluator, token-counter, recommendation-policy, and provider
 slots. Registering a named capability makes it available; the project still must select
 that implementation through configuration before it affects production behavior.
+Analyzers are additive: built-in analyzers, Python extension analyzers, and configured
+process analyzers all run in the same static analysis pass.
 
 Example:
 
