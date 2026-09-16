@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import ai_doc.tokens.counter as counter_module
+from ai_doc.app import run_static_check
+from ai_doc.config.models import DEFAULT_CONFIG
 from ai_doc.tokens.counter import OptionalModelAwareTokenCounter
 
 
@@ -11,6 +13,14 @@ class FallbackCounter:
     def count(self, text: str, model: str | None = None) -> int:
         self.calls.append((text, model))
         return 42
+
+
+class FixedTokenCounter:
+    label = "fixed-test"
+
+    def count(self, text: str, model: str | None = None) -> int:
+        del text, model
+        return 5
 
 
 class FakeEncoding:
@@ -53,3 +63,12 @@ def test_model_aware_counter_falls_back_for_unknown_model(monkeypatch) -> None:
 
     assert count == 42
     assert fallback.calls == [("one two three", "unknown-model")]
+
+
+def test_static_check_accepts_injected_token_counter(tmp_path) -> None:
+    (tmp_path / "AGENTS.md").write_text("short docs", encoding="utf-8")
+
+    report = run_static_check(tmp_path, DEFAULT_CONFIG, token_counter=FixedTokenCounter())
+
+    assert report.token_counter == "fixed-test"
+    assert report.total_tokens == 5

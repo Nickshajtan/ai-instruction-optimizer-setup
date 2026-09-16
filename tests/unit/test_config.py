@@ -2,10 +2,13 @@ from pathlib import Path
 
 import pytest
 
+from ai_doc.composition import register_configured_extensions, resolve_configured_evaluator
 from ai_doc.config.loader import ConfigError, ConfigFileReader, ProjectConfigLoadStrategy, load_config
 from ai_doc.config.models import DEFAULT_CONFIG, AiDocConfig
 from ai_doc.discovery.markdown_discovery import discover_markdown
 from ai_doc.domain.documents import DocumentProfile
+from ai_doc.extensions.process import ProcessEvaluator
+from ai_doc.plugins.registry import ExtensionRegistry
 from ai_doc.tokens.counter import ApproximateTokenCounter
 
 
@@ -176,3 +179,26 @@ def test_project_config_strategy_uses_injected_nested_merge(tmp_path: Path) -> N
 
     assert config.include == ["AGENTS.md", "merged.md"]
     assert nested_merge.calls[0][0] == tmp_path.resolve()
+
+
+def test_command_evaluator_config_registers_at_composition_boundary() -> None:
+    config = AiDocConfig.model_validate(
+        {
+            "evaluation": {"deep": {"evaluator": "instruction-quality"}},
+            "extension_runtime": {
+                "evaluators": {
+                    "instruction-quality": {
+                        "type": "command",
+                        "command": ["external-quality-evaluator"],
+                        "timeout": 30,
+                    }
+                }
+            },
+        }
+    )
+    registry = register_configured_extensions(config, ExtensionRegistry())
+
+    evaluator = resolve_configured_evaluator(config, registry, "deep")
+
+    assert isinstance(evaluator, ProcessEvaluator)
+    assert evaluator.command == ("external-quality-evaluator",)
