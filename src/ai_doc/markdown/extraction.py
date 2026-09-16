@@ -6,14 +6,7 @@ from typing import Protocol
 from markdown_it import MarkdownIt
 from markdown_it.token import Token
 
-from ai_doc.domain.analysis import (
-    InstructionUnit,
-    Modality,
-    NormalizationPolicy,
-    Polarity,
-    TextUnit,
-    TextUnitKind,
-)
+from ai_doc.domain.analysis import InstructionUnit, Modality, NormalizationPolicy, Polarity, TextUnit, TextUnitKind
 from ai_doc.domain.documents import Document
 
 _WHITESPACE_RE = re.compile(r"\s+")
@@ -75,7 +68,8 @@ class DeterministicInstructionExtractor:
 
 def classify_literal_instruction(unit: TextUnit, text: str | None = None) -> InstructionUnit | None:
     evidence = (text if text is not None else unit.text).strip()
-    match = _NORMATIVE_RE.match(evidence)
+    lexical_text = _INLINE_MARKUP_RE.sub("", evidence)
+    match = _NORMATIVE_RE.match(lexical_text)
     if match is None:
         return None
     modal = match.group("modal").lower()
