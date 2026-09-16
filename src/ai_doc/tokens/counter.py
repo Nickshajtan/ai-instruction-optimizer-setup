@@ -6,6 +6,8 @@ from typing import Protocol, cast
 
 
 class TokenCounter(Protocol):
+    label: str
+
     def count(self, text: str, model: str | None = None) -> int: ...
 
 

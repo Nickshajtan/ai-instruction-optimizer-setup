@@ -14,7 +14,7 @@ from ai_doc.evaluators.suite import load_evaluation_suite
 from ai_doc.markdown.graph import DocumentGraph
 from ai_doc.plugins.registry import ExtensionRegistry
 from ai_doc.reporting.models import CheckReport
-from ai_doc.tokens.counter import ApproximateTokenCounter
+from ai_doc.tokens.counter import ApproximateTokenCounter, TokenCounter
 
 
 def run_static_check(
@@ -22,8 +22,9 @@ def run_static_check(
     config: AiDocConfig,
     profile: DocumentProfile | None = None,
     extensions: ExtensionRegistry | None = None,
+    token_counter: TokenCounter | None = None,
 ) -> CheckReport:
-    counter = ApproximateTokenCounter()
+    counter = token_counter or ApproximateTokenCounter()
     snapshot = discover_markdown(root, config, counter)
     if profile:
         snapshot = snapshot.model_copy(
