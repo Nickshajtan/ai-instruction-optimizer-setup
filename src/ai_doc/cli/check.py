@@ -7,6 +7,7 @@ from typing import Annotated, Protocol
 import typer
 
 from ai_doc.app import load_suite, run_static_check
+from ai_doc.composition import register_configured_extensions, resolve_configured_evaluator
 from ai_doc.config.loader import ConfigError, load_config
 from ai_doc.config.models import EvaluationEngine, EvaluationModeConfig
 from ai_doc.discovery.markdown_discovery import discover_markdown
@@ -39,20 +40,15 @@ class DeepEvaluator(Protocol):
         baseline: DocumentationSnapshot,
         candidate: DocumentationSnapshot | None,
         suite: EvaluationSuite,
-    ) -> EvaluationResult:
-        ...
+    ) -> EvaluationResult: ...
 
 
 def check_command(
     path: Annotated[Path, typer.Argument(help="Repository root to analyze.")] = Path("."),
     root: Annotated[Path | None, typer.Option("--root", help="Explicit project root.")] = None,
     config: Annotated[Path | None, typer.Option("--config", help="Path to .ai-doc.yaml.")] = None,
-    output_format: Annotated[
-        OutputFormat, typer.Option("--format", help="Output format.")
-    ] = OutputFormat.CONSOLE,
-    profile: Annotated[
-        DocumentProfile | None, typer.Option("--profile", help="Only analyze one profile.")
-    ] = None,
+    output_format: Annotated[OutputFormat, typer.Option("--format", help="Output format.")] = OutputFormat.CONSOLE,
+    profile: Annotated[DocumentProfile | None, typer.Option("--profile", help="Only analyze one profile.")] = None,
     deep: Annotated[bool, typer.Option("--deep", help="Run external semantic evaluation.")] = False,
     non_interactive: Annotated[
         bool, typer.Option("--non-interactive", help="Do not prompt before external calls.")
@@ -70,6 +66,7 @@ def check_command(
     try:
         loaded = load_config(project_root, config)
         extensions = load_extensions(project_root, loaded.extensions, debug=debug)
+        register_configured_extensions(loaded, extensions)
         report = run_static_check(project_root, loaded, profile, extensions)
     except ConfigError as exc:
         typer.echo(str(exc), err=True)
@@ -80,27 +77,23 @@ def check_command(
     if deep:
         if not non_interactive:
             typer.echo("Deep mode may run external evaluator/model calls.")
-        engine = loaded.evaluation.get("deep", EvaluationModeConfig()).engine
-        _prepare_deep_engine(engine, install_missing, non_interactive, output_format)
+        deep_config = loaded.evaluation.get("deep", EvaluationModeConfig())
         suite = load_suite(project_root)
         try:
-            evaluator = _deep_evaluator(engine, debug)
+            evaluator = resolve_configured_evaluator(loaded, extensions, "deep")
+            if evaluator is None:
+                _prepare_deep_engine(deep_config.engine, install_missing, non_interactive, output_format)
+                evaluator = _deep_evaluator(deep_config.engine, debug)
             snapshot_report = report
             snapshot = discover_markdown(project_root, loaded, ApproximateTokenCounter())
             report.evaluation = evaluator.evaluate(snapshot, None, suite)
-        except (PromptfooUnavailableError, DeepEvalUnavailableError) as exc:
+        except (PromptfooUnavailableError, DeepEvalUnavailableError, RuntimeError) as exc:
             typer.echo(str(exc), err=True)
             raise typer.Exit(3) from exc
-        exit_code = (
-            3
-            if snapshot_report.evaluation and not snapshot_report.evaluation.passed
-            else _exit_code(report)
-        )
+        exit_code = 3 if snapshot_report.evaluation and not snapshot_report.evaluation.passed else _exit_code(report)
     else:
         exit_code = _exit_code(report)
-    typer.echo(
-        render_json(report) if output_format == OutputFormat.JSON else render_check_console(report)
-    )
+    typer.echo(render_json(report) if output_format == OutputFormat.JSON else render_check_console(report))
     raise typer.Exit(exit_code)
 
 

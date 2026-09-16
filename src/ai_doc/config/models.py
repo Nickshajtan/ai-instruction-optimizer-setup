@@ -28,6 +28,7 @@ class BudgetConfig(BaseModel):
 
 class EvaluationModeConfig(BaseModel):
     engine: EvaluationEngine = EvaluationEngine.PROMPTFOO
+    evaluator: str | None = None
 
 
 class LocalMLConfig(BaseModel):
@@ -68,6 +69,16 @@ class ExtensionConfig(BaseModel):
     path: str
 
 
+class CommandExtensionConfig(BaseModel):
+    type: str = "command"
+    command: list[str]
+    timeout: float = Field(default=120, gt=0)
+
+
+class ExtensionRuntimeConfig(BaseModel):
+    evaluators: dict[str, CommandExtensionConfig] = Field(default_factory=dict)
+
+
 class AiDocConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -105,6 +116,7 @@ class AiDocConfig(BaseModel):
     pricing: dict[str, PricingConfig] = Field(default_factory=dict)
     loading: dict[str, LoadingConfig] = Field(default_factory=dict)
     extensions: list[ExtensionConfig] = Field(default_factory=list)
+    extension_runtime: ExtensionRuntimeConfig = Field(default_factory=ExtensionRuntimeConfig)
 
 
 DEFAULT_CONFIG = AiDocConfig(
