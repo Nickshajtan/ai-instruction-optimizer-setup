@@ -11,6 +11,7 @@ on:
       - "tests/**"
       - "pyproject.toml"
       - ".github/workflows/mutation-testing.yml"
+      - "!**/*.md"
   workflow_dispatch:
 
 permissions:
