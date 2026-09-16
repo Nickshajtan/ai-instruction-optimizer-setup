@@ -34,6 +34,7 @@ from ai_doc.domain.probes import (
     VerifiedObservation,
     WorkspaceDelta,
 )
+from ai_doc.extensions.process import PROTOCOL_VERSION, ProcessEvaluator, ProcessExtensionError, ProcessTransport
 from ai_doc.optimizer.recommendation import RecommendationPolicy
 from ai_doc.plugins.registry import ExtensionRegistry
 from ai_doc.providers.base import LLMProvider
@@ -68,6 +69,10 @@ __all__ = [
     "PairwiseSemanticResult",
     "PlanningProbeComparison",
     "PlanningProbeReport",
+    "ProcessEvaluator",
+    "ProcessExtensionError",
+    "ProcessTransport",
+    "PROTOCOL_VERSION",
     "ProbeExpectationKind",
     "ProbeExpectationOutcome",
     "ProbeExpectationResult",
