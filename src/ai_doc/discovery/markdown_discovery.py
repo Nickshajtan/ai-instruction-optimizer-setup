@@ -9,10 +9,10 @@ from ai_doc.markdown.links import resolve_links
 from ai_doc.markdown.parser import MarkdownParser
 from ai_doc.tokens.counter import TokenCounter
 
+MARKDOWN_LIKE_SUFFIXES = {".md", ".mdc"}
 
-def discover_markdown(
-    root: Path, config: AiDocConfig, token_counter: TokenCounter
-) -> DocumentationSnapshot:
+
+def discover_markdown(root: Path, config: AiDocConfig, token_counter: TokenCounter) -> DocumentationSnapshot:
     root = root.resolve()
     parser = MarkdownParser(token_counter)
     paths: set[Path] = set()
@@ -20,7 +20,7 @@ def discover_markdown(
         for path in root.glob(pattern):
             if (
                 path.is_file()
-                and path.suffix.lower() == ".md"
+                and path.suffix.lower() in MARKDOWN_LIKE_SUFFIXES
                 and not _is_excluded(root, path, config.exclude)
             ):
                 paths.add(path.resolve())
@@ -52,6 +52,14 @@ def _is_excluded(root: Path, path: Path, patterns: list[str]) -> bool:
 
 def _profile_for(relative: str, config: AiDocConfig) -> DocumentProfile:
     for pattern, profile in config.profiles.items():
-        if fnmatch(relative, pattern):
+        if _matches_pattern(relative, pattern):
             return profile
     return DocumentProfile.GENERIC
+
+
+def _matches_pattern(relative: str, pattern: str) -> bool:
+    if fnmatch(relative, pattern):
+        return True
+    if "/**/" in pattern:
+        return fnmatch(relative, pattern.replace("/**/", "/"))
+    return False

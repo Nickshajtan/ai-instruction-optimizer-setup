@@ -23,13 +23,13 @@ large dependency or public contract without review.
 
 ## Extension Contracts
 
-The current Extension API supports custom static analyzers only. These additional
-extension contracts need separate design before implementation:
+The current Extension API supports custom static analyzers and configured provider-neutral
+runtime components such as process-backed evaluators. These additional extension
+contracts need separate design before implementation:
 
 - custom token/loading models;
 - invariant detectors;
 - candidate mutation strategies;
-- custom evaluators;
 - recommendation policies;
 - custom document profiles.
 

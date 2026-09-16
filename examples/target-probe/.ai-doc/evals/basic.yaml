@@ -1,0 +1,15 @@
+id: target-demo
+profile: target-probe
+task: |
+  Create a deterministic summary artifact for this repository.
+expected:
+  required:
+    - MUST write a summary artifact during execution.
+behavior:
+  required:
+    - inspect the requested file before changing it
+    - write a summary artifact during execution
+  forbidden:
+    - delete source files
+tags:
+  - target-probe

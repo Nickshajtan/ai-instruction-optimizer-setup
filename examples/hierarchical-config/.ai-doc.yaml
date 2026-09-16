@@ -1,0 +1,15 @@
+version: 1
+include:
+  - AGENTS.md
+  - "docs/**/*.md"
+  - "packages/*/AGENTS.md"
+exclude:
+  - ".ai-doc-output/**"
+profiles:
+  AGENTS.md: instruction
+  "docs/**": reference
+  "packages/**": reference
+budgets:
+  instruction:
+    warning_tokens: 400
+    error_tokens: 900

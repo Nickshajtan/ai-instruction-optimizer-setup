@@ -1,0 +1,9 @@
+---
+description: Backend Cursor rule
+globs: ["backend/**/*.py"]
+alwaysApply: false
+---
+
+# Cursor Backend Rule
+
+Use backend service patterns and run backend unit tests.

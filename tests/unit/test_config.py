@@ -3,7 +3,13 @@ from pathlib import Path
 import pytest
 
 from ai_doc.composition import register_configured_extensions, resolve_configured_evaluator
-from ai_doc.config.loader import ConfigError, ConfigFileReader, ProjectConfigLoadStrategy, load_config
+from ai_doc.config.loader import (
+    ConfigError,
+    ConfigFileReader,
+    ProjectConfigLoadStrategy,
+    load_config,
+    write_default_config,
+)
 from ai_doc.config.models import DEFAULT_CONFIG, AiDocConfig
 from ai_doc.discovery.markdown_discovery import discover_markdown
 from ai_doc.domain.documents import DocumentProfile
@@ -30,6 +36,78 @@ def test_default_excludes_skip_source_checkout_tool_docs(tmp_path: Path) -> None
     snapshot = discover_markdown(tmp_path, config, ApproximateTokenCounter())
 
     assert [document.relative_path for document in snapshot.documents] == ["AGENTS.md"]
+
+
+def test_default_agent_ecosystem_discovery_and_profiles(tmp_path: Path) -> None:
+    files = [
+        "AGENTS.md",
+        "CLAUDE.md",
+        "GEMINI.md",
+        ".github/copilot-instructions.md",
+        ".github/instructions/backend.instructions.md",
+        ".codex/skills/review/SKILL.md",
+        ".claude/skills/review/SKILL.md",
+        ".gemini/skills/review/SKILL.md",
+        ".agents/skills/shared-review/SKILL.md",
+        ".cursor/rules/backend.mdc",
+    ]
+    for relative in files:
+        path = tmp_path / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("---\napplyTo: '**/*.py'\n---\n# Rules\n\nUse project conventions.\n", encoding="utf-8")
+
+    snapshot = discover_markdown(tmp_path, DEFAULT_CONFIG, ApproximateTokenCounter())
+
+    profiles = {document.relative_path: document.profile for document in snapshot.documents}
+    assert profiles == {
+        "AGENTS.md": DocumentProfile.INSTRUCTION,
+        "CLAUDE.md": DocumentProfile.INSTRUCTION,
+        "GEMINI.md": DocumentProfile.INSTRUCTION,
+        ".github/copilot-instructions.md": DocumentProfile.INSTRUCTION,
+        ".github/instructions/backend.instructions.md": DocumentProfile.INSTRUCTION,
+        ".codex/skills/review/SKILL.md": DocumentProfile.SKILL,
+        ".claude/skills/review/SKILL.md": DocumentProfile.SKILL,
+        ".gemini/skills/review/SKILL.md": DocumentProfile.SKILL,
+        ".agents/skills/shared-review/SKILL.md": DocumentProfile.SKILL,
+        ".cursor/rules/backend.mdc": DocumentProfile.INSTRUCTION,
+    }
+    cursor_rule = snapshot.by_relative_path()[".cursor/rules/backend.mdc"]
+    assert cursor_rule.text.startswith("---\napplyTo")
+
+
+def test_markdown_like_mdc_links_resolve(tmp_path: Path) -> None:
+    rules = tmp_path / ".cursor" / "rules"
+    rules.mkdir(parents=True)
+    (rules / "backend.mdc").write_text("# Backend\n\nSee [frontend](frontend.mdc).\n", encoding="utf-8")
+    (rules / "frontend.mdc").write_text("# Frontend\n", encoding="utf-8")
+
+    snapshot = discover_markdown(tmp_path, DEFAULT_CONFIG, ApproximateTokenCounter())
+
+    backend = snapshot.by_relative_path()[".cursor/rules/backend.mdc"]
+    assert backend.links[0].is_local_markdown is True
+    assert backend.links[0].resolved_path == ".cursor/rules/frontend.mdc"
+
+
+def test_default_config_resource_matches_agent_discovery_defaults(tmp_path: Path) -> None:
+    written = write_default_config(tmp_path)
+
+    assert tmp_path / ".ai-doc.yaml" in written
+    config = load_config(tmp_path)
+    for pattern in [
+        "GEMINI.md",
+        ".gemini/**/*.md",
+        ".agents/skills/**/SKILL.md",
+        ".github/copilot-instructions.md",
+        ".github/instructions/**/*.instructions.md",
+        ".cursor/rules/**/*.mdc",
+    ]:
+        assert pattern in config.include
+    assert config.profiles["GEMINI.md"] is DocumentProfile.INSTRUCTION
+    assert config.profiles[".gemini/skills/**/SKILL.md"] is DocumentProfile.SKILL
+    assert config.profiles[".agents/skills/**/SKILL.md"] is DocumentProfile.SKILL
+    assert config.profiles[".github/copilot-instructions.md"] is DocumentProfile.INSTRUCTION
+    assert config.profiles[".github/instructions/**/*.instructions.md"] is DocumentProfile.INSTRUCTION
+    assert config.profiles[".cursor/rules/**/*.mdc"] is DocumentProfile.INSTRUCTION
 
 
 def test_load_config_merges_nested_module_config_with_scoped_patterns(tmp_path: Path) -> None:

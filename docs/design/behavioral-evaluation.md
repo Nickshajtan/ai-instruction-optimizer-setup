@@ -2,7 +2,7 @@
 
 `ai-doc` uses C-tier evidence only when it observes behavior produced by a real target model. C is intentionally separate from A static analysis and B predictive judgment.
 
-The first C implementation is a **planning probe**. It asks the configured target model to interpret a real evaluation scenario and repository instruction context, but it does not allow `ai-doc` to execute tools, modify the repository, or claim end-to-end task success.
+The C implementation has two current layers. C1 planning probes ask the configured target model to interpret a real evaluation scenario and repository instruction context without allowing repository mutation. C2 execution probes run a trusted target adapter in an isolated workspace copy and record the resulting actions and filesystem delta.
 
 ## Evidence Ladder
 
@@ -11,11 +11,11 @@ A0  deterministic static analysis
 A1  local semantic ML
 B   predictive semantic judgment
 C1  real target planning probe
-C2  real target execution          (future)
-C3  repeated target benchmark      (future)
+C2  real target execution
+C3  repeated target benchmark      (not current architecture)
 ```
 
-A1 can verify semantic relationships in text. B can predict whether one instruction set is likely better than another. C1 records what the actual configured target says it intends to do for a concrete task. A compliant plan is stronger evidence than a generic judge, but it is not proof of correct execution.
+A1 can verify semantic relationships in text. B can predict whether one instruction set is likely better than another. C1 records what the actual configured target says it intends to do for a concrete task. C2 records what the target reports doing and what changed in the temporary workspace. A compliant plan is stronger evidence than a generic judge, but it is not proof of correct execution; that is why C2 exists.
 
 ## Why There Is No Local Generative Surrogate
 
@@ -151,11 +151,11 @@ important instruction change
   A0 + A1 + B + C1
 
 critical root/security/release instructions
-  C1 -> future C2 execution -> future C3 repeated benchmark
+  C1 -> C2 execution
 ```
 
-Repeated target runs belong to C3 and should be reserved for documentation where stronger statistical evidence justifies the cost.
+Repeated target runs are intentionally outside the current architecture and should be reserved for a separate design only when stronger statistical evidence justifies the cost.
 
 ## Non-Goals Of C1
 
-C1 does not execute shell commands or tools, modify repository files, verify generated code/tests, claim task completion, estimate task-success probability, or repeat stochastic runs. Those belong to future C2/C3 layers.
+C1 does not execute shell commands or tools, modify repository files, verify generated code/tests, claim task completion, estimate task-success probability, or repeat stochastic runs. C2 covers real target execution in an isolated workspace copy. Repeated stochastic runs remain outside the current architecture.

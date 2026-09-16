@@ -1,0 +1,12 @@
+id: extension-runtime
+profile: process-extension
+task: |
+  Check that process-backed evaluator extensions preserve the protocol boundary.
+expected:
+  required:
+    - MUST preserve the public command contract.
+behavior:
+  required:
+    - preserve the public command contract
+tags:
+  - extension-runtime
