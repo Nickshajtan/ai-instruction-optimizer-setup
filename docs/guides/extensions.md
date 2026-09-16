@@ -28,6 +28,13 @@ Stable imports live under:
 from ai_doc.api.v1 import AnalysisContext, Finding, FindingCategory, FindingSeverity
 ```
 
+Process runtime helpers that are intended for programmatic composition are also exported
+from `ai_doc.api.v1`:
+
+```python
+from ai_doc.api.v1 import PROTOCOL_VERSION, ProcessEvaluator, ProcessExtensionError, ProcessTransport
+```
+
 Anything outside `ai_doc.api.v1` should be treated as internal unless explicitly documented otherwise.
 
 ## In-Process Python Extensions
@@ -89,6 +96,8 @@ The registry validates registrations. Existing analyzer extensions keep using `r
 ## Process Evaluator Extensions
 
 Process evaluator extensions are provider-neutral. A logical evaluator name such as `instruction-quality` can be backed by Claude, Codex, Gemini, a local model, a rules engine, or any executable that speaks the protocol. Core code only sees the evaluator abstraction.
+
+Inside `ai-doc`, the process runtime is split into a generic `ProcessTransport` and a capability-specific `ProcessEvaluator`. The transport owns process execution and the `ai-doc.extension/v1` envelope. The evaluator owns only the `evaluate` payload and `EvaluationResult` validation.
 
 `.ai-doc.yaml`:
 

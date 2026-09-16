@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from ai_doc.config.models import AiDocConfig
 from ai_doc.domain.evaluations import Evaluator
-from ai_doc.extensions.process import ProcessEvaluator
+from ai_doc.extensions.process import ProcessEvaluator, ProcessTransport
 from ai_doc.plugins.registry import ExtensionRegistry
 
 
@@ -12,7 +12,10 @@ def register_configured_extensions(config: AiDocConfig, registry: ExtensionRegis
             raise ValueError(f"Unsupported evaluator extension type for {name!r}: {evaluator.type!r}")
         registry.add_evaluator(
             name,
-            ProcessEvaluator(evaluator.command, timeout=evaluator.timeout, engine=name),
+            ProcessEvaluator(
+                ProcessTransport(evaluator.command, timeout=evaluator.timeout),
+                engine=name,
+            ),
         )
     return registry
 

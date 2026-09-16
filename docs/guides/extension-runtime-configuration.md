@@ -18,4 +18,4 @@ extension_runtime:
 
 Commands are argv arrays and run without `shell=True`. Configure only trusted executables from trusted project configuration. Documentation content should not choose or rewrite the command.
 
-The command receives protocol JSON on stdin, writes protocol JSON on stdout, and writes diagnostics on stderr. See [Extension API](extensions.md) for the request and response schema.
+The command receives protocol JSON on stdin, writes protocol JSON on stdout, and writes diagnostics on stderr. `ProcessTransport` owns those process and protocol mechanics; `ProcessEvaluator` only maps evaluator inputs and outputs around the transport. See [Extension API](extensions.md) for the request and response schema.

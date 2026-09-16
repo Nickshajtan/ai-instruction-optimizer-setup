@@ -21,9 +21,29 @@ Business logic receives selected dependencies through constructors or function a
 
 In-process Python extensions remain the compatibility path. Existing extensions that define `register(registry)` and call `registry.add_analyzer(...)` continue to work.
 
-Process extensions are the portable ABI. A process evaluator receives a versioned `ai-doc.extension/v1` JSON request on stdin and returns JSON on stdout. stderr is reserved for diagnostics.
+Process extensions are the portable ABI. `ProcessTransport` sends a versioned `ai-doc.extension/v1` JSON request on stdin and reads protocol JSON from stdout. stderr is reserved for diagnostics.
 
-The process adapter reports command-start failures, timeouts, non-zero exits, invalid JSON, protocol mismatches, schema failures, mismatched request IDs, and explicit extension errors as infrastructure errors. Those failures are distinct from a valid negative evaluation.
+The portable runtime is layered:
+
+```text
+Domain capability
+      |
+Process adapter
+      |
+ProcessTransport
+      |
+ai-doc.extension/v1
+      |
+external executable
+```
+
+`ProcessTransport` owns execution and protocol mechanics: argv execution with `shell=False`, environment overlay handling, timeout, request ID generation, stdout parsing, protocol envelope validation, extension error responses, and stderr diagnostics. It accepts an operation name plus payload, so it is not evaluator-specific.
+
+`ProcessEvaluator` is the evaluator-specific adapter. It maps documentation snapshots and evaluation suites into an `evaluate` payload, delegates to `ProcessTransport`, and validates the returned result as an `EvaluationResult`.
+
+Future process-backed capabilities should reuse `ProcessTransport` and add their own thin capability adapter instead of reimplementing subprocess and protocol handling.
+
+The transport reports command-start failures, timeouts, non-zero exits, invalid JSON, protocol mismatches, mismatched request IDs, invalid envelope status, and explicit extension errors as infrastructure errors. The evaluator reports evaluator-result schema failures. Those failures are distinct from a valid negative evaluation.
 
 ## Provider Neutrality
 

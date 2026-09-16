@@ -19,6 +19,7 @@ ai_doc.markdown     Markdown parsing, links, and graph construction
 ai_doc.analyzers    deterministic static analyzers
 ai_doc.tokens       token counting and pricing helpers
 ai_doc.evaluators   lexical/semantic evaluator and context-selection boundaries
+ai_doc.extensions   project-local extensions and process transport adapters
 ai_doc.providers    provider-neutral external semantic command boundary
 ai_doc.optimizer    generation, staged gates, feedback, Pareto search, artifacts
 ai_doc.plugins      project-local static analyzer extension loading and registry
@@ -140,6 +141,26 @@ Ineligible/no-provider cases remain truthful no-ops. Usage from actual prompt su
 ## Lexical And Optional Evaluator Adapters
 
 Promptfoo remains isolated in `ai_doc.evaluators.promptfoo`; echo/contains behavior is lexical evidence, not semantic evidence, and scenario assertions are isolated. DeepEval remains optional and evaluates baseline documentation when no candidate is supplied.
+
+## Process Extension Boundary
+
+Process-backed extensions separate capability semantics from process mechanics:
+
+```text
+Domain capability
+      |
+Process adapter
+      |
+ProcessTransport
+      |
+ai-doc.extension/v1
+      |
+external executable
+```
+
+`ProcessTransport` owns command execution, stdin/stdout JSON framing, request IDs, protocol validation, timeouts, exit-status handling, and stderr diagnostics. It accepts an operation name and JSON-compatible payload, then returns the validated response result. It does not know about documentation snapshots, evaluation suites, evaluator results, token counting, recommendation policies, optimizers, LLM providers, or provider brands.
+
+`ProcessEvaluator` owns only evaluator-specific request and result mapping. It converts `DocumentationSnapshot` and `EvaluationSuite` values into an `evaluate` payload, calls a transport, and validates the returned data as an `EvaluationResult`. Future process-backed capabilities should reuse `ProcessTransport` and add only a thin capability adapter instead of reimplementing subprocess protocol logic.
 
 ## Run Evidence
 

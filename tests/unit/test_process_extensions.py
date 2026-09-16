@@ -2,12 +2,13 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
+from typing import Any
 
 import pytest
 
 from ai_doc.domain.documents import DocumentationSnapshot
 from ai_doc.domain.evaluations import EvaluationSuite
-from ai_doc.extensions.process import PROTOCOL_VERSION, ProcessEvaluator, ProcessExtensionError
+from ai_doc.extensions.process import PROTOCOL_VERSION, ProcessEvaluator, ProcessExtensionError, ProcessTransport
 
 
 def _snapshot(text: str = "docs") -> DocumentationSnapshot:
@@ -31,8 +32,8 @@ def _suite() -> EvaluationSuite:
     return EvaluationSuite.model_validate({"scenarios": [{"id": "smoke", "task": "Read docs."}]})
 
 
-def _extension_script(tmp_path: Path, mode: str) -> Path:
-    script = tmp_path / f"extension_{mode}.py"
+def _transport_script(tmp_path: Path, mode: str) -> Path:
+    script = tmp_path / f"transport_{mode}.py"
     script.write_text(
         f"""
 from __future__ import annotations
@@ -52,32 +53,49 @@ if mode == "nonzero":
 if mode == "invalid-json":
     print("not json")
     raise SystemExit(0)
+if mode == "long-stderr":
+    print("x" * 5000, file=sys.stderr)
+    raise SystemExit(9)
+if mode == "non-object":
+    print("[]")
+    raise SystemExit(0)
 
 data = json.loads(request)
+protocol = data["protocol"]
+request_id = data["request_id"]
 if mode == "wrong-protocol":
-    protocol = "ai-doc.extension/v0"
-else:
-    protocol = data["protocol"]
-response = {{"protocol": protocol, "request_id": data["request_id"]}}
+    protocol = "ai-doc.extension/v999"
+if mode == "wrong-request-id":
+    request_id = "wrong"
 
-if data["protocol"] != {PROTOCOL_VERSION!r}:
-    response.update({{"status": "error", "error": "bad protocol"}})
-elif data["operation"] != "evaluate":
-    response.update({{"status": "error", "error": "bad operation"}})
+response = {{"protocol": protocol, "request_id": request_id}}
+if mode == "invalid-status":
+    response.update({{"status": "maybe", "result": {{}}}})
 elif mode == "explicit-error":
-    response.update({{"status": "error", "error": {{"code": "denied", "message": "nope"}}}})
-elif mode == "malformed-result":
-    response.update({{"status": "ok", "result": {{"passed": True, "cases": [{{}}]}}}})
-else:
+    print("provider diagnostics", file=sys.stderr)
+    response.update({{"status": "error", "error": {{"code": "provider_unavailable", "message": "offline"}}}})
+elif mode == "missing-result":
+    response.update({{"status": "ok"}})
+elif data["operation"] == "evaluate":
     scenario_id = data["payload"]["suite"]["scenarios"][0]["id"]
     response.update(
         {{
             "status": "ok",
             "result": {{
-                "engine": "external-fixture",
                 "passed": True,
                 "cases": [{{"id": scenario_id, "passed": True, "score": 0.9}}],
-                "raw_summary": {{"semantic": True}},
+            }},
+        }}
+    )
+else:
+    response.update(
+        {{
+            "status": "ok",
+            "result": {{
+                "operation": data["operation"],
+                "protocol": data["protocol"],
+                "request_id": data["request_id"],
+                "payload": data["payload"],
             }},
         }}
     )
@@ -88,16 +106,17 @@ print(json.dumps(response))
     return script
 
 
-def _evaluator(tmp_path: Path, mode: str, timeout: float = 1) -> ProcessEvaluator:
-    return ProcessEvaluator([sys.executable, str(_extension_script(tmp_path, mode))], timeout=timeout)
+def _transport(tmp_path: Path, mode: str, timeout: float = 1) -> ProcessTransport:
+    return ProcessTransport([sys.executable, str(_transport_script(tmp_path, mode))], timeout=timeout)
 
 
-def test_process_evaluator_round_trips_valid_protocol(tmp_path: Path) -> None:
-    result = _evaluator(tmp_path, "ok").evaluate(_snapshot(), None, _suite())
+def test_process_transport_invokes_generic_operation(tmp_path: Path) -> None:
+    result = _transport(tmp_path, "ok").invoke("test-operation", {"value": 42})
 
-    assert result.engine == "external-fixture"
-    assert result.passed is True
-    assert result.cases[0].id == "smoke"
+    assert result["operation"] == "test-operation"
+    assert result["protocol"] == PROTOCOL_VERSION
+    assert result["request_id"]
+    assert result["payload"] == {"value": 42}
 
 
 @pytest.mark.parametrize(
@@ -105,21 +124,99 @@ def test_process_evaluator_round_trips_valid_protocol(tmp_path: Path) -> None:
     [
         ("nonzero", "exited with status 9"),
         ("invalid-json", "invalid JSON"),
+        ("non-object", "response must be a JSON object"),
         ("wrong-protocol", "Unsupported process extension protocol"),
-        ("malformed-result", "schema validation"),
-        ("explicit-error", "returned an error"),
+        ("wrong-request-id", "request_id did not match"),
+        ("invalid-status", "status must be 'ok' or 'error'"),
+        ("explicit-error", "provider_unavailable"),
+        ("missing-result", "must contain a result"),
     ],
 )
-def test_process_evaluator_reports_protocol_failures(tmp_path: Path, mode: str, message: str) -> None:
+def test_process_transport_reports_protocol_and_infrastructure_failures(
+    tmp_path: Path,
+    mode: str,
+    message: str,
+) -> None:
     with pytest.raises(ProcessExtensionError, match=message):
-        _evaluator(tmp_path, mode).evaluate(_snapshot(), None, _suite())
+        _transport(tmp_path, mode).invoke("test-operation", {"value": 42})
 
 
-def test_process_evaluator_reports_timeout(tmp_path: Path) -> None:
-    with pytest.raises(ProcessExtensionError, match="timed out"):
-        _evaluator(tmp_path, "timeout", timeout=0.01).evaluate(_snapshot(), None, _suite())
-
-
-def test_process_evaluator_reports_missing_executable() -> None:
+def test_process_transport_reports_missing_executable() -> None:
     with pytest.raises(ProcessExtensionError, match="could not start"):
-        ProcessEvaluator(["missing-ai-doc-extension-executable"]).evaluate(_snapshot(), None, _suite())
+        ProcessTransport(["missing-ai-doc-extension-executable"]).invoke("test-operation", {})
+
+
+def test_process_transport_reports_timeout(tmp_path: Path) -> None:
+    with pytest.raises(ProcessExtensionError, match="timed out"):
+        _transport(tmp_path, "timeout", timeout=0.01).invoke("test-operation", {})
+
+
+def test_process_transport_includes_stderr_diagnostics(tmp_path: Path) -> None:
+    with pytest.raises(ProcessExtensionError, match="Diagnostics:\nboom"):
+        _transport(tmp_path, "nonzero").invoke("test-operation", {})
+
+
+def test_process_transport_limits_stderr_diagnostics(tmp_path: Path) -> None:
+    with pytest.raises(ProcessExtensionError) as exc_info:
+        _transport(tmp_path, "long-stderr").invoke("test-operation", {})
+
+    assert exc_info.value.diagnostics == "x" * 4000
+
+
+class FakeTransport:
+    def __init__(self, result: Any) -> None:
+        self.result = result
+        self.calls: list[tuple[str, dict[str, object]]] = []
+
+    def invoke(self, operation: str, payload: dict[str, object]) -> Any:
+        self.calls.append((operation, payload))
+        return self.result
+
+
+def test_process_evaluator_maps_domain_payload_to_evaluate_operation() -> None:
+    transport = FakeTransport({"passed": True, "cases": [{"id": "smoke", "passed": True, "score": 0.9}]})
+    evaluator = ProcessEvaluator(transport, engine="instruction-quality")
+
+    result = evaluator.evaluate(_snapshot("baseline"), _snapshot("candidate"), _suite())
+
+    operation, payload = transport.calls[0]
+    baseline = payload["baseline"]
+    candidate = payload["candidate"]
+    suite = payload["suite"]
+    assert operation == "evaluate"
+    assert isinstance(baseline, dict)
+    assert isinstance(candidate, dict)
+    assert isinstance(suite, dict)
+    assert baseline["documents"][0]["text"] == "baseline"
+    assert candidate["documents"][0]["text"] == "candidate"
+    assert suite["scenarios"][0]["id"] == "smoke"
+    assert result.engine == "instruction-quality"
+    assert result.passed is True
+    assert result.cases[0].id == "smoke"
+
+
+def test_process_evaluator_preserves_engine_returned_by_extension() -> None:
+    transport = FakeTransport({"engine": "external-fixture", "passed": True, "cases": []})
+    evaluator = ProcessEvaluator(transport, engine="instruction-quality")
+
+    result = evaluator.evaluate(_snapshot(), None, _suite())
+
+    assert result.engine == "external-fixture"
+
+
+def test_process_evaluator_reports_invalid_result_schema_without_subprocess() -> None:
+    evaluator = ProcessEvaluator(FakeTransport({"passed": True, "cases": [{}]}))
+
+    with pytest.raises(ProcessExtensionError, match="schema validation"):
+        evaluator.evaluate(_snapshot(), None, _suite())
+
+
+def test_process_evaluator_runs_end_to_end_with_process_transport(tmp_path: Path) -> None:
+    transport = _transport(tmp_path, "ok")
+    evaluator = ProcessEvaluator(transport, engine="process")
+
+    result = evaluator.evaluate(_snapshot(), None, _suite())
+
+    assert result.engine == "process"
+    assert result.passed is True
+    assert result.cases[0].id == "smoke"
