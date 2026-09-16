@@ -2,7 +2,10 @@
 
 Project-local extensions let repositories add custom checks or named runtime components without forking `ai-doc`.
 
-Use this page when the built-in analyzers or evaluators are not enough and your organization needs a repository-specific rule or provider adapter. If you only want to configure which files are analyzed, use [Configuration](configuration.md) instead.
+Use this page when the built-in analyzers or the process-backed evaluator runtime are not
+enough and your organization needs a repository-specific rule or evaluator adapter. If
+you only want to configure which files are analyzed, use [Configuration](configuration.md)
+instead.
 
 `ai-doc` supports two extension shapes:
 
@@ -18,7 +21,11 @@ Extensions run when a command loads the analyzer or evaluation pipeline:
 - `ai-doc optimize`, for baseline and candidate static gates
 - `ai-doc optimize --deep`, where a configured evaluator can replace the built-in deep evaluator
 
-Extensions do not currently extend `init`, `doctor`, `setup`, `version`, packaging/build behavior, or every optimizer policy. Deeper Policy Engine extraction, richer tokenization/pricing/context-cost providers, and additional transports remain follow-up work.
+Extensions do not currently extend `init`, `doctor`, `setup`, `version`, packaging/build
+behavior, runtime-specific loading models, pricing/token models, or every optimizer
+policy. Deeper Policy Engine extraction, richer tokenization/pricing/context-cost
+providers, recommendation-policy extension contracts, and additional transports remain
+follow-up work.
 
 ## Stability Contract
 
@@ -36,6 +43,14 @@ from ai_doc.api.v1 import PROTOCOL_VERSION, ProcessEvaluator, ProcessExtensionEr
 ```
 
 Anything outside `ai_doc.api.v1` should be treated as internal unless explicitly documented otherwise.
+
+Export from `ai_doc.api.v1` does not automatically mean a component is configurable from
+`.ai-doc.yaml`, process-backed, dynamically loadable as a project extension, or stable in
+every possible composition role. The supported public extension contracts today are:
+
+- configured in-process static analyzers through `extensions`;
+- configured process-backed evaluators through `extension_runtime.evaluators`;
+- programmatic composition with exported API types when embedding or testing `ai-doc`.
 
 ## In-Process Python Extensions
 
@@ -91,7 +106,15 @@ def register(registry) -> None:
     ...
 ```
 
-The registry validates registrations. Existing analyzer extensions keep using `registry.add_analyzer(...)` unchanged. The registry also supports named evaluators, token counters, recommendation policies, and providers for composition-boundary dependency injection.
+The registry validates registrations. Existing analyzer extensions keep using
+`registry.add_analyzer(...)` unchanged.
+
+The registry also has named evaluator, token-counter, recommendation-policy, and provider
+slots for composition-boundary dependency injection. Those slots are not all supported
+project extension contracts. In particular, production configuration currently exposes a
+process-backed path for named evaluators; custom token/loading models and recommendation
+policies still require separate design before they are documented as supported project
+extensions.
 
 ## Process Evaluator Extensions
 

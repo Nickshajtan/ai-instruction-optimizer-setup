@@ -73,7 +73,11 @@ Without a semantic verifier, deterministic literal protection remains the offlin
 
 `--deep` evaluates scenarios independently. When `AI_DOC_SEMANTIC_COMMAND` is configured, the same production provider contract performs semantic evaluation; otherwise the optional DeepEval adapter remains available.
 
-Evaluation uses task-selected effective context rather than blindly concatenating the repository. Instruction and skill documents are always-loaded. Reference documents become reachable through explicit, task-relevant routes from already-reachable context. Merely sharing task vocabulary with a target document is not sufficient.
+Evaluation uses task-selected effective context rather than blindly concatenating the
+repository. Instruction and skill documents are modeled as always loaded for this
+selector. Reference documents become reachable through explicit, task-relevant routes
+from already-reachable context. Merely sharing task vocabulary with a target document is
+not sufficient.
 
 Multi-scenario provider usage is accumulated across all scenario calls rather than reporting only the final scenario's request/tokens/cost.
 

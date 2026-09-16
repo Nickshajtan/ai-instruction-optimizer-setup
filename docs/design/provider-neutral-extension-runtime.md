@@ -1,6 +1,9 @@
 # Provider-Neutral Extension Runtime
 
-`ai-doc` separates runtime needs from provider implementations at the composition boundary.
+`ai-doc` separates runtime needs from provider implementations at the composition
+boundary. This page describes internal composition and the currently exposed
+process-evaluator runtime; not every registry slot is a supported project extension
+contract.
 
 ```text
 CLI / composition root
@@ -41,7 +44,10 @@ external executable
 
 `ProcessEvaluator` is the evaluator-specific adapter. It maps documentation snapshots and evaluation suites into an `evaluate` payload, delegates to `ProcessTransport`, and validates the returned result as an `EvaluationResult`.
 
-Future process-backed capabilities should reuse `ProcessTransport` and add their own thin capability adapter instead of reimplementing subprocess and protocol handling.
+Future process-backed capabilities should reuse `ProcessTransport` and add their own thin
+capability adapter instead of reimplementing subprocess and protocol handling. They still
+need a documented configuration path and stability contract before becoming supported
+project extensions.
 
 The transport reports command-start failures, timeouts, non-zero exits, invalid JSON, protocol mismatches, mismatched request IDs, invalid envelope status, and explicit extension errors as infrastructure errors. The evaluator reports evaluator-result schema failures. Those failures are distinct from a valid negative evaluation.
 
@@ -53,4 +59,7 @@ Provider-specific SDKs, credentials, parsing, and retry behavior live inside the
 
 ## Follow-Ups
 
-Further extraction can add a deeper Policy Engine, richer tokenization metadata, separate pricing and context-cost providers, more process transports, and additional optimizer policy injection points.
+Further extraction can add a deeper Policy Engine, richer tokenization metadata, separate
+pricing and context-cost providers, more process transports, and additional optimizer
+policy injection points. Recommendation-policy, token/loading-model, and provider
+extension contracts remain deferred until designed explicitly.

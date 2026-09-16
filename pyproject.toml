@@ -40,7 +40,7 @@ ai-doc = "ai_doc.cli.main:app"
 packages = ["src/ai_doc"]
 
 [tool.hatch.build.targets.sdist]
-include = ["src/ai_doc", "README.md", "ARCHITECTURE.md", "DEFERRED.md", "pyproject.toml"]
+include = ["src/ai_doc", "README.md", "ARCHITECTURE.md", "docs", "specs", "pyproject.toml"]
 
 [tool.ruff]
 line-length = 122

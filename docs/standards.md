@@ -17,8 +17,8 @@ Terms used here:
 
 - Public Python imports must be exported from `ai_doc.api.v1`.
 - Internal modules must not be documented as extension import targets.
-- CLI commands, documented options, exit codes, JSON schemas, config schema, and extension
-  registration are stable public contracts.
+- CLI commands, documented options, exit codes, JSON schemas, config schema, and
+  documented extension registration paths are stable public contracts.
 - Breaking public contracts requires an explicit versioned migration path.
 
 ## CLI Standards
@@ -54,7 +54,7 @@ Stable exit codes:
 
 - Extensions must be explicitly configured.
 - Extension paths must stay inside the project root.
-- Extensions register behavior through `register(registry)`.
+- In-process analyzer extensions register behavior through `register(registry)`.
 - The registry validates registrations and reports actionable errors.
 - Extension examples must import from `ai_doc.api.v1`.
 - Extension loading executes code; document trust requirements wherever extensions are
@@ -189,3 +189,9 @@ Stable exit codes:
 - Normative project rules belong in this standards document.
 - Architecture rationale belongs in `docs/design/architecture.md` and `docs/design/decisions.md`.
 - Deferred work belongs in `docs/design/deferred.md`.
+- User-facing documentation MUST NOT promote an internal abstraction, configuration
+  declaration, approximation, test adapter, or deferred capability into a stronger product
+  capability without evidence from the production execution path.
+- Ecosystem/runtime claims MUST distinguish file discovery and parsing support from
+  runtime-behavior support, target-adapter observation, SDK/native integration, and
+  deferred loaders.

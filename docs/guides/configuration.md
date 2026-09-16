@@ -19,7 +19,8 @@ The configuration answers four practical questions:
 
 - Which Markdown files should be analyzed?
 - Which paths are generated, vendored, or otherwise irrelevant?
-- Which documents are always-read instructions versus reference material?
+- Which documents should be treated as instructions, skills, references, or other
+  profiles for `ai-doc` analysis?
 - Which optional evaluators, optimizers, budgets, and extensions are enabled?
 
 ## Minimal Configuration
@@ -60,12 +61,13 @@ creates a starter config and `.ai-doc/evals/basic.yaml`.
 Patterns are evaluated relative to the project root and results are sorted
 deterministically.
 
-Use `include` for files agents are expected to read, such as `AGENTS.md`, `CLAUDE.md`,
-`.ai/**/*.md`, `.codex/**/*.md`, `.claude/**/*.md`, or `docs/**/*.md`. Use `exclude` for
-dependency folders, build output, generated reports, and other paths that should not be
-reviewed as source documentation. The default excludes skip `.tools/ai-doc/**` so a
-source-checkout copy of this tool does not recursively analyze its own Markdown files
-inside a target project.
+Use `include` for files that belong to the repository's agent-facing documentation
+interface, such as `AGENTS.md`, `CLAUDE.md`, `.ai/**/*.md`, `.codex/**/*.md`,
+`.claude/**/*.md`, or `docs/**/*.md`. Discovery and parsing do not prove that a specific
+external runtime loads those files. Use `exclude` for dependency folders, build output,
+generated reports, and other paths that should not be reviewed as source documentation.
+The default excludes skip `.tools/ai-doc/**` so a source-checkout copy of this tool does
+not recursively analyze its own Markdown files inside a target project.
 
 For repositories with inner modules, wildcard patterns in one root config are often
 enough:
@@ -141,10 +143,11 @@ nested configs. This keeps ad hoc and CI runs reproducible.
 
 ## Profiles
 
-Supported profiles:
+Supported profiles are `ai-doc` analysis categories:
 
-- `instruction`: always-loaded agent instructions such as `AGENTS.md`.
-- `skill`: on-demand agent skill documentation.
+- `instruction`: files treated as root or high-priority instructions for analysis, such
+  as `AGENTS.md`.
+- `skill`: agent skill documentation that may be routed into context on demand.
 - `reference`: normal reference documentation.
 - `adr`: architecture decision records.
 - `generic`: fallback when no profile matches.
@@ -152,9 +155,10 @@ Supported profiles:
 Profiles influence analyzer recommendations. For example, large examples are more
 strongly discouraged in `instruction` docs than in `reference` docs.
 
-The profile does not move files or change their content. It tells analyzers how strict to
-be. An `instruction` file is expensive because an agent may load it on every task, while a
-`reference` file can be longer because it is usually opened only when needed.
+The profile does not move files, change their content, or prove runtime loading behavior.
+It tells analyzers how strict to be. An `instruction` file is treated as expensive because
+it may be loaded on every task in the modeled context, while a `reference` file can be
+longer because it is usually routed only when needed.
 
 Put exact instruction-file entries before broad patterns such as `docs/**`. Profile
 patterns are checked in order, so `docs/AGENTS.md` should be classified before the generic
@@ -184,7 +188,9 @@ counts.
 
 ## Loading And Pricing
 
-`loading` can mark files as always loaded or provide explicit load probabilities.
+`loading` declares the project loading model that `ai-doc` should use for analysis and
+cost estimation. It can mark files as always loaded or provide explicit load
+probabilities.
 
 ```yaml
 loading:
@@ -207,14 +213,21 @@ pricing:
 
 If load probabilities or prices are absent, expected token or cost fields remain unknown.
 
-Use `loading` when you know how often a document is expected to enter agent context. Use
-`pricing` only when you intentionally want model-specific cost estimates and you are
+Use `loading` when you want to declare how often a document is expected to enter agent
+context. `ai-doc` does not discover real load frequency from that setting, and a
+configured probability is a project policy input rather than an observed runtime fact.
+Use `pricing` only when you intentionally want model-specific cost estimates and you are
 prepared to maintain the model price values yourself. If you do not know, leave these
 fields out. `ai-doc` will report unknown cost estimates instead of inventing numbers.
 
 Current static findings do not need pricing. They use approximate tokens to compare
 documentation size, always-loaded context, duplication, and budget pressure in a
 provider-neutral way.
+
+Effective-context selection for semantic evaluation and probes starts from profiles and
+explicit routes in already reachable context. That selection is deterministic and
+auditable, but it approximates target-agent loading; it is not a runtime-specific Claude,
+Codex, Copilot, Cursor, or Gemini loader.
 
 ## Evaluation
 

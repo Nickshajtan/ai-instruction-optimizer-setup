@@ -141,7 +141,7 @@ ai-doc init
 
 This creates files only when they do not already exist. The important file is
 `.ai-doc.yaml`, which tells `ai-doc` what Markdown files to analyze and how to classify
-them.
+them for its own checks.
 
 A minimal configuration looks like this:
 
@@ -173,8 +173,10 @@ profiles:
 The `include` list selects Markdown files. The `exclude` list removes generated,
 third-party, and tool-owned paths. The default `.tools/ai-doc/**` exclude prevents a
 source-checkout copy of `ai-doc` from recursively analyzing its own documentation inside a
-target project. The `profiles` section tells analyzers whether a file is an always-read
-instruction file, a reference document, a skill, or another documentation type.
+target project. The `profiles` section tells analyzers whether a file should be modeled
+as an instruction file, reference document, skill, or another documentation type.
+Discovery and profile classification do not prove exactly when a specific external agent
+runtime loads a file.
 
 See [Configuration](configuration.md) for the full schema.
 
@@ -215,8 +217,8 @@ Static mode uses these built-in rule groups:
   organization.
 - Clarity rules look for vague or hard-to-follow instructions.
 - Duplication rules look for repeated list items or repeated documentation content.
-- FinOps rules estimate context size, always-loaded instruction cost, duplicate tokens,
-  and configured budget pressure.
+- FinOps rules estimate context size, modeled always-loaded instruction cost, duplicate
+  tokens, and configured budget pressure.
 
 For automation, use JSON output:
 

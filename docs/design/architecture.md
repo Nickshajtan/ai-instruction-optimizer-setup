@@ -6,7 +6,10 @@ Use this page when changing code boundaries, adding integrations, or deciding wh
 
 ## Primary Contracts
 
-Stable public contracts are the CLI and documented options, exit codes, JSON output schemas, `.ai-doc.yaml`, project-local extension registration, and explicit exports from `ai_doc.api.v1`. Optimizer/search/provider implementation details remain internal.
+Stable public contracts are the CLI and documented options, exit codes, JSON output
+schemas, `.ai-doc.yaml`, documented project-local extension registration paths, and
+explicit exports from `ai_doc.api.v1`. Optimizer/search/provider implementation details
+remain internal.
 
 ## Package Map
 
@@ -94,9 +97,18 @@ Feedback and search-memory contents are serialized into semantic generation requ
 
 ## Effective Context Boundary
 
-`ai_doc.evaluators.context` separates the full corpus from always-loaded instructions and task-selected references. The deterministic selector requires task-relevant explicit routing from already reachable context; merely sharing task vocabulary with a target reference is not enough to select it.
+`ai_doc.evaluators.context` separates the full corpus from modeled always-loaded
+instructions and task-selected references. The deterministic selector requires
+task-relevant explicit routing from already reachable context; merely sharing task
+vocabulary with a target reference is not enough to select it.
 
-`ScenarioContextEvaluator` evaluates scenarios independently and retains effective-context evidence per scenario. Provider usage from those per-scenario calls is accumulated across the full suite rather than exposing only the last call. Context selection remains an approximation of coding-agent loading behavior, not a claim to perfectly simulate Claude, Codex, Copilot, or future agents.
+`ScenarioContextEvaluator` evaluates scenarios independently and retains
+effective-context evidence per scenario. Provider usage from those per-scenario calls is
+accumulated across the full suite rather than exposing only the last call. Context
+selection remains an approximation of coding-agent loading behavior, not a claim to
+perfectly simulate Claude, Codex, Copilot, Cursor, Gemini, or future agents. Discovery of
+a known file format, profile inference, declared `loading`, and observed target-adapter
+behavior are separate evidence levels.
 
 ## Invariant Safety And Trust Boundary
 
@@ -161,6 +173,12 @@ external executable
 `ProcessTransport` owns command execution, stdin/stdout JSON framing, request IDs, protocol validation, timeouts, exit-status handling, and stderr diagnostics. It accepts an operation name and JSON-compatible payload, then returns the validated response result. It does not know about documentation snapshots, evaluation suites, evaluator results, token counting, recommendation policies, optimizers, LLM providers, or provider brands.
 
 `ProcessEvaluator` owns only evaluator-specific request and result mapping. It converts `DocumentationSnapshot` and `EvaluationSuite` values into an `evaluate` payload, calls a transport, and validates the returned data as an `EvaluationResult`. Future process-backed capabilities should reuse `ProcessTransport` and add only a thin capability adapter instead of reimplementing subprocess protocol logic.
+
+The registry contains additional composition slots such as token counters, recommendation
+policies, and providers, but a registry slot is not automatically a supported
+project-configurable extension contract. Today, project configuration exposes
+process-backed evaluators; other extension contracts remain deferred until designed and
+documented.
 
 ## Run Evidence
 

@@ -33,7 +33,9 @@ specialized terms, commands, schemas, or architecture rules.
   project dependencies.
 - Keep public contracts aligned with [../README.md](../README.md) and
   [standards.md](standards.md).
-- Keep Extension API docs limited to supported static analyzer extensions.
+- Keep Extension API docs limited to supported public extension contracts. Distinguish
+  static analyzer extensions, configured process-backed evaluators, programmatic
+  composition interfaces, and deferred extension contracts.
 - Keep model-specific pricing optional and user-supplied; static token budgets are
   model-agnostic guardrails.
 

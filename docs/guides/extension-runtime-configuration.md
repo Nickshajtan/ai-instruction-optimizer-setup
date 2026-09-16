@@ -14,7 +14,13 @@ extension_runtime:
       timeout: 120
 ```
 
-`evaluation.deep.evaluator` selects a logical name. `extension_runtime.evaluators` defines how that name is implemented. This lets the same `ai-doc` configuration shape work with Claude, Codex, Gemini, local models, rules engines, or any other executable that speaks the process protocol.
+`evaluation.deep.evaluator` selects a logical name. `extension_runtime.evaluators`
+defines how that name is implemented. This lets the same `ai-doc` configuration shape
+work with an executable wrapper around Claude, Codex, Gemini, local models, rules
+engines, or any other trusted process that speaks the protocol. The adapter command owns
+any provider authentication, SDK usage, and runtime-specific prompt formatting; merely
+configuring a command does not make the evidence equivalent to a native runtime loader or
+agent integration.
 
 Commands are argv arrays and run without `shell=True`. Configure only trusted executables from trusted project configuration. Documentation content should not choose or rewrite the command.
 
