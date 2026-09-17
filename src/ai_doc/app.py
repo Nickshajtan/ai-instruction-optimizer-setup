@@ -15,7 +15,7 @@ from ai_doc.evaluators.suite import load_evaluation_suite
 from ai_doc.markdown.graph import DocumentGraph
 from ai_doc.plugins.registry import ExtensionRegistry
 from ai_doc.reporting.models import CheckReport
-from ai_doc.tokens.counter import TokenCounter
+from ai_doc.tokens.counter import TokenCounter, token_count_accuracy
 
 
 def run_static_check(
@@ -32,7 +32,14 @@ def run_static_check(
             update={"documents": tuple(doc for doc in snapshot.documents if doc.profile == profile)}
         )
     graph = DocumentGraph(snapshot)
-    context = AnalysisContext(config=config, snapshot=snapshot, graph=graph)
+    accuracy = token_count_accuracy(counter)
+    context = AnalysisContext(
+        config=config,
+        snapshot=snapshot,
+        graph=graph,
+        token_counter=counter.label,
+        token_count_accuracy=accuracy.value,
+    )
     findings = run_analyzers(context)
     if extensions:
         for analyzer in extensions.analyzers:
@@ -44,6 +51,7 @@ def run_static_check(
         files_analyzed=len(snapshot.documents),
         total_tokens=snapshot.total_tokens,
         token_counter=counter.label,
+        token_count_accuracy=accuracy.value,
         context_cost=cost,
         profiles={doc.relative_path: doc.profile.value for doc in snapshot.documents},
         findings=findings,

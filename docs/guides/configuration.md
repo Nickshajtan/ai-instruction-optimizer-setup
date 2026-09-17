@@ -177,14 +177,17 @@ budgets:
     warning_tokens: null
 ```
 
-Token budgets are model-agnostic policy thresholds. `ai-doc` uses its own approximate
-counter so static checks behave the same regardless of whether a project uses OpenAI,
-Anthropic, local models, or several providers.
+Token budgets are model-agnostic policy thresholds. By default, `ai-doc` uses its own
+deterministic approximate counter so static checks behave the same regardless of whether
+a project uses OpenAI, Anthropic, local models, or several providers.
 
 Budgets are guardrails, not billing data. They help identify files that are probably too
 large for their role. Set lower budgets for always-loaded instruction files and looser
 budgets for reference documents. Do not treat these numbers as exact provider-token
-counts.
+counts unless you have selected a counter that is exact for the provider and model you
+care about. Check reports include both the selected `token_counter` and
+`token_count_accuracy` so CI output can distinguish estimated, exact, mixed, and unknown
+token-count evidence.
 
 ## Loading And Pricing
 
@@ -220,9 +223,10 @@ Use `pricing` only when you intentionally want model-specific cost estimates and
 prepared to maintain the model price values yourself. If you do not know, leave these
 fields out. `ai-doc` will report unknown cost estimates instead of inventing numbers.
 
-Current static findings do not need pricing. They use approximate tokens to compare
-documentation size, always-loaded context, duplication, and budget pressure in a
-provider-neutral way.
+Current static findings do not need pricing. They use the selected token counter to
+compare documentation size, always-loaded context, duplication, and budget pressure. The
+default `approximate` counter is provider-neutral estimated evidence; Claude-oriented
+projects do not need to treat OpenAI or tiktoken tokenization as authoritative.
 
 Effective-context selection for semantic evaluation and probes starts from profiles and
 explicit routes in already reachable context. That selection is deterministic and
@@ -263,6 +267,18 @@ internal scenarios to Promptfoo configuration.
 values are `promptfoo` and `deepeval`. Missing optional dependencies can be prepared with
 `ai-doc setup --deep` or `ai-doc check --deep --install-missing`.
 
+DeepEval-backed evaluation requires an explicit model:
+
+```yaml
+evaluation:
+  deep:
+    engine: deepeval
+    model: gpt-4o-mini
+```
+
+If `engine: deepeval` is selected without `model`, `ai-doc` exits with a configuration
+error instead of allowing DeepEval to choose an implicit OpenAI default.
+
 Use static checks first. Add deep evaluation when you need to test whether documentation
 actually supports a realistic task, such as routing an agent to the right runbook or
 preserving a safety requirement during optimization.
@@ -272,6 +288,7 @@ preserving a safety requirement during optimization.
 ```yaml
 optimization:
   engine: deepeval
+  deepeval_model: gpt-4o-mini
   pairwise_semantic: false
   strategy: balanced
   population:
@@ -313,6 +330,9 @@ and candidate documentation for predicted instruction-following quality and reco
 `candidate`, `baseline`, `equivalent`, or `uncertain` evidence. It is not measured
 Claude/Codex task success; static and invariant checks remain the authoritative hard
 constraints, and unavailable or uncertain pairwise evidence does not fail optimization.
+When pairwise evaluation falls back to DeepEval instead of a configured semantic
+provider, `optimization.deepeval_model` must be set so no implicit provider/model is
+selected.
 
 ## Extensions
 
@@ -335,6 +355,13 @@ evaluation:
 extensions:
   - path: .ai-doc/extensions/company.py
 ```
+
+Select a token counter that matches the provider/model semantics you want to budget
+against. `approximate` is the default estimated local counter. `openai-tiktoken` is an
+explicit OpenAI/tiktoken-compatible option and reports mixed accuracy because it falls
+back to estimation when tiktoken or a model encoding is unavailable. Claude-oriented
+projects should select a Claude-appropriate Python or process token counter, or keep the
+default estimated counter with that limitation understood.
 
 `extension_runtime` configures process-backed components using the same names:
 
@@ -364,8 +391,8 @@ extension_runtime:
       command: [python, .ai-doc/extensions/company_process.py]
 ```
 
-Built-in names include `approximate` for the default token counter, `default` for the
-default recommendation policy, and `semantic-command` for the
+Built-in names include `approximate` and `openai-tiktoken` for token counters,
+`default` for the default recommendation policy, and `semantic-command` for the
 `AI_DOC_SEMANTIC_COMMAND` provider when that environment variable is set. Evaluator
 selection remains mode-specific through `evaluation.<mode>.evaluator`.
 

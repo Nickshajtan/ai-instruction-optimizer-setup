@@ -125,6 +125,10 @@ that implementation through configuration before it affects production behavior.
 Analyzers are additive: built-in analyzers, Python extension analyzers, and configured
 process analyzers all run in the same static analysis pass.
 
+Token counters may expose an `accuracy` attribute using `TokenCountAccuracy.EXACT`,
+`TokenCountAccuracy.ESTIMATED`, `TokenCountAccuracy.MIXED`, or a matching string. If an
+extension does not declare accuracy, reports mark the counter accuracy as `unknown`.
+
 Example:
 
 ```python

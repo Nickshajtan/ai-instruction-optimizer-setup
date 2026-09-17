@@ -17,6 +17,8 @@ class AnalysisContext(BaseModel):
     config: AiDocConfig
     snapshot: DocumentationSnapshot
     graph: DocumentGraph
+    token_counter: str = "unknown"
+    token_count_accuracy: str = "unknown"
 
 
 class Analyzer(Protocol):

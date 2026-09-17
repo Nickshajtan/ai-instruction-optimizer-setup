@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import ai_doc.tokens.counter as counter_module
 from ai_doc.app import run_static_check
-from ai_doc.config.models import DEFAULT_CONFIG
-from ai_doc.tokens.counter import OptionalModelAwareTokenCounter
+from ai_doc.composition import resolve_token_counter
+from ai_doc.config.models import DEFAULT_CONFIG, AiDocConfig
+from ai_doc.tokens.counter import OptionalModelAwareTokenCounter, TokenCountAccuracy, token_count_accuracy
 
 
 class FallbackCounter:
@@ -71,4 +72,23 @@ def test_static_check_accepts_injected_token_counter(tmp_path) -> None:
     report = run_static_check(tmp_path, DEFAULT_CONFIG, token_counter=FixedTokenCounter())
 
     assert report.token_counter == "fixed-test"
+    assert report.token_count_accuracy == "unknown"
     assert report.total_tokens == 5
+
+
+def test_approximate_counter_reports_estimated_accuracy(tmp_path) -> None:
+    (tmp_path / "AGENTS.md").write_text("short docs", encoding="utf-8")
+
+    report = run_static_check(tmp_path, DEFAULT_CONFIG)
+
+    assert report.token_counter == "approximate"
+    assert report.token_count_accuracy == "estimated"
+
+
+def test_openai_tiktoken_counter_is_explicitly_selected() -> None:
+    config = AiDocConfig.model_validate({"components": {"token_counter": "openai-tiktoken"}})
+
+    counter = resolve_token_counter(config)
+
+    assert counter.label == "openai-tiktoken"
+    assert token_count_accuracy(counter) == TokenCountAccuracy.MIXED

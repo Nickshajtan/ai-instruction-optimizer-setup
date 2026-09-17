@@ -23,9 +23,10 @@ from ai_doc.providers.semantic import (
     CommandSemanticProvider,
     SemanticProvider,
 )
-from ai_doc.tokens.counter import ApproximateTokenCounter, TokenCounter
+from ai_doc.tokens.counter import ApproximateTokenCounter, OptionalModelAwareTokenCounter, TokenCounter
 
 BUILTIN_TOKEN_COUNTER_APPROXIMATE = "approximate"
+BUILTIN_TOKEN_COUNTER_OPENAI_TIKTOKEN = "openai-tiktoken"
 BUILTIN_EVALUATOR_PROMPTFOO = "promptfoo"
 BUILTIN_EVALUATOR_DEEPEVAL = "deepeval"
 BUILTIN_RECOMMENDATION_DEFAULT = "default"
@@ -125,6 +126,7 @@ def resolve_semantic_provider(
 
 def _register_builtins(registry: ExtensionRegistry) -> None:
     registry.add_token_counter(BUILTIN_TOKEN_COUNTER_APPROXIMATE, ApproximateTokenCounter())
+    registry.add_token_counter(BUILTIN_TOKEN_COUNTER_OPENAI_TIKTOKEN, OptionalModelAwareTokenCounter())
     registry.add_evaluator(BUILTIN_EVALUATOR_PROMPTFOO, PromptfooEvaluator())
     registry.add_evaluator(BUILTIN_EVALUATOR_DEEPEVAL, DeepEvalEvaluator())
     registry.add_recommendation_policy(BUILTIN_RECOMMENDATION_DEFAULT, RecommendationPolicy())

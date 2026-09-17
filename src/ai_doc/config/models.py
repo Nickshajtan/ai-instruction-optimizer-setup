@@ -29,6 +29,7 @@ class BudgetConfig(BaseModel):
 class EvaluationModeConfig(BaseModel):
     engine: EvaluationEngine = EvaluationEngine.PROMPTFOO
     evaluator: str | None = None
+    model: str | None = None
 
 
 class LocalMLConfig(BaseModel):
@@ -43,6 +44,7 @@ class LocalMLConfig(BaseModel):
 
 class OptimizationConfig(BaseModel):
     engine: EvaluationEngine = EvaluationEngine.DEEPEVAL
+    deepeval_model: str | None = None
     pairwise_semantic: bool = False
     strategy: OptimizeMode = OptimizeMode.BALANCED
     population: PopulationConfig = Field(default_factory=PopulationConfig)

@@ -84,7 +84,7 @@ def check_command(
             evaluator = resolve_configured_evaluator(loaded, extensions, "deep")
             if evaluator is None:
                 _prepare_deep_engine(deep_config.engine, install_missing, non_interactive, output_format)
-                evaluator = _deep_evaluator(deep_config.engine, debug)
+                evaluator = _deep_evaluator(deep_config.engine, debug, deep_config.model)
             snapshot_report = report
             snapshot = discover_markdown(project_root, loaded, token_counter)
             report.evaluation = evaluator.evaluate(snapshot, None, suite)
@@ -136,9 +136,9 @@ def _missing_message(missing: list[DependencyStatus]) -> str:
     return "\n".join(lines)
 
 
-def _deep_evaluator(engine: EvaluationEngine, debug: bool) -> DeepEvaluator:
+def _deep_evaluator(engine: EvaluationEngine, debug: bool, model: str | None) -> DeepEvaluator:
     if engine == EvaluationEngine.PROMPTFOO:
         return PromptfooEvaluator(debug=debug)
     if engine == EvaluationEngine.DEEPEVAL:
-        return DeepEvalEvaluator()
+        return DeepEvalEvaluator(model=model)
     raise typer.BadParameter(f"Unsupported deep evaluator: {engine}")

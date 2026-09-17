@@ -28,9 +28,17 @@ DEEPEVAL_SCORE_ATTRIBUTE = "score"
 DEEPEVAL_PAIRWISE_ENGINE = "deepeval-arena-geval"
 BASELINE_CONTESTANT = "baseline"
 CANDIDATE_CONTESTANT = "candidate"
+DEEPEVAL_EXPLICIT_MODEL_MESSAGE = (
+    "DeepEval requires an explicitly configured evaluation model. "
+    "No implicit OpenAI model will be selected."
+)
 
 
 class DeepEvalUnavailableError(RuntimeError):
+    pass
+
+
+class DeepEvalConfigurationError(RuntimeError):
     pass
 
 
@@ -49,8 +57,9 @@ class DeepEvalSymbols:
 class DeepEvalEvaluator:
     """Optional semantic DeepEval adapter."""
 
-    def __init__(self, threshold: float = DEEPEVAL_DEFAULT_THRESHOLD) -> None:
+    def __init__(self, threshold: float = DEEPEVAL_DEFAULT_THRESHOLD, model: str | None = None) -> None:
         self.threshold = threshold
+        self.model = model
 
     def evaluate(
         self,
@@ -58,6 +67,7 @@ class DeepEvalEvaluator:
         candidate: DocumentationSnapshot | None,
         suite: EvaluationSuite,
     ) -> EvaluationResult:
+        model = self._model()
         symbols = _load_deepeval_symbols()
         documents = (candidate if candidate is not None else baseline).documents
         actual = "\n\n".join(document.text for document in documents)
@@ -71,6 +81,7 @@ class DeepEvalEvaluator:
                     symbols.expected_output_param,
                 ],
                 threshold=self.threshold,
+                model=model,
             )
             expected = [*scenario.expected_required]
             if scenario.expected_forbidden:
@@ -102,11 +113,12 @@ class DeepEvalEvaluator:
         candidate: DocumentationSnapshot,
         suite: EvaluationSuite,
     ) -> PairwiseSemanticResult:
+        model = self._model()
         symbols = _load_deepeval_symbols()
         if symbols.arena_geval is None or symbols.arena_test_case is None or symbols.contestant is None:
             return uncertain_pairwise_result(DEEPEVAL_PAIRWISE_ENGINE, "DeepEval ArenaGEval is unavailable")
         dimensions = [
-            _measure_pairwise_dimension(symbols, dimension, baseline, candidate, suite)
+            _measure_pairwise_dimension(symbols, dimension, baseline, candidate, suite, model)
             for dimension in PAIRWISE_DIMENSIONS
         ]
         overall = _overall_from_dimensions(dimensions)
@@ -117,6 +129,11 @@ class DeepEvalEvaluator:
             reason="Overall is derived from requested pairwise dimensions; uncertainty or ties remain explicit.",
             raw_summary={"semantic": True, "pairwise": True},
         )
+
+    def _model(self) -> str:
+        if not self.model:
+            raise DeepEvalConfigurationError(DEEPEVAL_EXPLICIT_MODEL_MESSAGE)
+        return self.model
 
 
 def _load_deepeval_symbols() -> DeepEvalSymbols:
@@ -156,6 +173,7 @@ def _measure_pairwise_dimension(
     baseline: DocumentationSnapshot,
     candidate: DocumentationSnapshot,
     suite: EvaluationSuite,
+    model: str,
 ) -> PairwiseDimensionResult:
     assert symbols.arena_test_case is not None
     assert symbols.contestant is not None
@@ -193,6 +211,7 @@ def _measure_pairwise_dimension(
             symbols.actual_output_param,
             symbols.expected_output_param,
         ],
+        model=model,
     )
     metric.measure(test_case)
     return PairwiseDimensionResult(

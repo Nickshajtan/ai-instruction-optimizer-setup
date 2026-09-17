@@ -158,7 +158,7 @@ ai-doc optimize . --pairwise-semantic
 
 Without pairwise semantic evaluation enabled, normal optimization does not need B-tier model calls.
 
-If `AI_DOC_SEMANTIC_COMMAND` is configured, the pairwise evaluator uses the provider-neutral semantic command and its existing request/token/cost budget. Otherwise explicit pairwise evaluation uses the DeepEval path when available.
+If `AI_DOC_SEMANTIC_COMMAND` is configured, the pairwise evaluator uses the provider-neutral semantic command and its existing request/token/cost budget. Otherwise explicit pairwise evaluation uses the DeepEval path when available. The DeepEval path requires `optimization.deepeval_model`; without it, `ai-doc` reports a configuration error instead of allowing DeepEval to select an implicit provider or OpenAI model.
 
 Important distinction: **default-off optionality is not the same as silent fallback after explicit opt-in.** If the user explicitly enables a DeepEval-backed path but the required DeepEval integration itself is unavailable or cannot be loaded, the current CLI may surface that as an execution error. Provider budget exhaustion, in contrast, is normalized into `uncertain` pairwise evidence.
 
@@ -210,7 +210,7 @@ The provider-neutral path is protected by the existing semantic budgets:
 - output-token budget;
 - cost budget.
 
-DeepEval follows the configuration and provider behavior of the installed DeepEval environment. `ai-doc` therefore treats enabling pairwise semantic evaluation as an explicit user decision.
+DeepEval follows the configured model and the provider behavior of the installed DeepEval environment. `ai-doc` requires that model to be named explicitly so enabling pairwise semantic evaluation cannot silently fall through to an implicit OpenAI default.
 
 ## Extension Points
 

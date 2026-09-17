@@ -14,6 +14,7 @@ class CheckReport(BaseModel):
     files_analyzed: int
     total_tokens: int
     token_counter: str
+    token_count_accuracy: str = "unknown"
     context_cost: ContextCost
     profiles: dict[str, str]
     findings: list[Finding]

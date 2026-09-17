@@ -7,7 +7,6 @@ from ai_doc.domain.scores import ContextCost
 
 ALWAYS_LOADED = {DocumentProfile.INSTRUCTION}
 LOADING_MODE_ALWAYS = "always"
-APPROXIMATE_COUNTER_LABEL = "approximate"
 ALWAYS_LOADED_LARGE_TOKENS = 3000
 LARGE_EXAMPLE_MIN_TOKENS = 350
 LARGE_EXAMPLE_DOCUMENT_RATIO = 0.25
@@ -52,7 +51,8 @@ class FinOpsAnalyzer:
                                 "tokens": document.token_count,
                                 "warning_tokens": budget.warning_tokens,
                                 "error_tokens": budget.error_tokens,
-                                "counter": APPROXIMATE_COUNTER_LABEL,
+                                "counter": context.token_counter,
+                                "accuracy": context.token_count_accuracy,
                             },
                             suggestion=(
                                 "Move low-frequency detail to on-demand references or deduplicate "
