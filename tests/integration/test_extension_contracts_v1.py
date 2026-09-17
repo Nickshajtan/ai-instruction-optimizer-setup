@@ -4,6 +4,7 @@ import json
 import sys
 from pathlib import Path
 
+import pytest
 from typer.testing import CliRunner
 
 from ai_doc.cli.main import app
@@ -317,6 +318,27 @@ def _command_yaml_with_args(script: Path, *args: Path) -> str:
     return "[" + ", ".join(json.dumps(part) for part in parts) + "]"
 
 
+def _failing_process_counter(root: Path) -> Path:
+    script = root / "failing_counter.py"
+    script.write_text(
+        """
+from __future__ import annotations
+import json
+import sys
+
+request = json.loads(sys.stdin.read())
+print(json.dumps({
+    "protocol": request["protocol"],
+    "request_id": request["request_id"],
+    "status": "error",
+    "error": {"code": "counter_unavailable", "message": "counter offline"},
+}))
+""",
+        encoding="utf-8",
+    )
+    return script
+
+
 def test_l4_process_analyzer_and_token_counter_affect_check(tmp_path: Path) -> None:
     script = _process_script(tmp_path)
     _write_project(
@@ -339,6 +361,37 @@ extension_runtime:
     assert report["token_counter"] == "process-counter"
     assert report["total_tokens"] == 22
     assert "PROCESS_ANALYZER" in json.dumps(report)
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        ["check"],
+        ["optimize"],
+        ["probe"],
+        ["execute"],
+    ],
+)
+def test_process_extension_failures_report_clean_cli_errors(tmp_path: Path, command: list[str]) -> None:
+    script = _failing_process_counter(tmp_path)
+    _write_project(
+        tmp_path,
+        f"""
+components:
+  token_counter: failing-counter
+extension_runtime:
+  token_counters:
+    failing-counter:
+      command: {_command_yaml(script)}
+""",
+    )
+
+    result = CliRunner().invoke(app, [*command, str(tmp_path)])
+
+    assert result.exit_code == 1
+    assert "counter_unavailable" in result.output
+    assert "counter offline" in result.output
+    assert "Traceback" not in result.output
 
 
 def test_analyzers_are_additive_across_python_and_process_extensions(tmp_path: Path) -> None:
