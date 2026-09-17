@@ -179,6 +179,22 @@ Action:
 3. Confirm registered analyzers provide `analyze(context)`.
 4. Rerun with debug mode if stack details are needed.
 
+### Broken Process Extension
+
+Symptom:
+
+```text
+Process extension returned an error: {"code": "counter_unavailable", "message": "counter offline"}
+```
+
+Action:
+
+1. Confirm the configured command path and arguments are correct.
+2. Run the command manually with representative JSON input if needed.
+3. Check stderr for diagnostics from the external adapter.
+4. Treat `check`, `optimize`, `probe`, or `execute` exit code `1` as an extension
+   infrastructure failure, not a failed semantic evaluation.
+
 ### Packaged Executable Cannot See Promptfoo
 
 Install Promptfoo with `ai-doc setup --deep` or add an existing Promptfoo executable to

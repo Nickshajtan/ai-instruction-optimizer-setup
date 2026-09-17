@@ -256,7 +256,12 @@ call `describe` to validate configured capability support before production exec
 Existing commands remain compatible if they do not implement `describe`; selected
 operations still fail explicitly if the process returns an error or invalid result.
 
-`ai-doc` treats command-start failures, timeouts, non-zero exits, invalid JSON, unsupported protocol versions, mismatched request IDs, schema validation failures, and explicit extension errors as infrastructure errors. These are distinct from a valid negative evaluation result.
+`ai-doc` treats command-start failures, timeouts, non-zero exits, invalid JSON,
+unsupported protocol versions, mismatched request IDs, schema validation failures, and
+explicit extension errors as infrastructure errors. These are distinct from a valid
+negative evaluation result. For `check`, `optimize`, `probe`, and `execute`, process
+extension infrastructure failures report concise diagnostics and exit `1`; normal mode
+does not print a Python traceback.
 
 ## Security
 
@@ -283,3 +288,9 @@ Analyzer registration must provide an object with analyze(context).
 ```
 
 Debug mode includes stack details where supported.
+
+Process runtime failures use the same concise style:
+
+```text
+Process extension returned an error: {"code": "counter_unavailable", "message": "counter offline"}
+```

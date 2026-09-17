@@ -52,7 +52,13 @@ protection.
 Process-backed capabilities reuse `ProcessTransport` and add thin capability adapters
 instead of reimplementing subprocess and protocol handling.
 
-The transport reports command-start failures, timeouts, non-zero exits, invalid JSON, protocol mismatches, mismatched request IDs, invalid envelope status, and explicit extension errors as infrastructure errors. The evaluator reports evaluator-result schema failures. Those failures are distinct from a valid negative evaluation.
+The transport reports command-start failures, timeouts, non-zero exits, invalid JSON,
+protocol mismatches, mismatched request IDs, invalid envelope status, and explicit
+extension errors as infrastructure errors. Capability adapters report capability-result
+schema failures. Those failures are distinct from a valid negative evaluation. Production
+CLI commands that build documentation snapshots (`check`, `optimize`, `probe`, and
+`execute`) normalize process extension infrastructure failures to concise exit-code `1`
+errors rather than raw tracebacks.
 
 ## Provider Neutrality
 
@@ -74,6 +80,11 @@ instead of relying on the extension to enforce limits.
 | Token counter | yes | yes | yes | yes | L3: `test_l3_python_token_counter_affects_static_report`; L4: `test_l4_process_analyzer_and_token_counter_affect_check`, `test_l4_process_token_counter_batches_repository_discovery` |
 | Recommendation policy | yes | yes | yes | yes | L3: `test_l3_python_recommendation_policy_affects_optimize`; L4: `test_l4_process_recommendation_policy_affects_optimize` |
 | Semantic provider | yes | yes | yes | yes | L3: `test_l3_python_provider_affects_semantic_generation_and_budgeting`; L4: `test_l4_process_provider_affects_semantic_generation` |
+
+Protocol and CLI failure behavior is covered by
+`test_process_transport_reports_protocol_and_infrastructure_failures` for the transport
+boundary and `test_process_extension_failures_report_clean_cli_errors` for the real CLI
+paths.
 
 ## Follow-Ups
 

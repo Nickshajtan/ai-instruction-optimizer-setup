@@ -180,7 +180,11 @@ For process-backed extensions, configuration maps logical component names to com
 under `extension_runtime`. Analyzer, evaluator, token-counter, recommendation-policy, and
 semantic-provider commands speak the shared `ai-doc.extension/v1` stdin/stdout protocol.
 `components` and mode-specific evaluator config select which named implementations affect
-production behavior. Details live in
+production behavior. Process extension infrastructure failures, such as command startup
+failure, timeout, invalid protocol JSON, schema validation failure, or explicit protocol
+error responses, are reported as concise CLI errors with exit code `1` for `check`,
+`optimize`, `probe`, and `execute`; normal mode does not print Python tracebacks. Details
+live in
 [Extension Runtime Configuration](docs/guides/extension-runtime-configuration.md) and
 [Extension API](docs/guides/extensions.md).
 
@@ -307,7 +311,7 @@ Use these for integration or distribution:
 ## Exit Codes
 
 - `0`: success or no blocking findings.
-- `1`: internal, tool, or configuration error.
+- `1`: internal, tool, configuration, or extension infrastructure error.
 - `2`: static quality gate failed.
 - `3`: semantic evaluation gate failed.
 - `4`: optimization produced no acceptable candidate.
