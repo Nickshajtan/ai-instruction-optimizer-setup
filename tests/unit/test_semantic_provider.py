@@ -1,9 +1,11 @@
 from decimal import Decimal
+from types import SimpleNamespace
 
 import pytest
 
 from ai_doc.providers.semantic import (
     BudgetedSemanticProvider,
+    CommandSemanticProvider,
     ProviderUsage,
     SemanticBudgetExceeded,
     SemanticResponse,
@@ -64,3 +66,29 @@ def test_one_call_token_overrun_is_preserved_and_blocks_followup() -> None:
     with pytest.raises(SemanticBudgetExceeded):
         provider.invoke("two", {})
     assert inner.calls == 1
+
+
+def test_command_semantic_provider_passes_timeout_to_subprocess(monkeypatch) -> None:
+    calls: list[dict[str, object]] = []
+
+    def fake_run(*_args: object, **kwargs: object) -> SimpleNamespace:
+        calls.append(kwargs)
+        return SimpleNamespace(returncode=0, stdout='{"data":{},"usage":{"requests":1}}', stderr="")
+
+    monkeypatch.setattr("ai_doc.providers.semantic.subprocess.run", fake_run)
+
+    CommandSemanticProvider("semantic-fixture", timeout=3.5).invoke("score", {})
+
+    assert calls[0]["timeout"] == 3.5
+
+
+def test_command_semantic_provider_reports_timeout(monkeypatch) -> None:
+    def fake_timeout(*_args: object, **_kwargs: object) -> None:
+        import subprocess
+
+        raise subprocess.TimeoutExpired(cmd=["semantic-fixture"], timeout=2)
+
+    monkeypatch.setattr("ai_doc.providers.semantic.subprocess.run", fake_timeout)
+
+    with pytest.raises(RuntimeError, match="Semantic provider timed out after 2s"):
+        CommandSemanticProvider("semantic-fixture", timeout=2).invoke("score", {})

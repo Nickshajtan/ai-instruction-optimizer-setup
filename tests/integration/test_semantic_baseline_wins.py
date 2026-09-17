@@ -70,4 +70,6 @@ def test_baseline_can_win_against_semantically_valid_candidate(tmp_path: Path) -
     ).optimize(baseline, suite, report)
     assert result.run.recommended_candidate_id is None
     assert result.run.metadata["baseline_in_frontier"] is True
-    assert result.run.recommendation_reason.startswith("baseline/no-change retained")
+    assert result.run.recommendation_reason
+    assert result.run.recommendation_reason.startswith("No change:")
+    assert "no material objective improvement" in result.run.recommendation_reason

@@ -562,12 +562,11 @@ class SearchController:  # pylint: disable=too-many-instance-attributes
     ) -> OptimizationRun:
         frontier = self.selector.frontier(state.candidates)
         recommended = self.recommendation.choose(baseline_candidate, frontier)
-        decision_reason = getattr(getattr(self.recommendation, "last_decision", None), "reason", None)
-        if isinstance(decision_reason, str):
-            if recommended is not None:
-                recommended.evidence.recommendation_reason = decision_reason
-            else:
-                baseline_candidate.evidence.recommendation_reason = decision_reason
+        decision_reason = (
+            recommended.evidence.recommendation_reason
+            if recommended is not None
+            else baseline_candidate.evidence.recommendation_reason
+        )
         reason = (
             decision_reason or f"recommended {recommended.id}: non-dominated and policy-qualified"
             if recommended
@@ -679,8 +678,6 @@ class SearchController:  # pylint: disable=too-many-instance-attributes
             result = self.pairwise_semantic_evaluator.compare_pairwise(baseline, candidate, suite)
         except SemanticBudgetExceeded:
             return uncertain_pairwise_result("semantic-pairwise", PAIRWISE_BUDGET_REJECTION), ProviderUsage(requests=0)
-        except RuntimeError as exc:
-            return uncertain_pairwise_result("semantic-pairwise", str(exc)), ProviderUsage(requests=0)
         component = getattr(self.pairwise_semantic_evaluator, "evaluator", self.pairwise_semantic_evaluator)
         if isinstance(component, UsageDrainer):
             usage = component.drain_usage()

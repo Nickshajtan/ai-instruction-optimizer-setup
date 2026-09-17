@@ -374,7 +374,7 @@ def test_process_recommendation_payload_exposes_intentional_candidate_shape() ->
     ]
     assert "artifact_dir" not in candidate_payload
     assert "proposal" not in candidate_payload
-    assert selected.evidence.recommendation_reason is None
+    assert selected.evidence.recommendation_reason == "external reason"
     assert baseline.evidence.recommendation_reason is None
     assert policy.last_decision is not None
     assert policy.last_decision.reason == "external reason"

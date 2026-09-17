@@ -119,6 +119,7 @@ class ProcessRecommendationPolicy:
         self.last_decision = decision
         candidate_id = decision.candidate_id
         if candidate_id is None:
+            baseline.evidence.recommendation_reason = decision.reason
             return None
         by_id = {candidate.id: candidate for candidate in frontier}
         selected = by_id.get(candidate_id)
@@ -126,6 +127,7 @@ class ProcessRecommendationPolicy:
             raise ProcessExtensionError(f"Process recommendation selected unknown candidate {candidate_id!r}.")
         if selected.status == CandidateStatus.REJECTED:
             raise ProcessExtensionError(f"Process recommendation selected rejected candidate {candidate_id!r}.")
+        selected.evidence.recommendation_reason = decision.reason
         return selected
 
 
