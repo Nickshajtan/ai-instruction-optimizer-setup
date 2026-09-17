@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from decimal import Decimal
 from enum import StrEnum
 from pathlib import Path
+from time import perf_counter
 from typing import Annotated
 
 import typer
@@ -25,6 +26,13 @@ from ai_doc.domain.evaluations import Evaluator, PairwiseSemanticEvaluator
 from ai_doc.evaluators.context import ScenarioContextEvaluator
 from ai_doc.evaluators.deepeval import DeepEvalEvaluator, DeepEvalUnavailableError
 from ai_doc.extensions.process import ProcessExtensionError
+from ai_doc.observability import (
+    ObservationRecord,
+    ObservationTimer,
+    ObservationWriteError,
+    append_observation,
+    optimize_observation,
+)
 from ai_doc.optimizer.generator import SemanticCandidateGenerator
 from ai_doc.optimizer.invariants import SemanticInvariantDiscoverer, SemanticInvariantVerifier
 from ai_doc.optimizer.prompt_suboptimizer import PromptSubOptimizer
@@ -86,13 +94,16 @@ def optimize_command(  # pylint: disable=too-many-arguments,too-many-positional-
     debug: Annotated[bool, typer.Option("--debug", help="Keep adapter temporary files.")] = False,
     experimental_gepa: Annotated[bool, typer.Option("--experimental-gepa", help="Alias for --gepa.")] = False,
 ) -> None:
+    timer = ObservationTimer()
     project_root = discover_project_root(path, root)
     try:
         loaded = load_config(project_root, config)
         extensions = load_extensions(project_root, loaded.extensions, debug=debug)
         register_configured_extensions(loaded, extensions)
         token_counter = resolve_token_counter(loaded, extensions)
+        static_started = perf_counter()
         baseline_report = run_static_check(project_root, loaded, extensions=extensions, token_counter=token_counter)
+        static_duration_ms = _elapsed_ms(static_started)
         baseline_snapshot = discover_markdown(project_root, loaded, token_counter)
     except (ConfigError, ExtensionError, ProcessExtensionError, KeyError, ValueError) as exc:
         typer.echo(str(exc), err=True)
@@ -153,7 +164,9 @@ def optimize_command(  # pylint: disable=too-many-arguments,too-many-positional-
             semantic_invariant_discoverer=semantic.invariant_discoverer,
             prompt_suboptimizer=semantic.prompt_suboptimizer,
         )
+        optimize_started = perf_counter()
         result = controller.optimize(baseline_snapshot, suite, baseline_report)
+        optimize_duration_ms = _elapsed_ms(optimize_started)
     except (DeepEvalUnavailableError, RuntimeError) as exc:
         typer.echo(str(exc), err=True)
         raise typer.Exit(1) from exc
@@ -172,13 +185,39 @@ def optimize_command(  # pylint: disable=too-many-arguments,too-many-positional-
         baseline_in_frontier=bool(result.run.metadata.get("baseline_in_frontier")),
     )
     _write_run_artifacts(result.run_dir, report)
+    exit_code = 4 if not result.run.recommended_candidate_id else 0
+    _safe_append_observation(
+        project_root,
+        loaded,
+        optimize_observation(
+            timer=timer,
+            root=project_root,
+            config=loaded,
+            report=report,
+            status="completed",
+            exit_code=exit_code,
+            static_duration_ms=static_duration_ms,
+            optimize_duration_ms=optimize_duration_ms,
+        ),
+    )
     rendered_report = (
         render_json(report)
         if output_format == OutputFormat.JSON
         else render_search_optimize_console(report, show_frontier=show_frontier)
     )
     typer.echo(rendered_report)
-    raise typer.Exit(4 if not result.run.recommended_candidate_id else 0)
+    raise typer.Exit(exit_code)
+
+
+def _elapsed_ms(started: float) -> int:
+    return max(0, round((perf_counter() - started) * 1000))
+
+
+def _safe_append_observation(project_root: Path, config: AiDocConfig, record: ObservationRecord) -> None:
+    try:
+        append_observation(project_root, config, record)
+    except ObservationWriteError as exc:
+        typer.echo(f"Observation logging failed: {exc}", err=True)
 
 
 def _build_semantic_stack(

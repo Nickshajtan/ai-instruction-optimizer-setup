@@ -13,6 +13,14 @@ from ai_doc.evaluators.suite import load_evaluation_suite
 from ai_doc.extensions.process import ProcessExtensionError
 from ai_doc.ml.nli_sentence_transformers import SentenceTransformersNLIEngine
 from ai_doc.ml.sentence_transformers import LocalModelUnavailableError
+from ai_doc.observability import (
+    ObservationRecord,
+    ObservationTimer,
+    ObservationWriteError,
+    append_observation,
+    new_run_id,
+    probe_observation,
+)
 from ai_doc.plugins.loader import ExtensionError, load_extensions
 from ai_doc.probes.command import CommandTargetProbe, TargetProbeError
 from ai_doc.probes.runner import PlanningProbeRunner, compare_planning_reports
@@ -34,6 +42,8 @@ def probe_command(
 ) -> None:
     """Run one real target-model planning probe per configured evaluation scenario."""
 
+    timer = ObservationTimer()
+    run_id = new_run_id()
     project_root = discover_project_root(path, root)
     try:
         loaded = load_config(project_root, config)
@@ -55,6 +65,21 @@ def probe_command(
     try:
         baseline_report = runner.run(baseline, suite)
         if candidate is None:
+            _safe_append_observation(
+                project_root,
+                loaded,
+                probe_observation(
+                    run_id=run_id,
+                    timer=timer,
+                    root=project_root,
+                    config=loaded,
+                    command="probe",
+                    status="completed",
+                    exit_code=0,
+                    document_count=len(baseline.documents),
+                    scenario_count=len(suite.scenarios),
+                ),
+            )
             typer.echo(baseline_report.model_dump_json(indent=2))
             return
         candidate_snapshot = discover_markdown(candidate.resolve(), loaded, token_counter)
@@ -63,7 +88,29 @@ def probe_command(
         typer.echo(str(exc), err=True)
         raise typer.Exit(1) from exc
 
+    _safe_append_observation(
+        project_root,
+        loaded,
+        probe_observation(
+            run_id=run_id,
+            timer=timer,
+            root=project_root,
+            config=loaded,
+            command="probe",
+            status="completed",
+            exit_code=0,
+            document_count=len(baseline.documents),
+            scenario_count=len(suite.scenarios),
+        ),
+    )
     typer.echo(compare_planning_reports(baseline_report, candidate_report).model_dump_json(indent=2))
+
+
+def _safe_append_observation(project_root: Path, config: AiDocConfig, record: ObservationRecord) -> None:
+    try:
+        append_observation(project_root, config, record)
+    except ObservationWriteError as exc:
+        typer.echo(f"Observation logging failed: {exc}", err=True)
 
 
 def _optional_nli_engine(config: AiDocConfig) -> SentenceTransformersNLIEngine | None:

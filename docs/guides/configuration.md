@@ -334,6 +334,33 @@ When pairwise evaluation falls back to DeepEval instead of a configured semantic
 provider, `optimization.deepeval_model` must be set so no implicit provider/model is
 selected.
 
+## Local Observation Logging
+
+Observation logging records one local JSONL record per opted-in command run. Use it when
+dogfooding `ai-doc` and you want raw machine facts for later offline analysis of evidence
+tier behavior, escalation, cost, latency, findings, and optimizer activity.
+
+```yaml
+observability:
+  enabled: true
+  path: .ai-doc/observations.jsonl
+```
+
+The default path is `.ai-doc/observations.jsonl`. Each line is an independent
+`ai-doc.observation/v1` JSON object. Logging is append-only and local; `ai-doc` does not
+upload observations or create a database.
+
+Observation records are intended to contain structured machine facts such as command
+status, duration, document counts, tier names, finding fingerprints, evaluation outcomes,
+provider token/cost usage when reported, and optimizer counters. They are not human
+feedback and do not infer whether a recommendation was useful, accepted, or fixed.
+
+The observation layer avoids Markdown body text, prompts, full model responses, secrets,
+environment variables, absolute repository paths, and raw subprocess output. Document
+identity is represented with stable hashes for later comparison across runs. If writing
+the observation file fails, the primary command result is preserved and a concise warning
+is printed to stderr.
+
 ## Extensions
 
 Extensions are explicit, project-local Python files configured with the `extensions` key.
