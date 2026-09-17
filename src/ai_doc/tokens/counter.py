@@ -9,7 +9,7 @@ from typing import Protocol, cast
 class TokenCountAccuracy(StrEnum):
     EXACT = "exact"
     ESTIMATED = "estimated"
-    MIXED = "model_specific_or_estimated"
+    MIXED = "mixed"
     UNKNOWN = "unknown"
 
 

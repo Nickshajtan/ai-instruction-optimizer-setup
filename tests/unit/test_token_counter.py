@@ -92,3 +92,4 @@ def test_openai_tiktoken_counter_is_explicitly_selected() -> None:
 
     assert counter.label == "openai-tiktoken"
     assert token_count_accuracy(counter) == TokenCountAccuracy.MIXED
+    assert TokenCountAccuracy.MIXED.value == "mixed"
