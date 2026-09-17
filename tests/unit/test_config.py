@@ -6,6 +6,7 @@ from ai_doc.composition import register_configured_extensions, resolve_configure
 from ai_doc.config.loader import (
     ConfigError,
     ConfigFileReader,
+    ExplicitConfigLoadStrategy,
     ProjectConfigLoadStrategy,
     load_config,
     write_default_config,
@@ -210,6 +211,28 @@ def test_explicit_config_does_not_merge_nested_configs(tmp_path: Path) -> None:
     config = load_config(tmp_path, explicit)
 
     assert config.include == ["AGENTS.md"]
+
+
+def test_explicit_missing_config_path_fails(tmp_path: Path) -> None:
+    missing = tmp_path / "missing.yaml"
+
+    with pytest.raises(ConfigError, match="Explicit ai-doc configuration does not exist"):
+        load_config(tmp_path, missing)
+
+
+def test_implicit_missing_project_config_still_uses_defaults(tmp_path: Path) -> None:
+    config = load_config(tmp_path)
+
+    assert config == DEFAULT_CONFIG
+
+
+def test_explicit_config_strategy_checks_existence_before_reader(tmp_path: Path) -> None:
+    class DefaultingReader:
+        def load(self, _path: Path) -> AiDocConfig:
+            return DEFAULT_CONFIG.model_copy(deep=True)
+
+    with pytest.raises(ConfigError):
+        ExplicitConfigLoadStrategy(tmp_path / "missing.yaml", reader=DefaultingReader()).load()  # type: ignore[arg-type]
 
 
 def test_nested_config_rejects_paths_outside_nested_directory(tmp_path: Path) -> None:

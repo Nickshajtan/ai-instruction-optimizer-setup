@@ -10,6 +10,7 @@ from typing import Protocol, runtime_checkable
 from pydantic import BaseModel, Field
 
 SEMANTIC_COMMAND_ENV = "AI_DOC_SEMANTIC_COMMAND"
+DEFAULT_SEMANTIC_COMMAND_TIMEOUT_SECONDS = 120.0
 
 
 class ProviderUsage(BaseModel):
@@ -87,23 +88,28 @@ class BudgetedSemanticProvider:
 class CommandSemanticProvider:
     """Production provider-neutral adapter using a JSON stdin/stdout command contract."""
 
-    def __init__(self, command: str | None = None) -> None:
+    def __init__(self, command: str | None = None, *, timeout: float = DEFAULT_SEMANTIC_COMMAND_TIMEOUT_SECONDS) -> None:
         self.command: str = command or os.getenv(SEMANTIC_COMMAND_ENV) or ""
         if not self.command:
             raise RuntimeError(
                 f"Semantic provider is not configured. Set {SEMANTIC_COMMAND_ENV} "
                 "to a command that accepts JSON stdin."
             )
+        self.timeout = timeout
 
     def invoke(self, operation: str, payload: dict[str, object]) -> SemanticResponse:
         request = {"operation": operation, "payload": payload}
-        completed = subprocess.run(
-            shlex.split(self.command),
-            input=json.dumps(request),
-            text=True,
-            capture_output=True,
-            check=False,
-        )
+        try:
+            completed = subprocess.run(
+                shlex.split(self.command),
+                input=json.dumps(request),
+                text=True,
+                capture_output=True,
+                check=False,
+                timeout=self.timeout,
+            )
+        except subprocess.TimeoutExpired as exc:
+            raise RuntimeError(f"Semantic provider timed out after {self.timeout:g}s") from exc
         if completed.returncode != 0:
             raise RuntimeError(f"Semantic provider failed ({completed.returncode}): {completed.stderr.strip()}")
         try:

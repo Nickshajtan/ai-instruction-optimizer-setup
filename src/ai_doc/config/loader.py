@@ -43,6 +43,8 @@ class ExplicitConfigLoadStrategy:
         self.reader = reader or ConfigFileReader()
 
     def load(self) -> AiDocConfig:
+        if not self.config_path.exists():
+            raise ConfigError(f"Explicit ai-doc configuration does not exist: {self.config_path}")
         return self.reader.load(self.config_path)
 
 
