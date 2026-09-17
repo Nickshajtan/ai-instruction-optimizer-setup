@@ -91,6 +91,11 @@ class ExtensionRuntimeConfig(BaseModel):
     providers: dict[str, CommandExtensionConfig] = Field(default_factory=dict)
 
 
+class ObservabilityConfig(BaseModel):
+    enabled: bool = False
+    path: str = ".ai-doc/observations.jsonl"
+
+
 class AiDocConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -136,6 +141,7 @@ class AiDocConfig(BaseModel):
     extensions: list[ExtensionConfig] = Field(default_factory=list)
     components: ComponentSelectionConfig = Field(default_factory=ComponentSelectionConfig)
     extension_runtime: ExtensionRuntimeConfig = Field(default_factory=ExtensionRuntimeConfig)
+    observability: ObservabilityConfig = Field(default_factory=ObservabilityConfig)
 
 
 DEFAULT_CONFIG = AiDocConfig(

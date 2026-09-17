@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from decimal import Decimal
 from enum import StrEnum
 from pathlib import Path
+from time import perf_counter
 from typing import Annotated
 
 import typer
@@ -21,10 +22,18 @@ from ai_doc.config.loader import ConfigError, load_config
 from ai_doc.config.models import AiDocConfig
 from ai_doc.config.search import OptimizeMode, RuntimeSearchConfig
 from ai_doc.discovery.markdown_discovery import discover_markdown
+from ai_doc.domain.documents import DocumentationSnapshot
 from ai_doc.domain.evaluations import Evaluator, PairwiseSemanticEvaluator
 from ai_doc.evaluators.context import ScenarioContextEvaluator
 from ai_doc.evaluators.deepeval import DeepEvalEvaluator, DeepEvalUnavailableError
 from ai_doc.extensions.process import ProcessExtensionError
+from ai_doc.observability import (
+    ObservationRecord,
+    ObservationTimer,
+    ObservationWriteError,
+    append_observation,
+    optimize_observation,
+)
 from ai_doc.optimizer.generator import SemanticCandidateGenerator
 from ai_doc.optimizer.invariants import SemanticInvariantDiscoverer, SemanticInvariantVerifier
 from ai_doc.optimizer.prompt_suboptimizer import PromptSubOptimizer
@@ -41,8 +50,9 @@ from ai_doc.plugins.registry import ExtensionRegistry
 from ai_doc.providers.semantic import SEMANTIC_COMMAND_ENV, SemanticProvider
 from ai_doc.reporting.console import render_search_optimize_console
 from ai_doc.reporting.json import render_json
-from ai_doc.reporting.models import SearchOptimizeReport
+from ai_doc.reporting.models import CheckReport, SearchOptimizeReport
 from ai_doc.root import discover_project_root
+from ai_doc.tokens.counter import TokenCounter
 
 
 class OutputFormat(StrEnum):
@@ -59,6 +69,16 @@ class SemanticStack:
     evaluator: Evaluator | None = None
     pairwise_evaluator: PairwiseSemanticEvaluator | None = None
     prompt_suboptimizer: PromptSubOptimizer | None = None
+
+
+@dataclass
+class OptimizeInputs:
+    config: AiDocConfig
+    extensions: ExtensionRegistry
+    token_counter: TokenCounter
+    baseline_report: CheckReport
+    baseline_snapshot: DocumentationSnapshot
+    static_duration_ms: int
 
 
 def optimize_command(  # pylint: disable=too-many-arguments,too-many-positional-arguments
@@ -86,32 +106,28 @@ def optimize_command(  # pylint: disable=too-many-arguments,too-many-positional-
     debug: Annotated[bool, typer.Option("--debug", help="Keep adapter temporary files.")] = False,
     experimental_gepa: Annotated[bool, typer.Option("--experimental-gepa", help="Alias for --gepa.")] = False,
 ) -> None:
+    timer = ObservationTimer()
     project_root = discover_project_root(path, root)
     try:
-        loaded = load_config(project_root, config)
-        extensions = load_extensions(project_root, loaded.extensions, debug=debug)
-        register_configured_extensions(loaded, extensions)
-        token_counter = resolve_token_counter(loaded, extensions)
-        baseline_report = run_static_check(project_root, loaded, extensions=extensions, token_counter=token_counter)
-        baseline_snapshot = discover_markdown(project_root, loaded, token_counter)
+        inputs = _load_optimize_inputs(project_root, config, debug)
     except (ConfigError, ExtensionError, ProcessExtensionError, KeyError, ValueError) as exc:
         typer.echo(str(exc), err=True)
         raise typer.Exit(1) from exc
 
     runtime = RuntimeSearchConfig(
-        mode=strategy or loaded.optimization.strategy,
-        population=loaded.optimization.population.model_copy(deep=True),
-        search=loaded.optimization.search.model_copy(deep=True),
-        pareto=loaded.optimization.pareto.model_copy(deep=True),
-        gepa=loaded.optimization.gepa.model_copy(
-            update={"enabled": gepa or experimental_gepa or loaded.optimization.gepa.enabled}
+        mode=strategy or inputs.config.optimization.strategy,
+        population=inputs.config.optimization.population.model_copy(deep=True),
+        search=inputs.config.optimization.search.model_copy(deep=True),
+        pareto=inputs.config.optimization.pareto.model_copy(deep=True),
+        gepa=inputs.config.optimization.gepa.model_copy(
+            update={"enabled": gepa or experimental_gepa or inputs.config.optimization.gepa.enabled}
         ),
-        recommendation=loaded.optimization.recommendation.model_copy(deep=True),
-        exploration_rate=loaded.optimization.exploration_rate,
-        restart_after_stagnation=loaded.optimization.restart_after_stagnation,
-        concurrency=loaded.optimization.concurrency,
-        seed=seed or loaded.optimization.gepa.random_seed,
-        pairwise_semantic=pairwise_semantic or loaded.optimization.pairwise_semantic,
+        recommendation=inputs.config.optimization.recommendation.model_copy(deep=True),
+        exploration_rate=inputs.config.optimization.exploration_rate,
+        restart_after_stagnation=inputs.config.optimization.restart_after_stagnation,
+        concurrency=inputs.config.optimization.concurrency,
+        seed=seed or inputs.config.optimization.gepa.random_seed,
+        pairwise_semantic=pairwise_semantic or inputs.config.optimization.pairwise_semantic,
     )
     _apply_overrides(runtime, candidates, generations, max_candidates, max_cost, max_requests)
     if runtime.mode == OptimizeMode.CONSERVATIVE:
@@ -120,8 +136,8 @@ def optimize_command(  # pylint: disable=too-many-arguments,too-many-positional-
         runtime.search.generations = 1
 
     suite = load_suite(project_root)
-    semantic = _build_semantic_stack(loaded, extensions, runtime, deep)
-    configured_evaluator = resolve_configured_evaluator(loaded, extensions, "deep") if deep else None
+    semantic = _build_semantic_stack(inputs.config, inputs.extensions, runtime, deep)
+    configured_evaluator = resolve_configured_evaluator(inputs.config, inputs.extensions, "deep") if deep else None
     if configured_evaluator is not None:
         semantic.evaluator = ScenarioContextEvaluator(configured_evaluator)
     if semantic.provider:
@@ -136,14 +152,14 @@ def optimize_command(  # pylint: disable=too-many-arguments,too-many-positional-
     output_root = (project_root / output).resolve() if not output.is_absolute() else output
     try:
         controller = SearchController(
-            loaded,
+            inputs.config,
             runtime,
             output_root,
-            extensions=extensions,
-            token_counter=token_counter,
+            extensions=inputs.extensions,
+            token_counter=inputs.token_counter,
             recommendation_policy=resolve_recommendation_policy(
-                loaded,
-                extensions,
+                inputs.config,
+                inputs.extensions,
                 default_policy=SearchController.default_recommendation_policy(runtime),
             ),
             evaluator=semantic.evaluator,
@@ -153,7 +169,9 @@ def optimize_command(  # pylint: disable=too-many-arguments,too-many-positional-
             semantic_invariant_discoverer=semantic.invariant_discoverer,
             prompt_suboptimizer=semantic.prompt_suboptimizer,
         )
-        result = controller.optimize(baseline_snapshot, suite, baseline_report)
+        optimize_started = perf_counter()
+        result = controller.optimize(inputs.baseline_snapshot, suite, inputs.baseline_report)
+        optimize_duration_ms = _elapsed_ms(optimize_started)
     except (DeepEvalUnavailableError, RuntimeError) as exc:
         typer.echo(str(exc), err=True)
         raise typer.Exit(1) from exc
@@ -163,7 +181,7 @@ def optimize_command(  # pylint: disable=too-many-arguments,too-many-positional-
         None,
     )
     report = SearchOptimizeReport(
-        baseline=baseline_report,
+        baseline=inputs.baseline_report,
         run=result.run,
         candidates_evaluated=len([candidate for candidate in result.run.candidates if candidate.id != "baseline"]),
         candidates_rejected=len([candidate for candidate in result.run.candidates if candidate.status == "rejected"]),
@@ -172,13 +190,56 @@ def optimize_command(  # pylint: disable=too-many-arguments,too-many-positional-
         baseline_in_frontier=bool(result.run.metadata.get("baseline_in_frontier")),
     )
     _write_run_artifacts(result.run_dir, report)
+    exit_code = 4 if not result.run.recommended_candidate_id else 0
+    _safe_append_observation(
+        project_root,
+        inputs.config,
+        optimize_observation(
+            timer=timer,
+            root=project_root,
+            config=inputs.config,
+            report=report,
+            status="completed",
+            exit_code=exit_code,
+            static_duration_ms=inputs.static_duration_ms,
+            optimize_duration_ms=optimize_duration_ms,
+        ),
+    )
     rendered_report = (
         render_json(report)
         if output_format == OutputFormat.JSON
         else render_search_optimize_console(report, show_frontier=show_frontier)
     )
     typer.echo(rendered_report)
-    raise typer.Exit(4 if not result.run.recommended_candidate_id else 0)
+    raise typer.Exit(exit_code)
+
+
+def _load_optimize_inputs(project_root: Path, config: Path | None, debug: bool) -> OptimizeInputs:
+    loaded = load_config(project_root, config)
+    extensions = load_extensions(project_root, loaded.extensions, debug=debug)
+    register_configured_extensions(loaded, extensions)
+    token_counter = resolve_token_counter(loaded, extensions)
+    static_started = perf_counter()
+    baseline_report = run_static_check(project_root, loaded, extensions=extensions, token_counter=token_counter)
+    return OptimizeInputs(
+        config=loaded,
+        extensions=extensions,
+        token_counter=token_counter,
+        baseline_report=baseline_report,
+        baseline_snapshot=discover_markdown(project_root, loaded, token_counter),
+        static_duration_ms=_elapsed_ms(static_started),
+    )
+
+
+def _elapsed_ms(started: float) -> int:
+    return max(0, round((perf_counter() - started) * 1000))
+
+
+def _safe_append_observation(project_root: Path, config: AiDocConfig, record: ObservationRecord) -> None:
+    try:
+        append_observation(project_root, config, record)
+    except ObservationWriteError as exc:
+        typer.echo(f"Observation logging failed: {exc}", err=True)
 
 
 def _build_semantic_stack(

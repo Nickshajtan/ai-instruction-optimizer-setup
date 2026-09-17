@@ -13,6 +13,14 @@ from ai_doc.evaluators.suite import load_evaluation_suite
 from ai_doc.extensions.process import ProcessExtensionError
 from ai_doc.ml.nli_sentence_transformers import SentenceTransformersNLIEngine
 from ai_doc.ml.sentence_transformers import LocalModelUnavailableError
+from ai_doc.observability import (
+    ObservationRecord,
+    ObservationTimer,
+    ObservationWriteError,
+    append_observation,
+    new_run_id,
+    probe_observation,
+)
 from ai_doc.plugins.loader import ExtensionError, load_extensions
 from ai_doc.probes.command import TargetProbeError
 from ai_doc.probes.execution import CommandExecutionProbe
@@ -28,6 +36,8 @@ def execute_command(
 ) -> None:
     """Run one real target-agent execution per configured scenario in a temporary workspace copy."""
 
+    timer = ObservationTimer()
+    run_id = new_run_id()
     project_root = discover_project_root(path, root)
     try:
         loaded = load_config(project_root, config)
@@ -54,7 +64,29 @@ def execute_command(
         typer.echo(str(exc), err=True)
         raise typer.Exit(1) from exc
 
+    _safe_append_observation(
+        project_root,
+        loaded,
+        probe_observation(
+            run_id=run_id,
+            timer=timer,
+            root=project_root,
+            config=loaded,
+            command="execute",
+            status="completed",
+            exit_code=0,
+            document_count=len(snapshot.documents),
+            scenario_count=len(suite.scenarios),
+        ),
+    )
     typer.echo(report.model_dump_json(indent=2))
+
+
+def _safe_append_observation(project_root: Path, config: AiDocConfig, record: ObservationRecord) -> None:
+    try:
+        append_observation(project_root, config, record)
+    except ObservationWriteError as exc:
+        typer.echo(f"Observation logging failed: {exc}", err=True)
 
 
 def _optional_nli_engine(config: AiDocConfig) -> SentenceTransformersNLIEngine | None:

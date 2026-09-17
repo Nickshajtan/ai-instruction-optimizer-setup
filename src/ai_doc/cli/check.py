@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from enum import StrEnum
 from pathlib import Path
+from time import perf_counter
 from typing import Annotated, Protocol
 
 import typer
@@ -9,13 +10,21 @@ import typer
 from ai_doc.app import load_suite, run_static_check
 from ai_doc.composition import register_configured_extensions, resolve_configured_evaluator, resolve_token_counter
 from ai_doc.config.loader import ConfigError, load_config
-from ai_doc.config.models import EvaluationEngine, EvaluationModeConfig
+from ai_doc.config.models import AiDocConfig, EvaluationEngine, EvaluationModeConfig
 from ai_doc.discovery.markdown_discovery import discover_markdown
 from ai_doc.domain.documents import DocumentationSnapshot, DocumentProfile
 from ai_doc.domain.evaluations import EvaluationResult, EvaluationSuite
 from ai_doc.evaluators.deepeval import DeepEvalEvaluator, DeepEvalUnavailableError
 from ai_doc.evaluators.promptfoo import PromptfooEvaluator, PromptfooUnavailableError
 from ai_doc.extensions.process import ProcessExtensionError
+from ai_doc.observability import (
+    ObservationRecord,
+    ObservationTimer,
+    ObservationWriteError,
+    append_observation,
+    check_observation,
+    new_run_id,
+)
 from ai_doc.optional_dependencies import (
     DependencyStatus,
     OptionalDependencyError,
@@ -62,13 +71,17 @@ def check_command(
     ] = False,
     debug: Annotated[bool, typer.Option("--debug", help="Keep adapter temporary files.")] = False,
 ) -> None:
+    timer = ObservationTimer()
+    run_id = new_run_id()
     project_root = discover_project_root(path, root)
     try:
         loaded = load_config(project_root, config)
         extensions = load_extensions(project_root, loaded.extensions, debug=debug)
         register_configured_extensions(loaded, extensions)
         token_counter = resolve_token_counter(loaded, extensions)
+        static_started = perf_counter()
         report = run_static_check(project_root, loaded, profile, extensions, token_counter=token_counter)
+        static_duration_ms = _elapsed_ms(static_started)
     except ConfigError as exc:
         typer.echo(str(exc), err=True)
         raise typer.Exit(1) from exc
@@ -87,15 +100,58 @@ def check_command(
                 evaluator = _deep_evaluator(deep_config.engine, debug, deep_config.model)
             snapshot_report = report
             snapshot = discover_markdown(project_root, loaded, token_counter)
+            deep_started = perf_counter()
             report.evaluation = evaluator.evaluate(snapshot, None, suite)
+            deep_duration_ms: int | None = _elapsed_ms(deep_started)
         except (PromptfooUnavailableError, DeepEvalUnavailableError, RuntimeError) as exc:
+            _safe_append_observation(
+                project_root,
+                loaded,
+                check_observation(
+                    run_id=run_id,
+                    timer=timer,
+                    root=project_root,
+                    config=loaded,
+                    report=report,
+                    status="failed",
+                    exit_code=3,
+                    static_duration_ms=static_duration_ms,
+                ),
+            )
             typer.echo(str(exc), err=True)
             raise typer.Exit(3) from exc
         exit_code = 3 if snapshot_report.evaluation and not snapshot_report.evaluation.passed else _exit_code(report)
     else:
+        deep_duration_ms = None
         exit_code = _exit_code(report)
+    _safe_append_observation(
+        project_root,
+        loaded,
+        check_observation(
+            run_id=run_id,
+            timer=timer,
+            root=project_root,
+            config=loaded,
+            report=report,
+            status="completed",
+            exit_code=exit_code,
+            static_duration_ms=static_duration_ms,
+            deep_duration_ms=deep_duration_ms,
+        ),
+    )
     typer.echo(render_json(report) if output_format == OutputFormat.JSON else render_check_console(report))
     raise typer.Exit(exit_code)
+
+
+def _elapsed_ms(started: float) -> int:
+    return max(0, round((perf_counter() - started) * 1000))
+
+
+def _safe_append_observation(project_root: Path, config: AiDocConfig, record: ObservationRecord) -> None:
+    try:
+        append_observation(project_root, config, record)
+    except ObservationWriteError as exc:
+        typer.echo(f"Observation logging failed: {exc}", err=True)
 
 
 def _exit_code(report: CheckReport) -> int:
