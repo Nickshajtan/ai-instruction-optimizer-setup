@@ -85,9 +85,9 @@ components:
 optimization:
   strategy: balanced
   population:
-    initial_candidates: 1
+    initial_candidates: 2
   search:
-    max_candidates: 1
+    max_candidates: 2
     max_llm_requests: 20
     max_cost_usd: 2.00
 extensions:
@@ -106,9 +106,19 @@ extensions:
     record = records[-1]
     assert record["command"] == "optimize"
     assert record["providers"]
-    assert record["providers"][0]["token_semantics"] == "provider_reported"
-    assert record["providers"][0]["input_tokens"] > 0
-    assert record["providers"][0]["cost_source"] == "provider"
+    operation_records = [item for item in record["providers"] if item["operation"] != "aggregate"]
+    aggregate_records = [item for item in record["providers"] if item["operation"] == "aggregate"]
+    assert len(operation_records) >= 2
+    assert len(aggregate_records) == 1
+    assert all(item["token_semantics"] == "reported" for item in record["providers"])
+    assert all(item["input_tokens"] > 0 for item in operation_records)
+    assert all(item["cost_usd"] is None for item in operation_records)
+    assert all(item["cache_hits"] is None for item in operation_records)
+    assert aggregate_records[0]["cost_usd"] == "0.01"
+    assert aggregate_records[0]["cost_source"] == "provider"
+    assert sum(1 for item in record["providers"] if item["cost_usd"] is not None) == 1
+    assert "provider" not in record["providers"][0]
+    assert "model" not in record["providers"][0]
     assert record["optimization"]["candidates_generated"] >= 1
 
 

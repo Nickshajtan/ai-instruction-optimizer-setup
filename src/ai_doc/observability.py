@@ -58,10 +58,10 @@ class ProviderObservation(BaseModel):
     requests: int
     input_tokens: int
     output_tokens: int
-    cache_hits: int
+    cache_hits: int | None = None
     token_semantics: str
-    cost_usd: Decimal
-    cost_source: str
+    cost_usd: Decimal | None = None
+    cost_source: str | None = None
 
 
 class EvaluationObservation(BaseModel):
@@ -370,7 +370,6 @@ def _provider_observations(cost: CandidateCost) -> list[ProviderObservation]:
         cost.generation_requests,
         cost.generation_input_tokens,
         cost.generation_output_tokens,
-        cost,
     )
     _append_provider_usage(
         observations,
@@ -378,7 +377,6 @@ def _provider_observations(cost: CandidateCost) -> list[ProviderObservation]:
         cost.evaluation_requests,
         cost.evaluation_input_tokens,
         cost.evaluation_output_tokens,
-        cost,
     )
     _append_provider_usage(
         observations,
@@ -386,8 +384,20 @@ def _provider_observations(cost: CandidateCost) -> list[ProviderObservation]:
         cost.prompt_suboptimizer_requests,
         cost.prompt_suboptimizer_input_tokens,
         cost.prompt_suboptimizer_output_tokens,
-        cost,
     )
+    if cost.total_cost or cost.cost_sources:
+        observations.append(
+            ProviderObservation(
+                operation="aggregate",
+                requests=cost.external_requests,
+                input_tokens=cost.input_tokens,
+                output_tokens=cost.output_tokens,
+                cache_hits=cost.cache_hits,
+                token_semantics="reported",
+                cost_usd=cost.total_cost,
+                cost_source=_cost_source(cost),
+            )
+        )
     return observations
 
 
@@ -397,7 +407,6 @@ def _append_provider_usage(
     requests: int,
     input_tokens: int,
     output_tokens: int,
-    cost: CandidateCost,
 ) -> None:
     if requests <= 0 and input_tokens <= 0 and output_tokens <= 0:
         return
@@ -407,10 +416,7 @@ def _append_provider_usage(
             requests=requests,
             input_tokens=input_tokens,
             output_tokens=output_tokens,
-            cache_hits=cost.cache_hits,
-            token_semantics="provider_reported",
-            cost_usd=cost.total_cost,
-            cost_source=_cost_source(cost),
+            token_semantics="reported",
         )
     )
 
