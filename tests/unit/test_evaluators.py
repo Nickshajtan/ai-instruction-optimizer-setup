@@ -5,7 +5,7 @@ import pytest
 import ai_doc.evaluators.deepeval as deepeval_module
 from ai_doc.domain.documents import DocumentationSnapshot
 from ai_doc.domain.evaluations import EvaluationSuite, PairwiseDimension, PairwiseOutcome
-from ai_doc.evaluators.deepeval import DeepEvalEvaluator, DeepEvalUnavailableError
+from ai_doc.evaluators.deepeval import DeepEvalConfigurationError, DeepEvalEvaluator, DeepEvalUnavailableError
 from ai_doc.evaluators.promptfoo import (
     PROMPTFOO_CONTAINS_ASSERTION,
     PROMPTFOO_ENGINE,
@@ -116,6 +116,7 @@ def test_deepeval_symbol_loader_wraps_missing_dependency(monkeypatch) -> None:
 
 def test_deepeval_evaluator_uses_baseline_when_candidate_absent(monkeypatch) -> None:
     measured: list[object] = []
+    metric_kwargs: list[dict[str, object]] = []
 
     class FakeMetric:
         score = 0.8
@@ -123,6 +124,7 @@ def test_deepeval_evaluator_uses_baseline_when_candidate_absent(monkeypatch) -> 
 
         def __init__(self, **kwargs) -> None:
             self.kwargs = kwargs
+            metric_kwargs.append(kwargs)
 
         def measure(self, test_case: object) -> None:
             measured.append(test_case)
@@ -149,7 +151,7 @@ def test_deepeval_evaluator_uses_baseline_when_candidate_absent(monkeypatch) -> 
         {"scenarios": [{"id": "setup", "task": "Install.", "expected_required": ["run setup"]}]}
     )
 
-    result = DeepEvalEvaluator().evaluate(_snapshot("BASELINE CONTENT run setup"), None, suite)
+    result = DeepEvalEvaluator(model="test-model").evaluate(_snapshot("BASELINE CONTENT run setup"), None, suite)
 
     assert result.engine == "deepeval"
     assert result.passed is True
@@ -157,6 +159,26 @@ def test_deepeval_evaluator_uses_baseline_when_candidate_absent(monkeypatch) -> 
     assert result.raw_summary["semantic"] is True
     assert measured
     assert "BASELINE CONTENT" in measured[0].kwargs["actual_output"]
+    assert metric_kwargs[0]["model"] == "test-model"
+
+
+def test_deepeval_requires_explicit_model_before_loading_symbols(monkeypatch) -> None:
+    loaded = False
+
+    def load_symbols() -> object:
+        nonlocal loaded
+        loaded = True
+        return object()
+
+    monkeypatch.setattr(deepeval_module, "_load_deepeval_symbols", load_symbols)
+    suite = EvaluationSuite.model_validate(
+        {"scenarios": [{"id": "setup", "task": "Install.", "expected_required": ["run setup"]}]}
+    )
+
+    with pytest.raises(DeepEvalConfigurationError, match="No implicit OpenAI model"):
+        DeepEvalEvaluator().evaluate(_snapshot("BASELINE CONTENT run setup"), None, suite)
+
+    assert loaded is False
 
 
 def test_pairwise_response_normalizes_all_outcomes_and_dimensions() -> None:
@@ -185,6 +207,7 @@ def test_pairwise_response_normalizes_all_outcomes_and_dimensions() -> None:
 
 def test_deepeval_pairwise_uses_arena_geval_when_available(monkeypatch) -> None:
     measured: list[object] = []
+    metric_kwargs: list[dict[str, object]] = []
 
     class FakeArenaMetric:
         winner = "candidate"
@@ -192,6 +215,7 @@ def test_deepeval_pairwise_uses_arena_geval_when_available(monkeypatch) -> None:
 
         def __init__(self, **kwargs) -> None:
             self.kwargs = kwargs
+            metric_kwargs.append(kwargs)
 
         def measure(self, test_case: object) -> None:
             measured.append(test_case)
@@ -219,7 +243,7 @@ def test_deepeval_pairwise_uses_arena_geval_when_available(monkeypatch) -> None:
         ),
     )
 
-    result = DeepEvalEvaluator().compare_pairwise(
+    result = DeepEvalEvaluator(model="test-model").compare_pairwise(
         _snapshot("baseline"),
         _snapshot("candidate"),
         EvaluationSuite.model_validate({"scenarios": [{"id": "one", "task": "Do work."}]}),
@@ -229,3 +253,4 @@ def test_deepeval_pairwise_uses_arena_geval_when_available(monkeypatch) -> None:
     assert result.overall == PairwiseOutcome.CANDIDATE
     assert len(result.dimensions) == len(PairwiseDimension)
     assert measured
+    assert all(kwargs["model"] == "test-model" for kwargs in metric_kwargs)

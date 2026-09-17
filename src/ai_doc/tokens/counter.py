@@ -1,8 +1,16 @@
 from __future__ import annotations
 
 import re
+from enum import StrEnum
 from importlib import import_module
 from typing import Protocol, cast
+
+
+class TokenCountAccuracy(StrEnum):
+    EXACT = "exact"
+    ESTIMATED = "estimated"
+    MIXED = "mixed"
+    UNKNOWN = "unknown"
 
 
 class TokenCounter(Protocol):
@@ -25,6 +33,7 @@ class TiktokenModule(Protocol):
 
 class ApproximateTokenCounter:
     label = "approximate"
+    accuracy = TokenCountAccuracy.ESTIMATED
 
     def count(self, text: str, _model: str | None = None) -> int:
         segments = re.findall(r"\w+|[^\w\s]", text, flags=re.UNICODE)
@@ -32,7 +41,8 @@ class ApproximateTokenCounter:
 
 
 class OptionalModelAwareTokenCounter:
-    label = "model-aware"
+    label = "openai-tiktoken"
+    accuracy = TokenCountAccuracy.MIXED
 
     def __init__(self, fallback: TokenCounter | None = None) -> None:
         self.fallback = fallback or ApproximateTokenCounter()
@@ -54,3 +64,11 @@ def _load_tiktoken() -> TiktokenModule | None:
     except ImportError:
         return None
     return cast(TiktokenModule, module)
+
+
+def token_count_accuracy(token_counter: TokenCounter) -> TokenCountAccuracy:
+    raw = getattr(token_counter, "accuracy", TokenCountAccuracy.UNKNOWN)
+    try:
+        return TokenCountAccuracy(raw)
+    except ValueError:
+        return TokenCountAccuracy.UNKNOWN

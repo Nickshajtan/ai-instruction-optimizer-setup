@@ -126,6 +126,7 @@ def test_cli_pairwise_stack_uses_deepeval_without_command(monkeypatch) -> None:
     monkeypatch.delenv("AI_DOC_SEMANTIC_COMMAND", raising=False)
 
     config = DEFAULT_CONFIG.model_copy(deep=True)
+    config.optimization.deepeval_model = "test-model"
     extensions = register_configured_extensions(config, ExtensionRegistry())
     stack = _build_semantic_stack(config, extensions, runtime, deep=False)
 

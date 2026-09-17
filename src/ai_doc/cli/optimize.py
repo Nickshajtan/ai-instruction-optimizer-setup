@@ -199,9 +199,13 @@ def _build_semantic_stack(
             max_cost_usd=runtime.search.max_cost_usd,
         )
     if provider is None:
-        evaluator = ScenarioContextEvaluator(DeepEvalEvaluator()) if deep else None
+        deep_config = config.evaluation.get("deep")
+        evaluator_model = deep_config.model if deep_config is not None else None
+        evaluator = ScenarioContextEvaluator(DeepEvalEvaluator(model=evaluator_model)) if deep else None
         deepeval_pairwise: PairwiseSemanticEvaluator | None = (
-            DeepEvalEvaluator() if runtime.pairwise_semantic and runtime.mode != OptimizeMode.CONSERVATIVE else None
+            DeepEvalEvaluator(model=config.optimization.deepeval_model)
+            if runtime.pairwise_semantic and runtime.mode != OptimizeMode.CONSERVATIVE
+            else None
         )
         return SemanticStack(evaluator=evaluator, pairwise_evaluator=deepeval_pairwise)
     invariant_service = ProviderSemanticInvariantService(provider)

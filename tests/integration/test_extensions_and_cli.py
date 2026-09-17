@@ -167,7 +167,7 @@ evaluation:
         "ai_doc.cli.check.install_missing_for_engine",
         lambda engine: installed.append(engine) or ["promptfoo"],
     )
-    monkeypatch.setattr("ai_doc.cli.check._deep_evaluator", lambda engine, debug: FakeEvaluator())
+    monkeypatch.setattr("ai_doc.cli.check._deep_evaluator", lambda engine, debug, model: FakeEvaluator())
 
     result = CliRunner().invoke(
         app,
@@ -189,6 +189,7 @@ profiles:
 evaluation:
   deep:
     engine: deepeval
+    model: test-model
 """,
         encoding="utf-8",
     )
@@ -202,7 +203,7 @@ evaluation:
     monkeypatch.setattr("ai_doc.cli.check.missing_dependencies_for_engine", lambda engine: [])
     monkeypatch.setattr(
         "ai_doc.cli.check._deep_evaluator",
-        lambda engine, debug: engines.append(engine) or FakeEvaluator(),
+        lambda engine, debug, model: engines.append(engine) or FakeEvaluator(),
     )
 
     result = CliRunner().invoke(app, ["check", str(tmp_path), "--deep", "--format", "json"])
@@ -210,6 +211,30 @@ evaluation:
     assert result.exit_code == 0
     assert engines == [EvaluationEngine.DEEPEVAL]
     assert '"engine": "deepeval"' in result.output
+
+
+def test_deep_check_deepeval_requires_explicit_model(monkeypatch, tmp_path: Path) -> None:
+    (tmp_path / ".ai-doc.yaml").write_text(
+        """
+version: 1
+include: [AGENTS.md]
+profiles:
+  AGENTS.md: instruction
+evaluation:
+  deep:
+    engine: deepeval
+""",
+        encoding="utf-8",
+    )
+    (tmp_path / "AGENTS.md").write_text("# Rules\n\nRun validation.\n", encoding="utf-8")
+
+    monkeypatch.setattr("ai_doc.cli.check.missing_dependencies_for_engine", lambda engine: [])
+
+    result = CliRunner().invoke(app, ["check", str(tmp_path), "--deep", "--format", "json"])
+
+    assert result.exit_code == 3
+    assert "No implicit OpenAI model" in result.output
+    assert "Traceback" not in result.output
 
 
 def test_setup_deep_installs_optional_dependencies(monkeypatch) -> None:

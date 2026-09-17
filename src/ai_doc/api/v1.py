@@ -48,7 +48,7 @@ from ai_doc.optimizer.recommendation import RecommendationPolicy
 from ai_doc.plugins.registry import ExtensionRegistry
 from ai_doc.providers.base import LLMProvider
 from ai_doc.providers.semantic import ProviderUsage, SemanticProvider, SemanticResponse
-from ai_doc.tokens.counter import TokenCounter
+from ai_doc.tokens.counter import TokenCountAccuracy, TokenCounter
 
 __all__ = [
     "AnalysisContext",
@@ -99,6 +99,7 @@ __all__ = [
     "SemanticResponse",
     "TargetProbe",
     "TokenCounter",
+    "TokenCountAccuracy",
     "VerifiedExecutionObservation",
     "VerifiedObservation",
     "WorkspaceDelta",
