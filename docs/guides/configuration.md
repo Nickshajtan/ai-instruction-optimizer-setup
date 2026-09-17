@@ -21,7 +21,7 @@ The configuration answers four practical questions:
 - Which paths are generated, vendored, or otherwise irrelevant?
 - Which documents should be treated as instructions, skills, references, or other
   profiles for `ai-doc` analysis?
-- Which optional evaluators, optimizers, budgets, and extensions are enabled?
+- Which optional evaluators, optimizers, budgets, components, and extensions are enabled?
 
 ## Minimal Configuration
 
@@ -316,8 +316,58 @@ constraints, and unavailable or uncertain pairwise evidence does not fail optimi
 
 ## Extensions
 
-Extensions are explicit, project-local checks configured with the `extensions` key.
+Extensions are explicit, project-local Python files configured with the `extensions` key.
 Configured files must stay inside the project root because extension loading executes
-Python code. Current extensions add static analyzers for `check` and optimization static
-gates; they do not extend every command or deep evaluator internals. See
-[Extension API](extensions.md) for the full example, scope, and trust rules.
+Python code.
+
+Python extensions can register analyzers, evaluators, token counters, recommendation
+policies, and semantic providers. Registering a component makes it available; selecting a
+named component makes it affect a production path.
+
+```yaml
+components:
+  token_counter: company
+  recommendation_policy: company
+  provider: company
+evaluation:
+  deep:
+    evaluator: company
+extensions:
+  - path: .ai-doc/extensions/company.py
+```
+
+`extension_runtime` configures process-backed components using the same names:
+
+```yaml
+components:
+  token_counter: company-counter
+  recommendation_policy: company-policy
+  provider: company-provider
+evaluation:
+  deep:
+    evaluator: company-evaluator
+extension_runtime:
+  analyzers:
+    company-analyzer:
+      command: [python, .ai-doc/extensions/company_process.py]
+  token_counters:
+    company-counter:
+      command: [python, .ai-doc/extensions/company_process.py]
+  evaluators:
+    company-evaluator:
+      command: [python, .ai-doc/extensions/company_process.py]
+  recommendation_policies:
+    company-policy:
+      command: [python, .ai-doc/extensions/company_process.py]
+  providers:
+    company-provider:
+      command: [python, .ai-doc/extensions/company_process.py]
+```
+
+Built-in names include `approximate` for the default token counter, `default` for the
+default recommendation policy, and `semantic-command` for the
+`AI_DOC_SEMANTIC_COMMAND` provider when that environment variable is set. Evaluator
+selection remains mode-specific through `evaluation.<mode>.evaluator`.
+
+See [Extension API](extensions.md) for public imports, process operations, scope, and
+trust rules.

@@ -34,10 +34,20 @@ from ai_doc.domain.probes import (
     VerifiedObservation,
     WorkspaceDelta,
 )
-from ai_doc.extensions.process import PROTOCOL_VERSION, ProcessEvaluator, ProcessExtensionError, ProcessTransport
+from ai_doc.extensions.process import (
+    PROTOCOL_VERSION,
+    ProcessAnalyzer,
+    ProcessEvaluator,
+    ProcessExtensionError,
+    ProcessRecommendationPolicy,
+    ProcessSemanticProvider,
+    ProcessTokenCounter,
+    ProcessTransport,
+)
 from ai_doc.optimizer.recommendation import RecommendationPolicy
 from ai_doc.plugins.registry import ExtensionRegistry
 from ai_doc.providers.base import LLMProvider
+from ai_doc.providers.semantic import ProviderUsage, SemanticProvider, SemanticResponse
 from ai_doc.tokens.counter import TokenCounter
 
 __all__ = [
@@ -69,10 +79,15 @@ __all__ = [
     "PairwiseSemanticResult",
     "PlanningProbeComparison",
     "PlanningProbeReport",
+    "ProcessAnalyzer",
     "ProcessEvaluator",
     "ProcessExtensionError",
+    "ProcessRecommendationPolicy",
+    "ProcessSemanticProvider",
+    "ProcessTokenCounter",
     "ProcessTransport",
     "PROTOCOL_VERSION",
+    "ProviderUsage",
     "ProbeExpectationKind",
     "ProbeExpectationOutcome",
     "ProbeExpectationResult",
@@ -80,6 +95,8 @@ __all__ = [
     "ProbeUsage",
     "RecommendationPolicy",
     "ScenarioProbeComparison",
+    "SemanticProvider",
+    "SemanticResponse",
     "TargetProbe",
     "TokenCounter",
     "VerifiedExecutionObservation",

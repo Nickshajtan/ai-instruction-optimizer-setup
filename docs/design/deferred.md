@@ -23,14 +23,14 @@ large dependency or public contract without review.
 
 ## Extension Contracts
 
-The current Extension API supports custom static analyzers and configured provider-neutral
-runtime components such as process-backed evaluators. These additional extension
-contracts need separate design before implementation:
+The current Extension API supports analyzer, evaluator, token-counter, recommendation
+policy, and semantic-provider contracts through public API types, programmatic
+registration, project-local Python extensions, and process extensions. These additional
+extension contracts still need separate design before implementation:
 
-- custom token/loading models;
+- runtime-specific loading models;
 - invariant detectors;
 - candidate mutation strategies;
-- recommendation policies;
 - custom document profiles.
 
 ## Runtime And Ecosystem

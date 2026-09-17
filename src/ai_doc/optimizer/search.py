@@ -58,7 +58,7 @@ from ai_doc.optimizer.semantic import uncertain_pairwise_result
 from ai_doc.plugins.registry import ExtensionRegistry
 from ai_doc.providers.semantic import ProviderUsage, SemanticBudgetExceeded, UsageDrainer
 from ai_doc.reporting.models import CheckReport
-from ai_doc.tokens.counter import ApproximateTokenCounter
+from ai_doc.tokens.counter import ApproximateTokenCounter, TokenCounter
 
 BASELINE_CANDIDATE_ID = "baseline"
 GEPA_MARKER = "<!-- ai-doc:gepa -->"
@@ -139,6 +139,8 @@ class SearchController:  # pylint: disable=too-many-instance-attributes
         runtime: RuntimeSearchConfig,
         output_root: Path,
         extensions: ExtensionRegistry | None = None,
+        token_counter: TokenCounter | None = None,
+        recommendation_policy: RecommendationPolicy | None = None,
         evaluator: Evaluator | None = None,
         pairwise_semantic_evaluator: PairwiseSemanticEvaluator | None = None,
         semantic_generator: SemanticCandidateGenerator | None = None,
@@ -152,14 +154,19 @@ class SearchController:  # pylint: disable=too-many-instance-attributes
         self.generator = StrategyCandidateGenerator(semantic=semantic_generator)
         self.selector = ParetoSelector(runtime.pareto)
         self.archive_builder = ParetoArchiveBuilder(self.selector)
-        self.recommendation = RecommendationPolicy(runtime.recommendation)
+        self.recommendation = recommendation_policy or self.default_recommendation_policy(runtime)
         self.random = random.Random(runtime.seed)
         self.extensions = extensions
+        self.token_counter = token_counter or ApproximateTokenCounter()
         self.evaluator = evaluator
         self.pairwise_semantic_evaluator = pairwise_semantic_evaluator
         self.semantic_invariant_verifier = semantic_invariant_verifier
         self.semantic_invariant_discoverer = semantic_invariant_discoverer
         self.prompt_suboptimizer = prompt_suboptimizer
+
+    @staticmethod
+    def default_recommendation_policy(runtime: RuntimeSearchConfig) -> RecommendationPolicy:
+        return RecommendationPolicy(runtime.recommendation)
 
     def optimize(
         self, baseline: DocumentationSnapshot, suite: EvaluationSuite, baseline_report: CheckReport
@@ -351,8 +358,8 @@ class SearchController:  # pylint: disable=too-many-instance-attributes
         tree = write_candidate_tree(draft.source, draft.rendered, candidate_dir)
         copy_untracked_context(context.baseline.root, tree)
         diff_path = write_diff(draft.source, draft.rendered, candidate_dir)
-        report = run_static_check(tree, self.config, extensions=self.extensions)
-        snapshot = discover_markdown(tree, self.config, ApproximateTokenCounter())
+        report = run_static_check(tree, self.config, extensions=self.extensions, token_counter=self.token_counter)
+        snapshot = discover_markdown(tree, self.config, self.token_counter)
         return CandidateWorkspace(candidate_dir, diff_path, report, snapshot)
 
     def _cheap_hard_failures(
@@ -555,10 +562,16 @@ class SearchController:  # pylint: disable=too-many-instance-attributes
     ) -> OptimizationRun:
         frontier = self.selector.frontier(state.candidates)
         recommended = self.recommendation.choose(baseline_candidate, frontier)
+        decision_reason = getattr(getattr(self.recommendation, "last_decision", None), "reason", None)
+        if isinstance(decision_reason, str):
+            if recommended is not None:
+                recommended.evidence.recommendation_reason = decision_reason
+            else:
+                baseline_candidate.evidence.recommendation_reason = decision_reason
         reason = (
-            f"recommended {recommended.id}: non-dominated and policy-qualified"
+            decision_reason or f"recommended {recommended.id}: non-dominated and policy-qualified"
             if recommended
-            else "baseline/no-change retained: no candidate satisfied recommendation policy"
+            else decision_reason or "baseline/no-change retained: no candidate satisfied recommendation policy"
         )
         return OptimizationRun(
             run_id=run_dir.name,
@@ -756,7 +769,7 @@ class SearchController:  # pylint: disable=too-many-instance-attributes
     def _source_snapshot(self, parent: Candidate, baseline: DocumentationSnapshot) -> DocumentationSnapshot:
         root = Path(parent.artifact_dir) / "candidate" if parent.artifact_dir else None
         if root and root.exists():
-            return discover_markdown(root, self.config, ApproximateTokenCounter())
+            return discover_markdown(root, self.config, self.token_counter)
         return baseline
 
     def _update_statuses(self, candidates: list[Candidate], frontier_ids: set[str]) -> None:

@@ -6,6 +6,7 @@ from ai_doc.analyzers.base import AnalysisContext, sort_findings
 from ai_doc.analyzers.duplication import estimate_duplicate_tokens
 from ai_doc.analyzers.finops import calculate_context_cost
 from ai_doc.analyzers.suite import run_analyzers
+from ai_doc.composition import resolve_token_counter
 from ai_doc.config.models import AiDocConfig
 from ai_doc.discovery.markdown_discovery import discover_markdown
 from ai_doc.domain.documents import DocumentProfile
@@ -14,7 +15,7 @@ from ai_doc.evaluators.suite import load_evaluation_suite
 from ai_doc.markdown.graph import DocumentGraph
 from ai_doc.plugins.registry import ExtensionRegistry
 from ai_doc.reporting.models import CheckReport
-from ai_doc.tokens.counter import ApproximateTokenCounter, TokenCounter
+from ai_doc.tokens.counter import TokenCounter
 
 
 def run_static_check(
@@ -24,7 +25,7 @@ def run_static_check(
     extensions: ExtensionRegistry | None = None,
     token_counter: TokenCounter | None = None,
 ) -> CheckReport:
-    counter = token_counter or ApproximateTokenCounter()
+    counter = token_counter or resolve_token_counter(config, extensions)
     snapshot = discover_markdown(root, config, counter)
     if profile:
         snapshot = snapshot.model_copy(

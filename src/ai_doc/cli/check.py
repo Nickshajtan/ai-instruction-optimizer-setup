@@ -7,7 +7,7 @@ from typing import Annotated, Protocol
 import typer
 
 from ai_doc.app import load_suite, run_static_check
-from ai_doc.composition import register_configured_extensions, resolve_configured_evaluator
+from ai_doc.composition import register_configured_extensions, resolve_configured_evaluator, resolve_token_counter
 from ai_doc.config.loader import ConfigError, load_config
 from ai_doc.config.models import EvaluationEngine, EvaluationModeConfig
 from ai_doc.discovery.markdown_discovery import discover_markdown
@@ -15,6 +15,7 @@ from ai_doc.domain.documents import DocumentationSnapshot, DocumentProfile
 from ai_doc.domain.evaluations import EvaluationResult, EvaluationSuite
 from ai_doc.evaluators.deepeval import DeepEvalEvaluator, DeepEvalUnavailableError
 from ai_doc.evaluators.promptfoo import PromptfooEvaluator, PromptfooUnavailableError
+from ai_doc.extensions.process import ProcessExtensionError
 from ai_doc.optional_dependencies import (
     DependencyStatus,
     OptionalDependencyError,
@@ -26,7 +27,6 @@ from ai_doc.reporting.console import render_check_console
 from ai_doc.reporting.json import render_json
 from ai_doc.reporting.models import CheckReport
 from ai_doc.root import discover_project_root
-from ai_doc.tokens.counter import ApproximateTokenCounter
 
 
 class OutputFormat(StrEnum):
@@ -67,11 +67,12 @@ def check_command(
         loaded = load_config(project_root, config)
         extensions = load_extensions(project_root, loaded.extensions, debug=debug)
         register_configured_extensions(loaded, extensions)
-        report = run_static_check(project_root, loaded, profile, extensions)
+        token_counter = resolve_token_counter(loaded, extensions)
+        report = run_static_check(project_root, loaded, profile, extensions, token_counter=token_counter)
     except ConfigError as exc:
         typer.echo(str(exc), err=True)
         raise typer.Exit(1) from exc
-    except ExtensionError as exc:
+    except (ExtensionError, ProcessExtensionError, KeyError, ValueError) as exc:
         typer.echo(str(exc), err=True)
         raise typer.Exit(1) from exc
     if deep:
@@ -85,7 +86,7 @@ def check_command(
                 _prepare_deep_engine(deep_config.engine, install_missing, non_interactive, output_format)
                 evaluator = _deep_evaluator(deep_config.engine, debug)
             snapshot_report = report
-            snapshot = discover_markdown(project_root, loaded, ApproximateTokenCounter())
+            snapshot = discover_markdown(project_root, loaded, token_counter)
             report.evaluation = evaluator.evaluate(snapshot, None, suite)
         except (PromptfooUnavailableError, DeepEvalUnavailableError, RuntimeError) as exc:
             typer.echo(str(exc), err=True)

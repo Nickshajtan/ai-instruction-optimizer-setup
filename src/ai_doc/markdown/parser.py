@@ -80,20 +80,34 @@ def _sections(
             )
         ]
     sections: list[Section] = []
+    section_texts: list[str] = []
+    ranges: list[tuple[Heading, int, int]] = []
     for index, heading in enumerate(headings):
         start = heading.line
         end = headings[index + 1].line - 1 if index + 1 < len(headings) else len(lines)
-        section_text = "\n".join(lines[start - 1 : end])
+        section_texts.append("\n".join(lines[start - 1 : end]))
+        ranges.append((heading, start, end))
+    token_counts = _count_many(token_counter, section_texts)
+    for (heading, start, end), section_text, token_count in zip(ranges, section_texts, token_counts, strict=True):
         sections.append(
             Section(
                 heading=heading,
                 text=section_text,
-                token_count=token_counter.count(section_text),
+                token_count=token_count,
                 start_line=start,
                 end_line=end,
             )
         )
     return sections
+
+
+def _count_many(token_counter: TokenCounter, texts: list[str]) -> list[int]:
+    count_many = getattr(token_counter, "count_many", None)
+    if callable(count_many):
+        result = count_many(texts)
+        if isinstance(result, list) and len(result) == len(texts):
+            return result
+    return [token_counter.count(text) for text in texts]
 
 
 def _unique_slug(slug: str, slug_counts: Counter[str]) -> str:

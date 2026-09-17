@@ -115,11 +115,24 @@ class OptimizationMergeRule:
         context.merged.optimization = nested.optimization
 
 
+class ComponentsMergeRule:
+    field_name = "components"
+
+    def merge(self, context: NestedConfigMergeContext, nested: AiDocConfig, _relative_dir: str, _path: Path) -> None:
+        context.merged.components = nested.components
+
+
 class ExtensionRuntimeMergeRule:
     field_name = "extension_runtime"
 
     def merge(self, context: NestedConfigMergeContext, nested: AiDocConfig, _relative_dir: str, _path: Path) -> None:
+        context.merged.extension_runtime.analyzers.update(nested.extension_runtime.analyzers)
         context.merged.extension_runtime.evaluators.update(nested.extension_runtime.evaluators)
+        context.merged.extension_runtime.token_counters.update(nested.extension_runtime.token_counters)
+        context.merged.extension_runtime.recommendation_policies.update(
+            nested.extension_runtime.recommendation_policies
+        )
+        context.merged.extension_runtime.providers.update(nested.extension_runtime.providers)
 
 
 DEFAULT_NESTED_MERGE_RULES: tuple[NestedConfigMergeRule, ...] = (
@@ -131,6 +144,7 @@ DEFAULT_NESTED_MERGE_RULES: tuple[NestedConfigMergeRule, ...] = (
     DictUpdateMergeRule("budgets"),
     DictUpdateMergeRule("pricing"),
     DictUpdateMergeRule("evaluation"),
+    ComponentsMergeRule(),
     ExtensionRuntimeMergeRule(),
     OptimizationMergeRule(),
 )

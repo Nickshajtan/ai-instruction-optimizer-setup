@@ -6,9 +6,23 @@ from typing import Any
 
 import pytest
 
+from ai_doc.analyzers.base import AnalysisContext
+from ai_doc.config.models import DEFAULT_CONFIG
 from ai_doc.domain.documents import DocumentationSnapshot
 from ai_doc.domain.evaluations import EvaluationSuite
-from ai_doc.extensions.process import PROTOCOL_VERSION, ProcessEvaluator, ProcessExtensionError, ProcessTransport
+from ai_doc.domain.optimization import Candidate, CandidateCost, CandidateStatus, ObjectiveVector
+from ai_doc.domain.proposals import CandidateProposal
+from ai_doc.extensions.process import (
+    PROTOCOL_VERSION,
+    ProcessAnalyzer,
+    ProcessEvaluator,
+    ProcessExtensionError,
+    ProcessRecommendationPolicy,
+    ProcessSemanticProvider,
+    ProcessTokenCounter,
+    ProcessTransport,
+)
+from ai_doc.markdown.graph import DocumentGraph
 
 
 def _snapshot(text: str = "docs") -> DocumentationSnapshot:
@@ -29,7 +43,40 @@ def _snapshot(text: str = "docs") -> DocumentationSnapshot:
 
 
 def _suite() -> EvaluationSuite:
-    return EvaluationSuite.model_validate({"scenarios": [{"id": "smoke", "task": "Read docs."}]})
+    return EvaluationSuite.model_validate(
+        {
+            "scenarios": [
+                {
+                    "id": "smoke",
+                    "profile": "coding-task",
+                    "task": "Read docs.",
+                    "expected_required": ["cite docs"],
+                    "expected_forbidden": ["skip docs"],
+                    "behavior_required": ["open file"],
+                    "behavior_forbidden": ["guess"],
+                    "tags": ["smoke"],
+                }
+            ]
+        }
+    )
+
+
+def _candidate(candidate_id: str, status: CandidateStatus = CandidateStatus.VALID) -> Candidate:
+    return Candidate(
+        id=candidate_id,
+        strategy="test",
+        proposal=CandidateProposal(operations=[]),
+        objective_vector=ObjectiveVector(
+            reliability=None,
+            clarity=0.8,
+            always_loaded_tokens=10,
+            critical_invariant_recall=1.0,
+        ),
+        status=status,
+        generation=1,
+        creation_cost=CandidateCost(generation_requests=1, generation_input_tokens=2),
+        artifact_dir=f".ai-doc-output/{candidate_id}",
+    )
 
 
 def _transport_script(tmp_path: Path, mode: str) -> Path:
@@ -82,6 +129,7 @@ elif data["operation"] == "evaluate":
         {{
             "status": "ok",
             "result": {{
+                "payload_version": 1,
                 "passed": True,
                 "cases": [{{"id": scenario_id, "passed": True, "score": 0.9}}],
             }},
@@ -117,6 +165,12 @@ def test_process_transport_invokes_generic_operation(tmp_path: Path) -> None:
     assert result["protocol"] == PROTOCOL_VERSION
     assert result["request_id"]
     assert result["payload"] == {"value": 42}
+
+
+def test_process_transport_can_query_describe_manifest(tmp_path: Path) -> None:
+    result = _transport(tmp_path, "ok").describe()
+
+    assert result["operation"] == "describe"
 
 
 @pytest.mark.parametrize(
@@ -174,7 +228,9 @@ class FakeTransport:
 
 
 def test_process_evaluator_maps_domain_payload_to_evaluate_operation() -> None:
-    transport = FakeTransport({"passed": True, "cases": [{"id": "smoke", "passed": True, "score": 0.9}]})
+    transport = FakeTransport(
+        {"payload_version": 1, "passed": True, "cases": [{"id": "smoke", "passed": True, "score": 0.9}]}
+    )
     evaluator = ProcessEvaluator(transport, engine="instruction-quality")
 
     result = evaluator.evaluate(_snapshot("baseline"), _snapshot("candidate"), _suite())
@@ -189,14 +245,25 @@ def test_process_evaluator_maps_domain_payload_to_evaluate_operation() -> None:
     assert isinstance(suite, dict)
     assert baseline["documents"][0]["text"] == "baseline"
     assert candidate["documents"][0]["text"] == "candidate"
-    assert suite["scenarios"][0]["id"] == "smoke"
+    assert sorted(payload) == ["baseline", "candidate", "payload_version", "suite"]
+    assert sorted(suite) == ["scenarios"]
+    assert suite["scenarios"][0] == {
+        "id": "smoke",
+        "profile": "coding-task",
+        "task": "Read docs.",
+        "expected_required": ["cite docs"],
+        "expected_forbidden": ["skip docs"],
+        "behavior_required": ["open file"],
+        "behavior_forbidden": ["guess"],
+        "tags": ["smoke"],
+    }
     assert result.engine == "instruction-quality"
     assert result.passed is True
     assert result.cases[0].id == "smoke"
 
 
 def test_process_evaluator_preserves_engine_returned_by_extension() -> None:
-    transport = FakeTransport({"engine": "external-fixture", "passed": True, "cases": []})
+    transport = FakeTransport({"payload_version": 1, "engine": "external-fixture", "passed": True, "cases": []})
     evaluator = ProcessEvaluator(transport, engine="instruction-quality")
 
     result = evaluator.evaluate(_snapshot(), None, _suite())
@@ -205,9 +272,16 @@ def test_process_evaluator_preserves_engine_returned_by_extension() -> None:
 
 
 def test_process_evaluator_reports_invalid_result_schema_without_subprocess() -> None:
-    evaluator = ProcessEvaluator(FakeTransport({"passed": True, "cases": [{}]}))
+    evaluator = ProcessEvaluator(FakeTransport({"payload_version": 1, "passed": True, "cases": [{}]}))
 
     with pytest.raises(ProcessExtensionError, match="schema validation"):
+        evaluator.evaluate(_snapshot(), None, _suite())
+
+
+def test_process_evaluator_rejects_bad_payload_version_result() -> None:
+    evaluator = ProcessEvaluator(FakeTransport({"payload_version": 2, "passed": True, "cases": []}))
+
+    with pytest.raises(ProcessExtensionError, match="payload_version"):
         evaluator.evaluate(_snapshot(), None, _suite())
 
 
@@ -220,3 +294,117 @@ def test_process_evaluator_runs_end_to_end_with_process_transport(tmp_path: Path
     assert result.engine == "process"
     assert result.passed is True
     assert result.cases[0].id == "smoke"
+
+
+def test_process_analyzer_payload_exposes_intentional_shape_not_full_config() -> None:
+    transport = FakeTransport({"payload_version": 1, "findings": []})
+    analyzer = ProcessAnalyzer(transport)
+    snapshot = _snapshot("docs")
+    context = AnalysisContext(
+        config=DEFAULT_CONFIG,
+        snapshot=snapshot,
+        graph=DocumentGraph(snapshot),
+    )
+
+    assert analyzer.analyze(context) == []
+
+    _, payload = transport.calls[0]
+    assert payload["payload_version"] == 1
+    assert sorted(payload) == ["analysis", "documents", "graph", "payload_version"]
+    assert "configuration" not in payload
+    assert "extension_runtime" not in payload
+    assert payload["documents"][0] == {
+        "path": "AGENTS.md",
+        "profile": "instruction",
+        "text": "docs",
+        "token_count": 4,
+    }
+
+
+def test_process_analyzer_rejects_malformed_result_schema() -> None:
+    analyzer = ProcessAnalyzer(FakeTransport({"payload_version": 1, "findings": [{"code": "BROKEN"}]}))
+    snapshot = _snapshot("docs")
+    context = AnalysisContext(config=DEFAULT_CONFIG, snapshot=snapshot, graph=DocumentGraph(snapshot))
+
+    with pytest.raises(ProcessExtensionError, match="schema validation"):
+        analyzer.analyze(context)
+
+
+def test_process_analyzer_rejects_bad_payload_version_result() -> None:
+    analyzer = ProcessAnalyzer(FakeTransport({"payload_version": 2, "findings": []}))
+    snapshot = _snapshot("docs")
+    context = AnalysisContext(config=DEFAULT_CONFIG, snapshot=snapshot, graph=DocumentGraph(snapshot))
+
+    with pytest.raises(ProcessExtensionError, match="payload_version"):
+        analyzer.analyze(context)
+
+
+def test_process_token_counter_rejects_bad_payload_version_result() -> None:
+    counter = ProcessTokenCounter(FakeTransport({"payload_version": 2, "counts": {"0": 1}}))
+
+    with pytest.raises(ProcessExtensionError, match="payload_version"):
+        counter.count("hello")
+
+
+def test_process_token_counter_rejects_malformed_counts() -> None:
+    counter = ProcessTokenCounter(FakeTransport({"payload_version": 1, "counts": {"0": -1}}))
+
+    with pytest.raises(ProcessExtensionError, match="Invalid token count"):
+        counter.count("hello")
+
+
+def test_process_recommendation_payload_exposes_intentional_candidate_shape() -> None:
+    baseline = _candidate("baseline", CandidateStatus.FRONTIER)
+    selected = _candidate("C001")
+    transport = FakeTransport({"payload_version": 1, "candidate_id": "C001", "reason": "external reason"})
+    policy = ProcessRecommendationPolicy(transport)
+
+    assert policy.choose(baseline, [baseline, selected]) is selected
+
+    _, payload = transport.calls[0]
+    candidate_payload = payload["candidates"][1]
+    assert sorted(candidate_payload) == [
+        "creation_cost",
+        "evidence",
+        "generation",
+        "id",
+        "objective_vector",
+        "rejection_reasons",
+        "status",
+    ]
+    assert "artifact_dir" not in candidate_payload
+    assert "proposal" not in candidate_payload
+    assert selected.evidence.recommendation_reason is None
+    assert baseline.evidence.recommendation_reason is None
+    assert policy.last_decision is not None
+    assert policy.last_decision.reason == "external reason"
+
+
+def test_process_recommendation_rejects_bad_payload_version_result() -> None:
+    policy = ProcessRecommendationPolicy(FakeTransport({"payload_version": 2, "candidate_id": None}))
+
+    with pytest.raises(ProcessExtensionError, match="payload_version"):
+        policy.choose(_candidate("baseline", CandidateStatus.FRONTIER), [])
+
+
+def test_process_recommendation_rejects_malformed_result_schema() -> None:
+    policy = ProcessRecommendationPolicy(FakeTransport({"payload_version": 1, "candidate_id": 123}))
+
+    with pytest.raises(ProcessExtensionError, match="schema validation"):
+        policy.choose(_candidate("baseline", CandidateStatus.FRONTIER), [])
+
+
+def test_process_provider_rejects_bad_payload_version_result() -> None:
+    provider = ProcessSemanticProvider(FakeTransport({"payload_version": 2, "data": {}, "usage": {}}))
+
+    with pytest.raises(ProcessExtensionError, match="payload_version"):
+        provider.invoke("generate_candidate", {})
+
+
+def test_process_provider_rejects_malformed_result_schema() -> None:
+    provider = ProcessSemanticProvider(
+        FakeTransport({"payload_version": 1, "data": {}, "usage": {"requests": "many"}})
+    )
+
+    with pytest.raises(ProcessExtensionError, match="schema validation"):
+        provider.invoke("generate_candidate", {})

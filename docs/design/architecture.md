@@ -172,13 +172,23 @@ external executable
 
 `ProcessTransport` owns command execution, stdin/stdout JSON framing, request IDs, protocol validation, timeouts, exit-status handling, and stderr diagnostics. It accepts an operation name and JSON-compatible payload, then returns the validated response result. It does not know about documentation snapshots, evaluation suites, evaluator results, token counting, recommendation policies, optimizers, LLM providers, or provider brands.
 
-`ProcessEvaluator` owns only evaluator-specific request and result mapping. It converts `DocumentationSnapshot` and `EvaluationSuite` values into an `evaluate` payload, calls a transport, and validates the returned data as an `EvaluationResult`. Future process-backed capabilities should reuse `ProcessTransport` and add only a thin capability adapter instead of reimplementing subprocess protocol logic.
+Capability adapters own only capability-specific request/result mapping:
+`ProcessAnalyzer` validates findings from `analyze`, `ProcessEvaluator` validates
+`EvaluationResult` from `evaluate`, `ProcessTokenCounter` validates batch counts from
+`count_tokens`, `ProcessRecommendationPolicy` validates selected eligible candidates from
+`recommend`, and `ProcessSemanticProvider` validates `SemanticResponse` values from
+`complete`.
 
-The registry contains additional composition slots such as token counters, recommendation
-policies, and providers, but a registry slot is not automatically a supported
-project-configurable extension contract. Today, project configuration exposes
-process-backed evaluators; other extension contracts remain deferred until designed and
-documented.
+`ExtensionRegistry` is the composition boundary for analyzers, evaluators, token
+counters, recommendation policies, and semantic providers. Project-local Python
+extensions and process extensions register into the same registry as built-ins where
+practical. Production consumers resolve the selected capability before use, so they do
+not need to know whether the implementation is built in, Python extension code, or an
+external process.
+
+Project configuration separates registration from selection. `extensions` and
+`extension_runtime` make components available; `components` and mode-specific evaluator
+configuration select which named implementations affect production behavior.
 
 ## Run Evidence
 
