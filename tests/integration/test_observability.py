@@ -356,6 +356,78 @@ profiles:
     assert report["baseline"]["profiles"] == {"docs/source.md": "reference"}
 
 
+def test_optimize_protects_normalized_custom_output_root(tmp_path: Path) -> None:
+    (tmp_path / "docs").mkdir()
+    (tmp_path / "docs" / "source.md").write_text("# Source\n\nRun validation.\n", encoding="utf-8")
+    generated = tmp_path / "tmp" / "optimizer-results"
+    generated.mkdir(parents=True)
+    (generated / "generated.md").write_text("# Generated\n\nThis is optimizer output.\n", encoding="utf-8")
+    config = tmp_path / "scoped.yaml"
+    config.write_text(
+        """
+version: 1
+include:
+  - "**/*.md"
+profiles:
+  "docs/**/*.md": reference
+""",
+        encoding="utf-8",
+    )
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "optimize",
+            str(tmp_path),
+            "--config",
+            str(config),
+            "--output",
+            "tmp/../tmp/optimizer-results",
+            "--strategy",
+            "conservative",
+            "--format",
+            "json",
+        ],
+    )
+
+    assert result.exit_code in {0, 4}
+    report = json.loads(result.stdout)
+    assert report["baseline"]["files_analyzed"] == 1
+    assert report["baseline"]["profiles"] == {"docs/source.md": "reference"}
+
+
+def test_optimize_does_not_exclude_similarly_named_unrelated_directories(tmp_path: Path) -> None:
+    (tmp_path / "docs").mkdir()
+    (tmp_path / "docs" / "source.md").write_text("# Source\n\nRun validation.\n", encoding="utf-8")
+    similar = tmp_path / "notes" / ".ai-doc-output-archive"
+    similar.mkdir(parents=True)
+    (similar / "kept.md").write_text("# Kept\n\nRun archive validation.\n", encoding="utf-8")
+    config = tmp_path / "scoped.yaml"
+    config.write_text(
+        """
+version: 1
+include:
+  - "**/*.md"
+profiles:
+  "docs/**/*.md": reference
+  "notes/**/*.md": reference
+""",
+        encoding="utf-8",
+    )
+
+    result = CliRunner().invoke(
+        app,
+        ["optimize", str(tmp_path), "--config", str(config), "--strategy", "conservative", "--format", "json"],
+    )
+
+    assert result.exit_code in {0, 4}
+    report = json.loads(result.stdout)
+    assert report["baseline"]["profiles"] == {
+        "docs/source.md": "reference",
+        "notes/.ai-doc-output-archive/kept.md": "reference",
+    }
+
+
 def test_generic_discovery_can_still_inspect_optimizer_output_when_configured(tmp_path: Path) -> None:
     generated = tmp_path / ".ai-doc-output" / "previous"
     generated.mkdir(parents=True)

@@ -123,9 +123,11 @@ The registry also has named evaluator, token-counter, recommendation-policy, and
 slots. Registering a named capability makes it available; the project still must select
 that implementation through configuration before it affects production behavior.
 Analyzers are additive: built-in analyzers, Python extension analyzers, and configured
-process analyzers all run in the same static analysis pass. A Python analyzer may also
-implement `adapt_findings(context, findings)` when a project needs to post-process the
-combined static findings with repository-specific knowledge.
+process analyzers all run in the same static analysis pass. A Python analyzer registered
+with `registry.add_analyzer(...)` may also implement the `FindingAdapter` protocol by
+providing `adapt_findings(context, findings)`. Adapters run after built-in and extension
+analyzers have produced findings, in the same deterministic order as configured analyzer
+registration.
 
 ### Project-Specific Finding Adaptation
 
@@ -135,10 +137,10 @@ may contain an `Architecture` section that is intentionally descriptive, while o
 sections in the same file should still receive normal clarity findings.
 
 ```python
-from ai_doc.api.v1 import AnalysisContext, Finding
+from ai_doc.api.v1 import AnalysisContext, Finding, FindingAdapter
 
 
-class ProjectClarityAdapter:
+class ProjectClarityAdapter(FindingAdapter):
     reference_sections = {"Architecture", "Project Context"}
 
     def analyze(self, context: AnalysisContext) -> list[Finding]:

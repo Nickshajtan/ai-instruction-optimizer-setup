@@ -89,6 +89,7 @@ class PairwiseObservation(BaseModel):
     comparisons_performed: int
     candidate_preferred: int = 0
     baseline_preferred: int = 0
+    equivalent: int = 0
     uncertain: int = 0
 
 
@@ -354,6 +355,7 @@ def _pairwise_observation(run: OptimizationRun) -> PairwiseObservation:
         comparisons_performed=run.pairwise_comparisons_performed,
         candidate_preferred=sum(1 for outcome in outcomes if outcome == PairwiseOutcome.CANDIDATE),
         baseline_preferred=sum(1 for outcome in outcomes if outcome == PairwiseOutcome.BASELINE),
+        equivalent=sum(1 for outcome in outcomes if outcome == PairwiseOutcome.EQUIVALENT),
         uncertain=sum(1 for outcome in outcomes if outcome == PairwiseOutcome.UNCERTAIN),
     )
 

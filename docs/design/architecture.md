@@ -221,4 +221,4 @@ Do not import optimizer/evaluator/provider internals from project extensions unl
 
 ## Where To Read Next
 
-For operational usage, read [Semantic Optimization](../guides/semantic-optimization.md). Until the v0.3 acceptance cycle is closed on a green branch head, [`../../specs/semantic-optimizer-core-v0.3.md`](../../specs/semantic-optimizer-core-v0.3.md) remains the authoritative acceptance document.
+For operational usage, read [Semantic Optimization](../guides/semantic-optimization.md).

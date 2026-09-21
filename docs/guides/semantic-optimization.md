@@ -112,8 +112,8 @@ invariant verification, or prompt suboptimization do not satisfy that postcondit
 
 Optimization observations also record aggregate pairwise facts under
 `optimization.pairwise`, including whether pairwise judging was requested, how many
-comparisons were performed, and counts for candidate-preferred, baseline-preferred, and
-uncertain outcomes.
+comparisons were performed, and counts for candidate-preferred, baseline-preferred,
+equivalent, and uncertain outcomes.
 
 ## Feedback And Repair
 

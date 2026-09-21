@@ -8,8 +8,7 @@ from ai_doc.domain.findings import Finding, FindingCategory, FindingSeverity
 
 LARGE_FILE_TOKENS = 8000
 LARGE_SECTION_TOKENS = 1800
-HEADING_LESS_DOCUMENT_TOKENS = 120
-HEADING_LESS_LIST_ITEMS = 3
+HEADING_LESS_DOCUMENT_TOKENS = 100
 MAX_HEADING_LEVEL_JUMP = 1
 ROOT_INSTRUCTION_FILES = {"AGENTS.md", "CLAUDE.md"}
 MARKDOWN_LINK_REACHABLE_PROFILES = {DocumentProfile.INSTRUCTION}
@@ -127,5 +126,6 @@ class StructureAnalyzer:
 
 
 def _substantial_heading_less_document(text: str, token_count: int) -> bool:
-    list_items = sum(1 for line in text.splitlines() if line.lstrip().startswith(("-", "*")))
-    return token_count >= HEADING_LESS_DOCUMENT_TOKENS or list_items >= HEADING_LESS_LIST_ITEMS
+    return token_count >= HEADING_LESS_DOCUMENT_TOKENS and any(
+        line.lstrip().startswith(("-", "*")) for line in text.splitlines()
+    )

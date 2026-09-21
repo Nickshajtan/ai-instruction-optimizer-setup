@@ -82,13 +82,51 @@ def test_repeated_occurrences_across_documents_do_not_emit_per_occurrence_flood(
     assert duplicates[0].evidence["duplicate_scopes"] == 2
 
 
-def test_substantial_headingless_document_reports_structure_signal(tmp_path: Path) -> None:
+def test_tiny_legitimate_headingless_checklist_does_not_report_structure_signal(tmp_path: Path) -> None:
     (tmp_path / "notes.md").write_text(
         "\n".join(
             [
-                "- Always validate migrations before deployment.",
-                "- Always run unit tests before completion.",
-                "- Always update release notes before tagging.",
+                "- Run tests.",
+                "- Update changelog.",
+                "- Open PR.",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    report = run_static_check(tmp_path, _config(include=["notes.md"], profiles={"notes.md": "instruction"}))
+
+    assert "STRUCTURE_NO_HEADINGS" not in {finding.code for finding in report.findings}
+
+
+def test_small_headingless_reference_note_does_not_report_structure_signal(tmp_path: Path) -> None:
+    (tmp_path / "note.md").write_text(
+        "Release checklist context:\n\n"
+        "- Tests are usually run locally.\n"
+        "- Changelog entries are collected weekly.\n"
+        "- Pull requests use normal review queues.\n",
+        encoding="utf-8",
+    )
+    report = run_static_check(tmp_path, _config(include=["note.md"], profiles={"note.md": "reference"}))
+
+    assert "STRUCTURE_NO_HEADINGS" not in {finding.code for finding in report.findings}
+
+
+def test_substantial_headingless_document_reports_structure_signal(tmp_path: Path) -> None:
+    (tmp_path / "notes.md").write_text(
+        "Operational release notes for maintainers.\n\n"
+        + "\n".join(
+            [
+                "- Always validate migrations before deployment because rollback procedures depend on "
+                "schema state, generated artifacts, release-window timing, environment ownership, "
+                "database backups, and rollback verification across staging and production.",
+                "- Always run unit tests before completion because several extension adapters share "
+                "the static-analysis path, optimizer gates, reporting contracts, observation output, "
+                "and command-line failure semantics used by downstream automation.",
+                "- Always update release notes before tagging because downstream teams review those "
+                "notes for operational risk, migration timing, documentation changes, semantic-provider "
+                "configuration, extension compatibility, and release ownership.",
+                "- Always preserve documented public contracts because extension authors depend on "
+                "stable imports, command behavior, JSON report fields, and configuration validation.",
             ]
         ),
         encoding="utf-8",
@@ -96,6 +134,20 @@ def test_substantial_headingless_document_reports_structure_signal(tmp_path: Pat
     report = run_static_check(tmp_path, _config(include=["notes.md"], profiles={"notes.md": "instruction"}))
 
     assert "STRUCTURE_NO_HEADINGS" in {finding.code for finding in report.findings}
+
+
+def test_noisy_headingless_duplicate_case_keeps_structure_signal(tmp_path: Path) -> None:
+    repeated = (
+        "- Always validate migrations before deployment because deployment safety depends on "
+        "schema state, generated artifacts, release-window timing, rollback ownership, environment "
+        "approval, database backup verification, extension compatibility, and release communication.\n"
+    )
+    (tmp_path / "notes.md").write_text(repeated * 5, encoding="utf-8")
+    report = run_static_check(tmp_path, _config(include=["notes.md"], profiles={"notes.md": "instruction"}))
+
+    codes = {finding.code for finding in report.findings}
+    assert "STRUCTURE_NO_HEADINGS" in codes
+    assert "FINOPS_DUPLICATE_LIST_ITEM" in codes
 
 
 def test_tiny_headingless_fragment_does_not_report_structure_signal(tmp_path: Path) -> None:
