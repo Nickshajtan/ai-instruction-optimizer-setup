@@ -87,11 +87,33 @@ This is deliberately still an approximation of agent loading behavior, not a cla
 
 Native/static checks and invariant verification are the authoritative A-tier constraints. They run without model calls and can reject unsafe candidates. Real Claude/Codex execution, benchmark harnesses, and repeated target-agent runs are out of scope for this optimizer path.
 
-`optimization.pairwise_semantic: true` or `ai-doc optimize --pairwise-semantic` enables a B-tier confidence layer after a candidate has survived deterministic gates and any required absolute semantic scenario evaluation. The pairwise evaluator compares the baseline and candidate for predicted instruction-following quality across clarity, ambiguity, scope precision, instruction hierarchy/priority, actionability, semantic requirement preservation, and conflicting-interpretation risk.
+`optimization.pairwise_semantic: true` or `ai-doc optimize --pairwise-semantic` requests a B-tier confidence layer after a candidate has survived deterministic gates and any required absolute semantic scenario evaluation. The pairwise evaluator compares the baseline and candidate for predicted instruction-following quality across clarity, ambiguity, scope precision, instruction hierarchy/priority, actionability, semantic requirement preservation, and conflicting-interpretation risk.
 
 Each dimension and the overall result uses `candidate`, `baseline`, `equivalent`, or `uncertain` with concise evidence. This evidence is recorded on candidate artifacts and may transparently support a recommendation, but missing, unavailable, budget-exhausted, equivalent, or uncertain B-tier evidence does not fail normal optimization.
 
 When `AI_DOC_SEMANTIC_COMMAND` is configured, the provider receives a `compare_pairwise` request containing baseline documents, candidate documents, scenarios, the fixed dimensions, allowed outcomes, and the ai-doc rubric. Without a command provider, `--pairwise-semantic` uses the optional DeepEval adapter; if DeepEval exposes `ArenaGEval`, ai-doc adapts that blinded pairwise API instead of comparing unrelated absolute scores. Framework details remain outside the domain result schema.
+
+Requested pairwise judging is not the same as performed pairwise judging. Candidates can
+be rejected by earlier deterministic, duplicate, invariant, budget, or semantic gates
+before they reach the pairwise evaluator. `run.json` and `report.json` therefore include:
+
+```json
+{
+  "pairwise_semantic_requested": true,
+  "pairwise_comparisons_performed": 0
+}
+```
+
+If pairwise judging was requested but no comparison occurred, the CLI prints a stderr
+warning and preserves normal non-strict exit behavior. `--require-pairwise-semantic`
+implies `--pairwise-semantic` and exits with semantic-evaluation failure code `3` when
+zero pairwise comparisons were performed. Deep scenario evaluation, semantic generation,
+invariant verification, or prompt suboptimization do not satisfy that postcondition.
+
+Optimization observations also record aggregate pairwise facts under
+`optimization.pairwise`, including whether pairwise judging was requested, how many
+comparisons were performed, and counts for candidate-preferred, baseline-preferred, and
+uncertain outcomes.
 
 ## Feedback And Repair
 

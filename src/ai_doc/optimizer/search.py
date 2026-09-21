@@ -163,6 +163,7 @@ class SearchController:  # pylint: disable=too-many-instance-attributes
         self.semantic_invariant_verifier = semantic_invariant_verifier
         self.semantic_invariant_discoverer = semantic_invariant_discoverer
         self.prompt_suboptimizer = prompt_suboptimizer
+        self._pairwise_comparisons_performed = 0
 
     @staticmethod
     def default_recommendation_policy(runtime: RuntimeSearchConfig) -> RecommendationPolicy:
@@ -171,6 +172,7 @@ class SearchController:  # pylint: disable=too-many-instance-attributes
     def optimize(
         self, baseline: DocumentationSnapshot, suite: EvaluationSuite, baseline_report: CheckReport
     ) -> SearchResult:
+        self._pairwise_comparisons_performed = 0
         run_dir = create_run_dir(self.output_root)
         write_snapshot_tree(baseline, run_dir / "baseline")
         invariants = extract_invariants(baseline, self.semantic_invariant_discoverer)
@@ -576,6 +578,8 @@ class SearchController:  # pylint: disable=too-many-instance-attributes
             run_id=run_dir.name,
             strategy=self.runtime.mode.value,
             seed=self.runtime.seed,
+            pairwise_semantic_requested=self.runtime.pairwise_semantic,
+            pairwise_comparisons_performed=self._pairwise_comparisons_performed,
             candidates=state.candidates,
             frontier=self.archive_builder.build(state.candidates),
             recommended_candidate_id=recommended.id if recommended else None,
@@ -678,6 +682,7 @@ class SearchController:  # pylint: disable=too-many-instance-attributes
             result = self.pairwise_semantic_evaluator.compare_pairwise(baseline, candidate, suite)
         except SemanticBudgetExceeded:
             return uncertain_pairwise_result("semantic-pairwise", PAIRWISE_BUDGET_REJECTION), ProviderUsage(requests=0)
+        self._pairwise_comparisons_performed += 1
         component = getattr(self.pairwise_semantic_evaluator, "evaluator", self.pairwise_semantic_evaluator)
         if isinstance(component, UsageDrainer):
             usage = component.drain_usage()

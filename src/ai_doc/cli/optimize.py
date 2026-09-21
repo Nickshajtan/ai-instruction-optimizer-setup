@@ -10,7 +10,8 @@ from typing import Annotated
 
 import typer
 
-from ai_doc.app import load_suite, run_static_check
+from ai_doc.app import load_suite
+from ai_doc.cli.config_warnings import warn_if_explicit_config_disables_observability
 from ai_doc.composition import (
     register_configured_extensions,
     resolve_configured_evaluator,
@@ -21,7 +22,6 @@ from ai_doc.composition import (
 from ai_doc.config.loader import ConfigError, load_config
 from ai_doc.config.models import AiDocConfig
 from ai_doc.config.search import OptimizeMode, RuntimeSearchConfig
-from ai_doc.discovery.markdown_discovery import discover_markdown
 from ai_doc.domain.documents import DocumentationSnapshot
 from ai_doc.domain.evaluations import Evaluator, PairwiseSemanticEvaluator
 from ai_doc.evaluators.context import ScenarioContextEvaluator
@@ -45,6 +45,7 @@ from ai_doc.optimizer.semantic import (
     ProviderSemanticEvaluator,
     ProviderSemanticInvariantService,
 )
+from ai_doc.optimizer.source_discovery import discover_optimization_sources, run_optimization_static_check
 from ai_doc.plugins.loader import ExtensionError, load_extensions
 from ai_doc.plugins.registry import ExtensionRegistry
 from ai_doc.providers.semantic import SEMANTIC_COMMAND_ENV, SemanticProvider
@@ -95,7 +96,18 @@ def optimize_command(  # pylint: disable=too-many-arguments,too-many-positional-
     strategy: Annotated[OptimizeMode | None, typer.Option("--strategy", help="Optimization mode.")] = None,
     deep: Annotated[bool, typer.Option("--deep", help="Run semantic evaluation on task-selected context.")] = False,
     pairwise_semantic: Annotated[
-        bool, typer.Option("--pairwise-semantic", help="Run optional B-tier baseline-vs-candidate semantic judging.")
+        bool,
+        typer.Option(
+            "--pairwise-semantic",
+            help="Run B-tier pairwise semantic judging for candidates that survive earlier gates.",
+        ),
+    ] = False,
+    require_pairwise_semantic: Annotated[
+        bool,
+        typer.Option(
+            "--require-pairwise-semantic",
+            help="Require at least one pairwise semantic comparison to actually run.",
+        ),
     ] = False,
     gepa: Annotated[bool, typer.Option("--gepa", help="Enable GEPA prompt sub-optimizer.")] = False,
     seed: Annotated[int | None, typer.Option("--seed", help="Random seed.")] = None,
@@ -108,8 +120,9 @@ def optimize_command(  # pylint: disable=too-many-arguments,too-many-positional-
 ) -> None:
     timer = ObservationTimer()
     project_root = discover_project_root(path, root)
+    output_root = (project_root / output).resolve() if not output.is_absolute() else output
     try:
-        inputs = _load_optimize_inputs(project_root, config, debug)
+        inputs = _load_optimize_inputs(project_root, config, debug, output_root)
     except (ConfigError, ExtensionError, ProcessExtensionError, KeyError, ValueError) as exc:
         typer.echo(str(exc), err=True)
         raise typer.Exit(1) from exc
@@ -127,7 +140,9 @@ def optimize_command(  # pylint: disable=too-many-arguments,too-many-positional-
         restart_after_stagnation=inputs.config.optimization.restart_after_stagnation,
         concurrency=inputs.config.optimization.concurrency,
         seed=seed or inputs.config.optimization.gepa.random_seed,
-        pairwise_semantic=pairwise_semantic or inputs.config.optimization.pairwise_semantic,
+        pairwise_semantic=pairwise_semantic
+        or require_pairwise_semantic
+        or inputs.config.optimization.pairwise_semantic,
     )
     _apply_overrides(runtime, candidates, generations, max_candidates, max_cost, max_requests)
     if runtime.mode == OptimizeMode.CONSERVATIVE:
@@ -149,7 +164,6 @@ def optimize_command(  # pylint: disable=too-many-arguments,too-many-positional-
         interaction = "non-interactive" if non_interactive else "interactive"
         typer.echo(f"Semantic evaluation enabled ({interaction}); external calls may occur.", err=True)
 
-    output_root = (project_root / output).resolve() if not output.is_absolute() else output
     try:
         controller = SearchController(
             inputs.config,
@@ -190,7 +204,18 @@ def optimize_command(  # pylint: disable=too-many-arguments,too-many-positional-
         baseline_in_frontier=bool(result.run.metadata.get("baseline_in_frontier")),
     )
     _write_run_artifacts(result.run_dir, report)
-    exit_code = 4 if not result.run.recommended_candidate_id else 0
+    pairwise_postcondition_failed = (
+        require_pairwise_semantic and result.run.pairwise_comparisons_performed == 0
+    )
+    if result.run.pairwise_semantic_requested and result.run.pairwise_comparisons_performed == 0:
+        _warn_pairwise_not_performed(required=require_pairwise_semantic)
+    exit_code = (
+        3
+        if pairwise_postcondition_failed
+        else 4
+        if not result.run.recommended_candidate_id
+        else 0
+    )
     _safe_append_observation(
         project_root,
         inputs.config,
@@ -214,19 +239,31 @@ def optimize_command(  # pylint: disable=too-many-arguments,too-many-positional-
     raise typer.Exit(exit_code)
 
 
-def _load_optimize_inputs(project_root: Path, config: Path | None, debug: bool) -> OptimizeInputs:
+def _warn_pairwise_not_performed(*, required: bool) -> None:
+    heading = (
+        "Required pairwise semantic judging was not performed:"
+        if required
+        else "Pairwise semantic judging was requested but not performed:"
+    )
+    typer.echo(heading, err=True)
+    typer.echo("0 candidates reached the B-tier after earlier gates.", err=True)
+    typer.echo("This run did NOT receive a pairwise semantic judgment.", err=True)
+
+
+def _load_optimize_inputs(project_root: Path, config: Path | None, debug: bool, output_root: Path) -> OptimizeInputs:
     loaded = load_config(project_root, config)
+    warn_if_explicit_config_disables_observability(config, loaded)
     extensions = load_extensions(project_root, loaded.extensions, debug=debug)
     register_configured_extensions(loaded, extensions)
     token_counter = resolve_token_counter(loaded, extensions)
     static_started = perf_counter()
-    baseline_report = run_static_check(project_root, loaded, extensions=extensions, token_counter=token_counter)
+    baseline_report = run_optimization_static_check(project_root, loaded, extensions, token_counter, output_root)
     return OptimizeInputs(
         config=loaded,
         extensions=extensions,
         token_counter=token_counter,
         baseline_report=baseline_report,
-        baseline_snapshot=discover_markdown(project_root, loaded, token_counter),
+        baseline_snapshot=discover_optimization_sources(project_root, loaded, token_counter, output_root),
         static_duration_ms=_elapsed_ms(static_started),
     )
 

@@ -5,6 +5,7 @@ from typing import Annotated
 
 import typer
 
+from ai_doc.cli.config_warnings import warn_if_explicit_config_disables_observability
 from ai_doc.composition import register_configured_extensions, resolve_token_counter
 from ai_doc.config.loader import ConfigError, load_config
 from ai_doc.config.models import AiDocConfig
@@ -41,6 +42,7 @@ def execute_command(
     project_root = discover_project_root(path, root)
     try:
         loaded = load_config(project_root, config)
+        warn_if_explicit_config_disables_observability(config, loaded)
         extensions = load_extensions(project_root, loaded.extensions)
         register_configured_extensions(loaded, extensions)
         snapshot = discover_markdown(project_root, loaded, resolve_token_counter(loaded, extensions))

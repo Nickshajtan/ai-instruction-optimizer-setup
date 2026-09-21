@@ -30,7 +30,7 @@ candidate mutation strategies.
 Stable imports live under:
 
 ```python
-from ai_doc.api.v1 import AnalysisContext, Finding, FindingCategory, FindingSeverity
+from ai_doc.api.v1 import AnalysisContext, Finding, FindingAdapter, FindingCategory, FindingSeverity
 ```
 
 Process runtime helpers are also exported from `ai_doc.api.v1`:
@@ -123,7 +123,45 @@ The registry also has named evaluator, token-counter, recommendation-policy, and
 slots. Registering a named capability makes it available; the project still must select
 that implementation through configuration before it affects production behavior.
 Analyzers are additive: built-in analyzers, Python extension analyzers, and configured
-process analyzers all run in the same static analysis pass.
+process analyzers all run in the same static analysis pass. A Python analyzer may also
+implement `adapt_findings(context, findings)` when a project needs to post-process the
+combined static findings with repository-specific knowledge.
+
+### Project-Specific Finding Adaptation
+
+Use `adapt_findings` when the built-in heuristic is generally useful but a repository has
+local semantics the core package should not hard-code. For example, an instruction file
+may contain an `Architecture` section that is intentionally descriptive, while other
+sections in the same file should still receive normal clarity findings.
+
+```python
+from ai_doc.api.v1 import AnalysisContext, Finding
+
+
+class ProjectClarityAdapter:
+    reference_sections = {"Architecture", "Project Context"}
+
+    def analyze(self, context: AnalysisContext) -> list[Finding]:
+        return []
+
+    def adapt_findings(self, context: AnalysisContext, findings: list[Finding]) -> list[Finding]:
+        return [
+            finding
+            for finding in findings
+            if not (
+                finding.code == "CLARITY_NO_ACTIONABLE_CONTENT"
+                and finding.section in self.reference_sections
+            )
+        ]
+
+
+def register(registry) -> None:
+    registry.add_analyzer(ProjectClarityAdapter())
+```
+
+This pattern preserves the built-in analyzers, removes only the project-specific false
+positive, and uses only public `ai_doc.api.v1` types. It is preferable to adding
+organization-specific heading names to `ai-doc` core.
 
 Token counters may expose an `accuracy` attribute using `TokenCountAccuracy.EXACT`,
 `TokenCountAccuracy.ESTIMATED`, `TokenCountAccuracy.MIXED`, or a matching string. If an

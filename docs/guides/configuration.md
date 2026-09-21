@@ -139,7 +139,11 @@ Paths in nested configs must stay inside the nested directory. Patterns such as
 shared files outside a module.
 
 When `--config` is passed, `ai-doc` uses that explicit config file only and does not merge
-nested configs. This keeps ad hoc and CI runs reproducible.
+nested configs or inherit omitted fields from the root config. This keeps ad hoc and CI
+runs reproducible. If the effective explicit config has `observability.enabled: false`
+or omits the `observability` block, commands print a concise stderr warning that no
+observation record will be written for that run. The warning does not change exit codes
+and does not enable telemetry.
 
 ## Profiles
 
@@ -159,6 +163,12 @@ The profile does not move files, change their content, or prove runtime loading 
 It tells analyzers how strict to be. An `instruction` file is treated as expensive because
 it may be loaded on every task in the modeled context, while a `reference` file can be
 longer because it is usually routed only when needed.
+
+`skill` has one additional structural meaning: skill files are treated as independently
+discoverable by an agent/runtime skill mechanism. A skill with no inbound Markdown links
+is therefore not reported as `STRUCTURE_ORPHANED_AI_DOC` merely because the Markdown graph
+does not link to it. Ordinary instruction files can still be reported as orphaned when
+they have no inbound Markdown route and no independent discovery semantics.
 
 Put exact instruction-file entries before broad patterns such as `docs/**`. Profile
 patterns are checked in order, so `docs/AGENTS.md` should be classified before the generic
@@ -219,6 +229,8 @@ If load probabilities or prices are absent, expected token or cost fields remain
 Use `loading` when you want to declare how often a document is expected to enter agent
 context. `ai-doc` does not discover real load frequency from that setting, and a
 configured probability is a project policy input rather than an observed runtime fact.
+`loading.mode: on_demand` models context-loading frequency and cost. It does not, by
+itself, assert that a document is independently runtime-discoverable for orphan analysis.
 Use `pricing` only when you intentionally want model-specific cost estimates and you are
 prepared to maintain the model price values yourself. If you do not know, leave these
 fields out. `ai-doc` will report unknown cost estimates instead of inventing numbers.
@@ -321,6 +333,12 @@ ai-doc optimize . --candidates 6 --generations 3 --max-candidates 12
 ai-doc optimize . --max-cost 1.00 --max-requests 20 --seed 42
 ```
 
+`ai-doc optimize` protects tool-owned optimization output from re-entering optimization
+source discovery. The default `.ai-doc-output/**` tree, and a custom in-project
+`--output` tree for that run, are excluded from optimization inputs even if an explicit
+config uses broad includes such as `"**/*.md"` and omits the default exclude. This is an
+optimizer ownership boundary, not generic Markdown discovery behavior.
+
 The optimization settings bound how many candidates are generated, how much search is
 allowed, and what trade-offs are acceptable. Keep defaults until you have reviewed a few
 optimization reports and understand which limits matter for your workflow.
@@ -333,6 +351,12 @@ constraints, and unavailable or uncertain pairwise evidence does not fail optimi
 When pairwise evaluation falls back to DeepEval instead of a configured semantic
 provider, `optimization.deepeval_model` must be set so no implicit provider/model is
 selected.
+
+Pairwise judging only runs for candidates that survive earlier gates. Reports expose
+`run.pairwise_semantic_requested` and `run.pairwise_comparisons_performed` so automation
+can distinguish "not requested" from "requested but no candidate reached B-tier." Use
+`ai-doc optimize --require-pairwise-semantic` when a run should fail unless at least one
+pairwise comparison actually occurs.
 
 ## Local Observation Logging
 

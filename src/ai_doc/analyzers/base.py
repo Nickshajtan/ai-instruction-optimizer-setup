@@ -25,6 +25,10 @@ class Analyzer(Protocol):
     def analyze(self, context: AnalysisContext) -> list[Finding]: ...
 
 
+class FindingAdapter(Protocol):
+    def adapt_findings(self, context: AnalysisContext, findings: list[Finding]) -> list[Finding]: ...
+
+
 class AnalyzerProvider(Protocol):
     def analyzers(self) -> Sequence[Analyzer]:
         ...

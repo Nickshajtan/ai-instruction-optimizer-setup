@@ -8,6 +8,7 @@ from typing import Annotated, Protocol
 import typer
 
 from ai_doc.app import load_suite, run_static_check
+from ai_doc.cli.config_warnings import warn_if_explicit_config_disables_observability
 from ai_doc.composition import register_configured_extensions, resolve_configured_evaluator, resolve_token_counter
 from ai_doc.config.loader import ConfigError, load_config
 from ai_doc.config.models import AiDocConfig, EvaluationEngine, EvaluationModeConfig
@@ -76,6 +77,7 @@ def check_command(
     project_root = discover_project_root(path, root)
     try:
         loaded = load_config(project_root, config)
+        warn_if_explicit_config_disables_observability(config, loaded)
         extensions = load_extensions(project_root, loaded.extensions, debug=debug)
         register_configured_extensions(loaded, extensions)
         token_counter = resolve_token_counter(loaded, extensions)

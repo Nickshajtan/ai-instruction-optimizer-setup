@@ -166,6 +166,8 @@ class OptimizationRun(BaseModel):
     strategy: str
     seed: int | None = None
     baseline_candidate_id: str = "baseline"
+    pairwise_semantic_requested: bool = False
+    pairwise_comparisons_performed: int = Field(default=0, ge=0)
     candidates: list[Candidate] = Field(default_factory=list)
     frontier: ParetoArchive = Field(default_factory=ParetoArchive)
     recommended_candidate_id: str | None = None

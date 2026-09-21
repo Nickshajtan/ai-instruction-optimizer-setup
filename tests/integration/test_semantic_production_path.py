@@ -54,6 +54,7 @@ def test_production_semantic_path_persists_evidence_and_usage(tmp_path: Path) ->
     runtime.population.initial_candidates = 2
     runtime.search.max_candidates = 2
     runtime.search.max_llm_requests = 20
+    runtime.pairwise_semantic = True
     runtime.gepa.enabled = True
     controller = SearchController(
         config,
@@ -73,6 +74,8 @@ def test_production_semantic_path_persists_evidence_and_usage(tmp_path: Path) ->
     assert semantic_candidate.creation_cost.evaluation_requests >= 1
     assert semantic_candidate.evidence.pairwise_semantic is not None
     assert semantic_candidate.evidence.pairwise_semantic.overall == "candidate"
+    assert result.run.pairwise_semantic_requested is True
+    assert result.run.pairwise_comparisons_performed >= 1
     assert semantic_candidate.creation_cost.prompt_suboptimizer_requests == 1
     assert semantic_candidate.creation_cost.total_cost > 0
     assert any(item.invariant_id == "semantic-critical-1" for item in semantic_candidate.evidence.invariant_decisions)
