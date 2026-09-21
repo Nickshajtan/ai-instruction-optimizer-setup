@@ -62,19 +62,16 @@ def register(registry):
     _write_extension(
         extension_dir / "second.py",
         """
-from ai_doc.api.v1 import AnalysisContext, Finding
+from ai_doc.api.v1 import AnalysisContext, Finding, FindingAdapter
 
 
-class SecondAdapter:
-    def analyze(self, context: AnalysisContext) -> list[Finding]:
-        return []
-
+class SecondAdapter(FindingAdapter):
     def adapt_findings(self, context: AnalysisContext, findings: list[Finding]) -> list[Finding]:
         return [finding for finding in findings if finding.code != "ORG_ADDED"]
 
 
 def register(registry):
-    registry.add_analyzer(SecondAdapter())
+    registry.add_finding_adapter(SecondAdapter())
 """,
     )
     _write_config(
@@ -94,6 +91,64 @@ extensions:
     assert not _has_finding(findings, "CLARITY_NO_ACTIONABLE_CONTENT", "Deployment")
     assert not _has_finding(findings, "ORG_ADDED", "Architecture")
     assert _has_finding(findings, "CLARITY_AMBIGUOUS_RULE", "Rules")
+
+
+def test_combined_analyzer_adapter_registered_twice_adapts_once(tmp_path: Path) -> None:
+    _write_project(tmp_path, extension=False)
+    extension_dir = tmp_path / ".ai-doc" / "extensions"
+    extension_dir.mkdir(parents=True)
+    _write_extension(
+        extension_dir / "combined.py",
+        """
+from ai_doc.api.v1 import AnalysisContext, Finding, FindingAdapter, FindingCategory, FindingSeverity
+
+
+class Combined(FindingAdapter):
+    def analyze(self, context: AnalysisContext) -> list[Finding]:
+        return [
+            Finding(
+                code="ORG_STEP_1",
+                category=FindingCategory.RISK,
+                severity=FindingSeverity.INFO,
+                path="AGENTS.md",
+                section="Architecture",
+                message="Step one.",
+            )
+        ]
+
+    def adapt_findings(self, context: AnalysisContext, findings: list[Finding]) -> list[Finding]:
+        updated = []
+        for finding in findings:
+            if finding.code == "ORG_STEP_1":
+                updated.append(finding.model_copy(update={"code": "ORG_STEP_2", "message": "Step two."}))
+            elif finding.code == "ORG_STEP_2":
+                updated.append(finding.model_copy(update={"code": "ORG_STEP_3", "message": "Step three."}))
+            else:
+                updated.append(finding)
+        return updated
+
+
+def register(registry):
+    combined = Combined()
+    registry.add_analyzer(combined)
+    registry.add_finding_adapter(combined)
+""",
+    )
+    _write_config(
+        tmp_path,
+        """
+extensions:
+  - path: .ai-doc/extensions/combined.py
+""",
+    )
+
+    result = CliRunner().invoke(app, ["check", str(tmp_path), "--format", "json"])
+
+    assert result.exit_code == 0
+    findings = json.loads(result.stdout)["findings"]
+    assert _has_finding(findings, "ORG_STEP_2", "Architecture")
+    assert not _has_finding(findings, "ORG_STEP_1", "Architecture")
+    assert not _has_finding(findings, "ORG_STEP_3", "Architecture")
 
 
 def _write_project(root: Path, *, extension: bool) -> None:
@@ -121,14 +176,11 @@ def _write_project(root: Path, *, extension: bool) -> None:
         extension_dir.mkdir(parents=True, exist_ok=True)
         (extension_dir / "adapt_clarity.py").write_text(
             """
-from ai_doc.api.v1 import AnalysisContext, Finding
+from ai_doc.api.v1 import AnalysisContext, Finding, FindingAdapter
 
 
-class ProjectClarityAdapter:
+class ProjectClarityAdapter(FindingAdapter):
     reference_sections = {"Architecture"}
-
-    def analyze(self, context: AnalysisContext) -> list[Finding]:
-        return []
 
     def adapt_findings(self, context: AnalysisContext, findings: list[Finding]) -> list[Finding]:
         return [
@@ -142,7 +194,7 @@ class ProjectClarityAdapter:
 
 
 def register(registry):
-    registry.add_analyzer(ProjectClarityAdapter())
+    registry.add_finding_adapter(ProjectClarityAdapter())
 """,
             encoding="utf-8",
         )

@@ -26,6 +26,32 @@ def test_static_findings_include_clarity_and_duplication(tmp_path: Path) -> None
     assert "FINOPS_DUPLICATE_LIST_ITEM" in codes
 
 
+def test_modal_vocabulary_allows_different_uppercase_and_lowercase_terms(tmp_path: Path) -> None:
+    (tmp_path / "AGENTS.md").write_text(
+        "# Rules\n\n"
+        "Extensions MUST preserve public contracts.\n"
+        "Adapters should keep diagnostics concise.\n",
+        encoding="utf-8",
+    )
+    report = run_static_check(tmp_path, DEFAULT_CONFIG)
+
+    assert "CLARITY_INCONSISTENT_MODAL_VOCABULARY" not in {finding.code for finding in report.findings}
+
+
+def test_modal_vocabulary_reports_same_term_in_uppercase_and_lowercase(tmp_path: Path) -> None:
+    (tmp_path / "AGENTS.md").write_text(
+        "# Rules\n\n"
+        "Extensions MUST preserve public contracts.\n"
+        "Project adapters must use public API imports.\n",
+        encoding="utf-8",
+    )
+    report = run_static_check(tmp_path, DEFAULT_CONFIG)
+    modal_findings = [finding for finding in report.findings if finding.code == "CLARITY_INCONSISTENT_MODAL_VOCABULARY"]
+
+    assert len(modal_findings) == 1
+    assert modal_findings[0].evidence == {"terms": ["must"]}
+
+
 def test_repeated_headingless_list_item_collapses_to_one_duplicate_finding(tmp_path: Path) -> None:
     (tmp_path / "notes.md").write_text(
         "- Always validate migrations before deployment.\n"

@@ -1,335 +1,362 @@
-# PR #31 — Second-Pass Hardening and Acceptance Fixes
+# PR #31 — Final Targeted Polish
 
 Repository:
 
 `Nickshajtan/ai-instruction-optimizer-setup`
 
-Work on the existing PR #31 branch.
+Continue working on the existing PR #31 branch.
 
-This is a **narrow second-pass review and cleanup** of the already implemented Post-Integration Core Hardening work.
+The second-pass hardening is accepted in principle. This is a **small targeted final polish**, not another general review.
 
-Do **not** redesign the optimizer, extension system, analyzer architecture, observation system, or execution pipeline.
+Keep `task.md` for now.
 
-The first implementation pass is substantially complete. Your job now is to verify the implementation against the intended contracts, fix the concrete issues below, look for directly adjacent correctness gaps, and leave the branch in a genuinely self-consistent state.
+There are exactly two areas to address:
 
-Keep `task.md` for now. It will be removed separately after acceptance.
+1. remove the unnecessary coupling between `FindingAdapter` and `Analyzer`;
+2. inspect and resolve the repository's own remaining `ai-doc check` warnings.
 
----
-
-# 1. Fix incomplete pairwise observation outcome accounting
-
-The new pairwise observation instrumentation currently records:
-
-- `candidate_preferred`
-- `baseline_preferred`
-- `uncertain`
-
-However, the actual pairwise result domain supports terminal outcomes including:
-
-- `candidate`
-- `baseline`
-- `equivalent`
-- `uncertain`
-
-This means a successfully performed comparison whose overall result is `equivalent` can currently disappear from aggregate outcome accounting.
-
-For example, this must never be possible without an explicitly documented reason:
-
-```text
-comparisons_performed = 3
-
-candidate_preferred = 1
-baseline_preferred = 0
-uncertain = 1
-
-accounted outcomes = 2
-```
-
-## Required correction
-
-Inspect the actual `PairwiseOutcome` / `PairwiseSemanticResult` contract and make observation accounting complete.
-
-Prefer preserving the real semantic distinction:
-
-```text
-candidate_preferred
-baseline_preferred
-equivalent
-uncertain
-```
-
-Do **not** silently map `equivalent` to `uncertain` unless the existing domain semantics genuinely establish that equivalence.
-
-Add a regression invariant such that, for normally completed pairwise comparisons represented by terminal results:
-
-```text
-candidate_preferred
-+ baseline_preferred
-+ equivalent
-+ uncertain
-== comparisons_performed
-```
-
-If there are legitimate cases where `comparisons_performed` can differ from the number of persisted terminal outcomes, identify that explicitly and model/test the distinction rather than hiding it.
-
-The observation layer must continue to derive facts from authoritative run/candidate state. Do not reconstruct pairwise execution from provider request counts or cost data.
-
-Update documentation if the observation schema description is affected.
+Do not touch the deferred gated pipeline work in this task.
 
 ---
 
-# 2. Re-review `FindingAdapter` public contract
+# 1. Make `FindingAdapter` a clean first-class extension capability
 
-P1-2 introduced:
+The current implementation exposes:
 
 ```python
 FindingAdapter
 ```
 
-into `ai_doc.api.v1`.
+as a public protocol, but operationally discovers adapters only among objects registered through:
 
-The current implementation appears to expose `FindingAdapter` as a public protocol while project adapters are operationally registered as analyzers and discovered through optional:
+```python
+registry.add_analyzer(...)
+```
+
+This forces a pure adapter to pretend to be an analyzer:
+
+```python
+def analyze(...):
+    return []
+```
+
+That is conceptually awkward and makes the public API less useful than it could be.
+
+The desired model is simple:
+
+```text
+Analyzer
+    └── produces findings
+
+FindingAdapter
+    └── transforms the produced finding set
+```
+
+An extension object may implement either capability or both.
+
+## Required change
+
+Add the **smallest clean registration mechanism** necessary for project extensions to register a finding adapter directly.
+
+Conceptually:
+
+```python
+registry.add_finding_adapter(adapter)
+```
+
+or an equivalently small API consistent with the existing registry naming conventions.
+
+Do not build a generic middleware framework.
+
+Do not introduce priorities, dependency graphs, events, hooks, phases, dynamic dispatch infrastructure, or a generic capability registry.
+
+The registry only needs to retain an ordered collection of finding adapters.
+
+---
+
+## Production behavior
+
+Static analysis should conceptually remain:
+
+```text
+built-in analyzers
+        ↓
+extension analyzers
+        ↓
+complete finding set
+        ↓
+finding adapters in deterministic registration order
+        ↓
+sort/report
+```
+
+An extension object that only adapts findings must not need to implement:
+
+```python
+analyze(...)
+```
+
+An extension object may still implement both `Analyzer` and `FindingAdapter` if that is useful.
+
+Preserve deterministic composition.
+
+For adapters:
+
+```text
+A
+↓
+B
+↓
+C
+```
+
+the output of A becomes the input of B, then C.
+
+Do not silently deduplicate or reorder adapters.
+
+---
+
+## Backward compatibility
+
+Existing project extensions written using the PR #31 form:
+
+```python
+class ProjectAdapter:
+    def analyze(...):
+        return []
+
+    def adapt_findings(...):
+        ...
+
+registry.add_analyzer(ProjectAdapter())
+```
+
+should continue to work if preserving that behavior is cheap and does not make the contract ambiguous.
+
+Prefer backward compatibility because this API already exists on the PR branch and tests/documentation may rely on it.
+
+However, establish one canonical documented registration mechanism for pure adapters.
+
+Avoid executing the same adapter twice if an object is registered through both mechanisms.
+
+Use the smallest deterministic rule necessary.
+
+---
+
+## Public API
+
+`FindingAdapter` must remain available through:
+
+```python
+ai_doc.api.v1
+```
+
+If project extension authors need a registry type or helper to use the new registration method, expose only what the existing extension API convention requires.
+
+Do not expose internal implementation classes unnecessarily.
+
+---
+
+## Documentation
+
+Update the extension guide so a pure project-specific adapter can look approximately like:
+
+```python
+from ai_doc.api.v1 import AnalysisContext, Finding, FindingAdapter
+
+
+class ProjectClarityAdapter(FindingAdapter):
+    reference_sections = {"Architecture", "Project Context"}
+
+    def adapt_findings(
+        self,
+        context: AnalysisContext,
+        findings: list[Finding],
+    ) -> list[Finding]:
+        return [
+            finding
+            for finding in findings
+            if not (
+                finding.code == "CLARITY_NO_ACTIONABLE_CONTENT"
+                and finding.section in self.reference_sections
+            )
+        ]
+
+
+def register(registry) -> None:
+    registry.add_finding_adapter(ProjectClarityAdapter())
+```
+
+No dummy `analyze()` should be required.
+
+Clearly document:
+
+- analyzers produce findings;
+- adapters transform the resulting finding collection;
+- adapters run after analyzers;
+- adapters compose in registration order;
+- project-specific policy belongs here rather than in core heuristics when appropriate.
+
+---
+
+## Required tests
+
+At minimum prove:
+
+### A. Pure adapter
+
+A class implementing only:
 
 ```python
 adapt_findings(...)
 ```
 
-on those analyzers.
+can be registered and affects the real CLI production path.
 
-This may be an acceptable minimal implementation, but verify that the public contract is coherent.
+### B. No dummy analyzer
 
-## Required review
+The pure adapter does not need `analyze()`.
 
-Confirm all of the following:
+### C. Analyzer preservation
 
-1. A project extension can implement finding adaptation using only public `ai_doc.api.v1` imports.
-2. It participates in the real production CLI path.
-3. Built-in analyzers still execute normally.
-4. Unrelated extension analyzers still execute normally.
-5. Adapter execution order is deterministic.
-6. Multiple adapters have deterministic composition semantics.
-7. The public typing/docs accurately describe how an adapter is registered and invoked.
-8. The exported `FindingAdapter` protocol is actually useful to extension authors rather than being a nominal type disconnected from the registration contract.
+Built-in and unrelated extension analyzers still run normally.
 
-Do **not** introduce a new adapter registry, middleware framework, event system, hook system, or generic rules engine merely to make the abstraction prettier.
+### D. Multiple adapters
 
-If the existing implementation is behaviorally sound, keep it small and improve only typing/tests/docs necessary to make the contract truthful.
+Two adapters compose deterministically in registration order.
 
-If there is a concrete mismatch between the exported API and actual registration mechanism, fix the **smallest demonstrated gap**.
+### E. Combined capability
 
-Add focused regression coverage for multiple adapters/order if it is not already covered.
+An object implementing both analyzer and adapter behaves predictably.
 
----
+### F. No duplicate execution
 
-# 3. Re-evaluate `STRUCTURE_NO_HEADINGS` false-positive risk
+If backward-compatible analyzer-based adapter discovery remains supported, ensure the same adapter is not accidentally applied twice.
 
-The new heuristic currently treats a heading-less document as substantial when roughly:
+### G. Public API
 
-```python
-token_count >= 120
-or
-list_items >= 3
-```
-
-The second condition is suspicious.
-
-Three short Markdown bullets can be a perfectly legitimate small note/checklist and should not automatically produce a structural warning merely because headings are absent.
-
-This hardening pass was specifically motivated by analyzer signal quality and false-positive reduction. Do not fix one noisy rule by introducing another noisy rule.
-
-## Required correction
-
-Create adversarial fixtures covering at least:
-
-### A. Tiny legitimate checklist
-
-Example shape:
-
-```markdown
-- Run tests.
-- Update changelog.
-- Open PR.
-```
-
-Expected:
-
-`STRUCTURE_NO_HEADINGS` must **not** fire solely because there are three bullets.
-
-### B. Small heading-less reference/note
-
-A short coherent Markdown note with several bullets.
-
-Expected:
-
-No unnecessary structural warning.
-
-### C. Substantial heading-less document
-
-Enough structured/content volume that headings would materially improve navigation.
-
-Expected:
-
-`STRUCTURE_NO_HEADINGS` should fire.
-
-### D. Existing noisy duplication case
-
-Ensure the structural heuristic still provides useful signal where the original dogfooding case demonstrated genuinely substantial heading-less content.
-
-Use conservative evidence already available from the parsed document.
-
-Do not add semantic/LLM classification.
-
-Do not add project-specific heading rules.
-
-Do not introduce configurable thresholds unless there is demonstrated need.
-
-Prefer a conservative heuristic with fewer false positives over maximizing finding count.
+The project extension fixture uses only supported public extension imports/contracts.
 
 ---
 
-# 4. Fix the repository's own broken documentation link
+# 2. Make the repository self-check clean
 
-The previous implementation report stated:
+The previous report states:
 
-> `python -m ai_doc check . --format json --non-interactive` failed on an existing broken link in `docs/design/architecture.md` to missing `../../specs/semantic-optimizer-core-v0.3.md`, and the issue was left untouched.
+```text
+python -m ai_doc check . --format json --non-interactive
+```
 
-Do not leave the repository in this state.
+now passes without integrity failure but still produces analyzer warnings.
 
-This is now part of acceptance because the repository's own production check command exposed it during validation.
+Do not stop at:
 
-Inspect the broken reference and determine the intended target.
+> passed with analyzer warnings only
 
-Then make the smallest correct documentation fix:
+This repository is the primary dogfooding target for `ai-doc`.
 
-- point it to the real existing document if the target moved or was renamed;
-- remove/update the stale reference if the referenced spec no longer exists;
-- do **not** create a fake placeholder spec merely to satisfy the checker.
+Its own documentation should ideally be a **clean reference fixture** for the analyzer.
 
-The final repository-level command:
+Run:
 
 ```bash
 python -m ai_doc check . --format json --non-interactive
 ```
 
-must no longer fail because of this broken internal link.
+and inspect **every remaining finding**.
 
-If it still returns a non-zero status for legitimate analyzer findings according to normal CLI semantics, distinguish that from an actual broken-link/integrity failure in the final report.
-
----
-
-# 5. Second-pass contract review of P0-1 / P0-1A
-
-Re-read the implementation rather than assuming the first pass is correct.
-
-Verify these invariants end-to-end.
-
-## Pairwise request state
+Classify each finding before changing anything:
 
 ```text
-pairwise_semantic_requested = false
-pairwise_comparisons_performed = 0
+finding
+├── real documentation problem
+├── analyzer false positive / poor signal
+└── intentional condition that should remain reported
 ```
 
-means pairwise was not requested.
+Do not mechanically edit documentation merely to silence the tool.
+
+---
+
+## 2.1 Real documentation problems
+
+If a finding identifies a genuine local documentation defect, fix the documentation.
+
+Examples may include:
+
+- stale links;
+- unnecessary duplication;
+- genuinely orphaned instruction docs;
+- confusing structure;
+- missing routing;
+- actionable instruction sections that are accidentally non-actionable;
+- other concrete defects.
+
+Preserve meaning while fixing them.
+
+Do not rewrite large documents solely to satisfy heuristics.
+
+---
+
+## 2.2 False positives
+
+If a remaining warning is clearly a false positive in the repository and reveals a **generic core heuristic defect**, fix the smallest underlying analyzer issue.
+
+Requirements:
+
+- reproduce it with a focused regression test;
+- make the correction generic;
+- preserve legitimate positive cases;
+- prefer fewer false positives over higher finding counts;
+- do not hard-code this repository's filenames/headings unless they represent an established generic convention.
+
+This is dogfooding: a false positive found here is useful product evidence.
+
+---
+
+## 2.3 Intentional findings
+
+If a finding represents a genuinely intentional condition that the analyzer is correctly reporting, do not corrupt documentation or weaken the analyzer merely to obtain zero findings.
+
+Instead:
+
+1. explain why the finding is legitimate;
+2. determine whether the existing supported configuration/extension mechanisms can express the repository's intent;
+3. use those mechanisms if appropriate.
+
+Do not invent a suppression framework solely for this cleanup.
+
+---
+
+# 3. Desired self-check result
+
+The target is:
 
 ```text
-pairwise_semantic_requested = true
-pairwise_comparisons_performed = 0
+ai-doc check .
+        ↓
+0 unexplained findings
 ```
 
-means pairwise was requested but **not judged**.
+Preferably:
 
 ```text
-pairwise_semantic_requested = true
-pairwise_comparisons_performed > 0
+0 findings
 ```
 
-means at least one actual pairwise comparison occurred.
+But do **not** game the analyzer to achieve zero.
 
-No unrelated semantic operation may increment this counter.
+If any finding intentionally remains, the final report must list it individually and explain why retaining it is more correct than suppressing or fixing it.
 
-## Strict mode
+The important invariant is:
 
-```bash
---require-pairwise-semantic
-```
-
-must:
-
-- imply pairwise semantic judging;
-- require at least one actual comparison;
-- fail non-zero when zero comparisons occur;
-- succeed with respect to this postcondition when at least one comparison occurs;
-- not be satisfied by deep evaluation, semantic generation, invariant verification, GEPA, or other semantic provider activity.
-
-## Failed/aborted comparisons
-
-Review exactly when:
-
-```python
-pairwise_comparisons_performed += 1
-```
-
-occurs.
-
-A comparison should count as performed only when the pairwise evaluator actually produced a valid terminal comparison result according to the domain contract.
-
-Budget rejection before execution must not count.
-
-Provider/runtime failure must not be transformed into a successful performed comparison.
-
-Do not weaken existing fail-closed behavior.
+> every self-check finding is either fixed or consciously justified.
 
 ---
 
-# 6. Second-pass contract review of P0-3
+# 4. Re-run regression validation
 
-Verify optimizer-owned output exclusion against path edge cases.
-
-At minimum cover:
-
-- default `.ai-doc-output`;
-- nested files below it;
-- previous optimization runs;
-- explicit config with broad `**/*.md`;
-- explicit config that omits default excludes;
-- custom in-project `--output`;
-- custom output with normalized relative paths;
-- unrelated similarly named directories;
-- generic Markdown discovery remaining unaffected.
-
-Do not expand this into generalized generated-file detection.
-
-The invariant remains:
-
-> ai-doc optimization artifacts must not become optimization source documents merely because user configuration omitted an exclusion.
-
----
-
-# 7. Do not implement the deferred gated pipeline in this pass
-
-The deferred P2 gated-evidence/pipeline work is intentionally **not part of this cleanup**.
-
-Do not implement:
-
-- generic evidence-stage orchestration;
-- cheapest-sufficient-evidence execution;
-- new execution-policy taxonomy;
-- pipeline DSL;
-- stage state machine;
-- cross-tool orchestration.
-
-Leave the existing defer documentation intact unless it contains a factual error.
-
-We will evaluate the pipeline separately after this PR is otherwise ready.
-
----
-
-# Validation
-
-Run the complete existing validation suite after the fixes.
-
-At minimum:
+After these changes run:
 
 ```bash
 python -m ruff check .
@@ -338,56 +365,71 @@ python -m mypy
 python -m ai_doc check . --format json --non-interactive
 ```
 
-Also run any focused tests added for this second pass.
+Report the exact self-check finding count before and after this polish.
 
-Do not merely report that commands were run. Distinguish:
+For any analyzer behavior changed because of dogfooding, report:
 
-- command execution success;
-- test success;
-- expected analyzer findings;
-- actual tool/integrity failures.
-
-The repository must not retain a known broken internal documentation link discovered by its own checker.
+```text
+observed finding
+→ why it was wrong
+→ generic correction
+→ regression test
+→ legitimate positive behavior preserved
+```
 
 ---
 
-# Scope discipline
+# 5. Scope boundaries
 
-This is **not** another architecture pass.
+Do not implement the deferred gated evidence pipeline.
 
-Do not:
+Do not redesign:
 
-- redesign search;
-- redesign the extension registry;
-- redesign observations;
-- add a generic policy engine;
-- add a new pipeline/orchestrator;
-- introduce speculative abstractions;
-- perform broad refactors;
-- clean unrelated style;
-- implement deferred product ideas.
+- analyzer execution;
+- extension loading;
+- optimizer search;
+- observations;
+- provider abstractions;
+- configuration inheritance;
+- reporting;
+- CLI lifecycle.
 
-Fix demonstrated correctness and signal-quality issues only.
+Do not introduce:
 
-If second-pass inspection finds another issue that is **directly caused by the changes in PR #31**, fix it and report it.
+- generic middleware;
+- hook/event systems;
+- adapter priorities;
+- dependency injection redesign;
+- suppression DSL;
+- rule engine;
+- execution DAG;
+- pipeline framework.
 
-If you find an unrelated pre-existing issue, document it separately rather than expanding scope — except for the explicitly included broken `architecture.md` link above.
+The `FindingAdapter` change should remain a small registry capability.
+
+The self-check cleanup should remain evidence-driven dogfooding.
+
+If either task unexpectedly requires substantial architecture, stop that part and explain why instead of expanding scope.
 
 ---
 
 # Final report
 
-When finished, report:
+Report:
 
-1. exact fixes made;
-2. any contract changes;
-3. tests added or strengthened;
-4. final Ruff / pytest / mypy results;
-5. result of the repository's own `ai_doc check`;
-6. whether pairwise observation outcome accounting is now complete;
-7. whether `FindingAdapter` required code changes or only contract/test/documentation clarification;
-8. final `STRUCTURE_NO_HEADINGS` heuristic and why it is conservative;
-9. any directly adjacent PR #31 defect discovered during the second pass;
-10. anything intentionally deferred.
+1. `FindingAdapter` registration API after the change;
+2. backward-compatibility behavior;
+3. deterministic adapter composition semantics;
+4. every self-check finding observed before the fixes;
+5. disposition of each finding;
+6. any generic analyzer correction made because of dogfooding;
+7. self-check finding count before and after;
+8. Ruff result;
+9. pytest result;
+10. mypy result;
+11. final `ai-doc check` result;
+12. anything intentionally left unchanged.
 
-Do not delete `task.md` yet.
+Do not delete `task.md`.
+
+Do not implement the gated pipeline yet.

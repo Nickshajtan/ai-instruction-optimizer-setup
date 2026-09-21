@@ -4,7 +4,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import TypeVar, cast
 
-from ai_doc.analyzers.base import Analyzer
+from ai_doc.analyzers.base import Analyzer, FindingAdapter
 from ai_doc.domain.evaluations import Evaluator
 from ai_doc.optimizer.recommendation import RecommendationPolicy
 from ai_doc.providers.semantic import SemanticProvider
@@ -17,6 +17,14 @@ class AnalyzerRegistrationValidator:
         if not callable(analyze):
             raise TypeError("Analyzer registration must provide an object with analyze(context).")
         return cast(Analyzer, analyzer)
+
+
+class FindingAdapterRegistrationValidator:
+    def validate(self, adapter: object) -> FindingAdapter:
+        adapt_findings = getattr(adapter, "adapt_findings", None)
+        if not callable(adapt_findings):
+            raise TypeError("Finding adapter registration must provide an object with adapt_findings(context, findings).")
+        return cast(FindingAdapter, adapter)
 
 
 class EvaluatorRegistrationValidator:
@@ -88,13 +96,17 @@ class ExtensionRegistry:
     def __init__(
         self,
         validator: AnalyzerRegistrationValidator | None = None,
+        finding_adapter_validator: FindingAdapterRegistrationValidator | None = None,
         evaluator_validator: EvaluatorRegistrationValidator | None = None,
         token_counter_validator: TokenCounterRegistrationValidator | None = None,
         recommendation_policy_validator: RecommendationPolicyRegistrationValidator | None = None,
         provider_validator: ProviderRegistrationValidator | None = None,
     ) -> None:
         self._validator = validator or AnalyzerRegistrationValidator()
+        self._finding_adapter_validator = finding_adapter_validator or FindingAdapterRegistrationValidator()
         self._analyzers: list[Analyzer] = []
+        self._finding_adapters: list[FindingAdapter] = []
+        self._finding_adapter_ids: set[int] = set()
         self._evaluators = NamedComponentRegistry(
             "evaluator",
             (evaluator_validator or EvaluatorRegistrationValidator()).validate,
@@ -117,6 +129,10 @@ class ExtensionRegistry:
         return tuple(self._analyzers)
 
     @property
+    def finding_adapters(self) -> tuple[FindingAdapter, ...]:
+        return tuple(self._finding_adapters)
+
+    @property
     def evaluators(self) -> tuple[RegistryEntry[Evaluator], ...]:
         return self._evaluators.entries()
 
@@ -133,7 +149,20 @@ class ExtensionRegistry:
         return self._providers.entries()
 
     def add_analyzer(self, analyzer: object) -> None:
-        self._analyzers.append(self._validator.validate(analyzer))
+        validated = self._validator.validate(analyzer)
+        self._analyzers.append(validated)
+        if callable(getattr(analyzer, "adapt_findings", None)):
+            self._add_finding_adapter_once(analyzer)
+
+    def add_finding_adapter(self, adapter: object) -> None:
+        self._add_finding_adapter_once(adapter)
+
+    def _add_finding_adapter_once(self, adapter: object) -> None:
+        identity = id(adapter)
+        if identity in self._finding_adapter_ids:
+            return
+        self._finding_adapters.append(self._finding_adapter_validator.validate(adapter))
+        self._finding_adapter_ids.add(identity)
 
     def add_evaluator(self, name: str, evaluator: object) -> None:
         self._evaluators.add(name, evaluator)

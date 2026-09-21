@@ -124,7 +124,7 @@ When semantic verification is configured, exact literal survival is not a safety
 
 Deterministic strategies remain cheap and reproducible. Production semantic generation receives documents, invariants, strategy, previous summaries, explored transformations, structured feedback, and search memory. Rendered output enters the staged safety/evaluation/Pareto path.
 
-Feedback is derived from candidate evidence. A repair child is a normal candidate and must pass the same gates and semantic evaluation. Persisted evidence keeps the feedback that produced the child.
+Feedback is derived from candidate evidence. A repair child is a normal candidate and is required to pass the same gates and semantic evaluation. Persisted evidence keeps the feedback that produced the child.
 
 ## Pareto And Recommendation
 

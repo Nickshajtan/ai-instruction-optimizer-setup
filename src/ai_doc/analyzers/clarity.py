@@ -12,8 +12,7 @@ VAGUE_RE = re.compile(
 ACTION_RE = re.compile(
     r"\b(must|never|should|use|run|write|read|check|verify|avoid|prefer|do not)\b", re.IGNORECASE
 )
-UPPERCASE_MODAL_RE = re.compile(r"\bMUST\b|\bSHOULD\b|\bMAY\b")
-LOWERCASE_MODAL_RE = re.compile(r"\b(?:must|should|may)\b")
+MODAL_TERMS = ("must", "should", "may")
 
 INSTRUCTION_PROFILES = {DocumentProfile.INSTRUCTION, DocumentProfile.SKILL}
 LIST_OR_HEADING_PREFIXES = ("#", "-", "*", "```")
@@ -34,9 +33,8 @@ class ClarityAnalyzer:
     def analyze(self, context: AnalysisContext) -> list[Finding]:
         findings: list[Finding] = []
         for document in context.snapshot.documents:
-            uppercase_modal_count = len(UPPERCASE_MODAL_RE.findall(document.text))
-            lower_modal_count = len(LOWERCASE_MODAL_RE.findall(document.text))
-            if uppercase_modal_count and lower_modal_count:
+            mixed_modal_terms = _mixed_modal_terms(document.text)
+            if mixed_modal_terms:
                 findings.append(
                     Finding(
                         code=CLARITY_INCONSISTENT_MODAL_VOCABULARY,
@@ -44,10 +42,7 @@ class ClarityAnalyzer:
                         severity=FindingSeverity.WARNING,
                         path=document.relative_path,
                         message="Instruction language mixes RFC-style uppercase modals with lowercase usage.",
-                        evidence={
-                            "uppercase": uppercase_modal_count,
-                            "lowercase": lower_modal_count,
-                        },
+                        evidence={"terms": mixed_modal_terms},
                         suggestion="Use MUST/SHOULD/MAY consistently when the terms are normative.",
                     )
                 )
@@ -123,3 +118,11 @@ class ClarityAnalyzer:
                             )
                         )
         return findings
+
+
+def _mixed_modal_terms(text: str) -> list[str]:
+    mixed: list[str] = []
+    for term in MODAL_TERMS:
+        if re.search(rf"\b{term.upper()}\b", text) and re.search(rf"\b{term}\b", text):
+            mixed.append(term)
+    return mixed

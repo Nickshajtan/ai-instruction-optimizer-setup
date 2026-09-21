@@ -4,7 +4,7 @@ This guide explains the production behavior of `ai-doc optimize`. Agent-specific
 
 ## Mental Model
 
-The baseline remains a real Pareto competitor. Candidates are generated into an isolated output tree, pass safety gates, optionally pass semantic scenario evaluation, and are recommended only when the recommendation policy has evidence for preferring them. No generated candidate is required to win, and merely staying within configured tolerances is not enough: a recommended candidate must materially improve at least one recommendation dimension.
+The baseline remains a real Pareto competitor. Candidates are generated into an isolated output tree, pass safety gates, optionally pass semantic scenario evaluation, and are recommended only when the recommendation policy has evidence for preferring them. No generated candidate is required to win, and merely staying within configured tolerances is not enough: a recommended candidate needs to materially improve at least one recommendation dimension.
 
 The causal path is:
 
@@ -61,7 +61,7 @@ When the command is configured, adaptive semantic generation receives the curren
 
 Critical behavior has two complementary layers. Literal extraction protects explicit normative language such as MUST, NEVER, REQUIRED, and FORBIDDEN. The configured semantic service can additionally discover high-confidence critical behavior that lacks those exact keywords.
 
-Semantic discovery is treated as untrusted provider output until it is grounded against repository-owned source material. An accepted semantic critical invariant must identify a real source document, provide an evidence fragment that is present in that source, include evidence/rationale/confidence, and have a critical instruction or safety cue grounded in the repository evidence. Provider-declared `critical`, provider confidence, or a provider-authored summary containing MUST is not sufficient by itself to create a hard invariant.
+Semantic discovery is treated as untrusted provider output until it is grounded against repository-owned source material. An accepted semantic critical invariant is required to identify a real source document, provide an evidence fragment that is present in that source, include evidence/rationale/confidence, and have a critical instruction or safety cue grounded in the repository evidence. Provider-declared `critical`, provider confidence, or a provider-authored summary containing MUST is not sufficient by itself to create a hard invariant.
 
 Persisted accepted invariants retain their discovery source, source location, evidence fragment, confidence, and rationale. Malformed source paths, hallucinated evidence, and ordinary descriptive source text cannot be promoted merely by aggressive provider metadata.
 
@@ -119,7 +119,7 @@ equivalent, and uncertain outcomes.
 
 A semantic failure can become structured feedback for a child candidate. The child is generated from the parent state, re-evaluated, and independently compared on the frontier. Persisted candidate evidence records the feedback that caused the repair, so the causal chain can be inspected after the run rather than reconstructed from logs.
 
-A repaired router must keep extracted detail reachable while preserving the useful context saving; semantic success alone is not permission to restore all detail to always-loaded context.
+A repaired router needs to keep extracted detail reachable while preserving the useful context saving; semantic success alone is not permission to restore all detail to always-loaded context.
 
 ## Telemetry And Budgets
 

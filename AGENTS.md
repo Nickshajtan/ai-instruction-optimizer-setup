@@ -25,12 +25,14 @@ map.
   when reviewing, explaining, validating, or critiquing an optimization run.
 
 ## Agent Setup
-Shared agent workflows live in `.ai/skills/`. Codex-specific and Claude-specific skill
-routing lives in `.codex/skills/` and `.claude/skills/`.
+Use shared agent workflows from `.ai/skills/`. Use Codex-specific and Claude-specific
+skill routing from `.codex/skills/` and `.claude/skills/`.
 
 Agent-only implementation and review workflows belong in skills, not human-facing docs.
 
 ## Repository policy:
+
+Use this policy when changing repository documentation or agent workflow instructions.
 
 - Add or update `.ai/skills/` when repeatable agent instructions start appearing in
   human-facing docs.
@@ -73,3 +75,5 @@ For packaging changes, also run the relevant smoke tests from
 - Update `docs/` when behavior, architecture, packaging, or public contracts change.
 - Keep root `README.md`, `ARCHITECTURE.md` as entry points or pointers,
   not competing sources of truth.
+- Use [docs/AGENTS.md](docs/AGENTS.md) for documentation-writing guidance and
+  [docs/CLAUDE.md](docs/CLAUDE.md) for docs-scoped Claude routing.
