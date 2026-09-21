@@ -11,6 +11,7 @@ from ai_doc.domain.scores import ContextCost, ScoreSet
 
 
 class FindingAuditEvent(BaseModel):
+    adapter: str
     code: str
     severity: str
     path: str

@@ -99,19 +99,21 @@ boundaries:
   contracts. Keep this check failing on regressions; do not mark it advisory for
   extension trust, provider selection, process environment, probe evidence, workspace
   isolation, or security tooling/routing contracts.
-- `Security / static` runs `python -m bandit -r src` against production Python code.
-  Bandit is a suspicious-pattern scanner, not proof that the trust model is safe.
-  Intentional findings should be inspected, reviewed against [Security Standards](../standards.md),
-  and suppressed only with narrow `# nosec Bxxx` annotations or equivalent scoped
-  configuration.
+- `Security / static` runs `python -m bandit -r src --severity-level medium
+  --confidence-level medium` against production Python code. Bandit is a
+  suspicious-pattern scanner, not proof that the trust model is safe. Low-severity
+  heuristic findings remain review signals instead of merge blockers. Medium/high
+  findings should be inspected, reviewed against [Security Standards](../standards.md),
+  and suppressed only with narrow `# nosec Bxxx` annotations carrying a useful reason.
 - `Security / dependencies` runs `python -m pip_audit --local --cache-dir .pip-audit-cache`
   after installing the repository's development dependency set. The explicit cache path
   keeps local and CI runs inside the workspace. Known-vulnerability exceptions must be
   narrow, named by advisory and dependency, and include a review or expiration condition.
-- `Security / mutation` runs the focused `mutmut` scope. The mutation configuration
-  includes security-sensitive decisions such as extension authorization, authoritative
-  finding preservation, explicit GEPA model requirements, process environment forwarding,
-  probe evidence cross-checks, and workspace symlink rejection.
+The dedicated mutation workflow runs the single authoritative `mutmut` scope. The
+mutation configuration includes security-sensitive decisions such as extension
+authorization, authoritative finding preservation, explicit GEPA model requirements,
+process environment forwarding, probe evidence cross-checks, and workspace symlink
+rejection.
 
 Security contracts prove project-specific invariants. Bandit reports suspicious Python
 patterns. `pip-audit` reports known dependency vulnerabilities. Mutation testing asks
@@ -120,8 +122,9 @@ others.
 
 Workflow path filters may skip ordinary guide/release-note documentation where useful,
 but they must not blanket-ignore Markdown. Control-plane files such as `AGENTS.md`,
-`CLAUDE.md`, `.ai/**`, `.codex/**`, `.claude/**`, `.github/**`, and
-`docs/standards.md` must continue to trigger relevant checks.
+`CLAUDE.md`, `.ai/**`, `.codex/**`, `.claude/**`, `.github/**`,
+`docs/standards.md`, `docs/design/**`, and
+`docs/operations/testing-and-release.md` must continue to trigger relevant checks.
 
 GitHub-maintained first-party Actions may remain on version tags for this release.
 Immutable commit SHA pinning is recommended defense in depth rather than a `0.2.0`
@@ -135,10 +138,10 @@ cross-compilation.
 
 1. Run default verification.
 2. Run `python -m pytest tests/security`.
-3. Run `python -m bandit -r src`.
+3. Run `python -m bandit -r src --severity-level medium --confidence-level medium`.
 4. Run `python -m pip_audit --local --cache-dir .pip-audit-cache`.
-5. Run the focused security mutation scope and review any surviving security-relevant
-   mutants.
+5. Run the authoritative mutation workflow scope and review any surviving
+   security-relevant mutants.
 6. Run wheel smoke.
 7. Run executable smoke on each release platform and extras mode being published.
 8. Confirm `ai-doc doctor` in executable mode reports `standalone executable`.

@@ -200,8 +200,9 @@ Static analysis preserves a pre-adaptation built-in safety baseline. Built-in an
 run before extension analyzers and finding adapters; adapters may change the presented
 finding list, but the default `check` exit code remains fail-closed if a built-in
 error-severity finding existed before adaptation. `CheckReport.finding_audit` records the
-built-in error count and adapter effects such as suppression or severity changes so
-automation can distinguish absence from adaptation.
+built-in error count and transition-based adapter effects such as suppression or severity
+changes, attributed to the adapter that caused them, so automation can distinguish
+absence from adaptation.
 
 ## Run Evidence
 

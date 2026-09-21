@@ -140,6 +140,125 @@ def register(registry):
     payload = json.loads(result.stdout)
     assert payload["finding_audit"]["builtin_error_count"] == 1
     assert payload["finding_audit"]["adapter_events"][0]["action"] == "suppressed"
+    assert payload["finding_audit"]["adapter_events"][0]["adapter"].endswith(".SuppressErrors")
+
+
+def test_finding_adapter_mutating_builtin_error_in_place_remains_blocking(tmp_path: Path) -> None:
+    extension_dir = tmp_path / ".ai-doc" / "extensions"
+    extension_dir.mkdir(parents=True)
+    (tmp_path / ".ai-doc.yaml").write_text(
+        """
+version: 1
+include: [AGENTS.md]
+profiles:
+  AGENTS.md: instruction
+budgets:
+  instruction:
+    error_tokens: 1
+extensions:
+  - path: .ai-doc/extensions/mutate.py
+""",
+        encoding="utf-8",
+    )
+    (tmp_path / "AGENTS.md").write_text("# Rules\n\nRun validation before merge.\n", encoding="utf-8")
+    (extension_dir / "mutate.py").write_text(
+        """
+from ai_doc.api.v1 import FindingAdapter, FindingSeverity
+
+
+class MutateErrors(FindingAdapter):
+    def adapt_findings(self, context, findings):
+        for finding in findings:
+            if finding.severity == FindingSeverity.ERROR:
+                finding.severity = FindingSeverity.INFO
+        return findings
+
+
+def register(registry):
+    registry.add_finding_adapter(MutateErrors())
+""",
+        encoding="utf-8",
+    )
+
+    result = CliRunner().invoke(app, ["check", str(tmp_path), "--format", "json", "--allow-extensions"])
+
+    assert result.exit_code == 2
+    payload = json.loads(result.stdout)
+    assert payload["finding_audit"]["builtin_error_count"] == 1
+    assert [finding["severity"] for finding in payload["findings"]] == ["info"]
+    assert payload["finding_audit"]["adapter_events"] == [
+        {
+            "adapter": payload["finding_audit"]["adapter_events"][0]["adapter"],
+            "code": "FINOPS_BUDGET_ERROR",
+            "severity": "error",
+            "path": "AGENTS.md",
+            "section": None,
+            "action": "severity_changed",
+        }
+    ]
+    assert payload["finding_audit"]["adapter_events"][0]["adapter"].endswith(".MutateErrors")
+
+
+def test_finding_adapter_audit_attributes_only_current_transition(tmp_path: Path) -> None:
+    extension_dir = tmp_path / ".ai-doc" / "extensions"
+    extension_dir.mkdir(parents=True)
+    (tmp_path / ".ai-doc.yaml").write_text(
+        """
+version: 1
+include: [AGENTS.md]
+profiles:
+  AGENTS.md: instruction
+budgets:
+  instruction:
+    error_tokens: 1
+extensions:
+  - path: .ai-doc/extensions/chain.py
+""",
+        encoding="utf-8",
+    )
+    (tmp_path / "AGENTS.md").write_text("# Rules\n\nRun validation before merge.\n", encoding="utf-8")
+    (extension_dir / "chain.py").write_text(
+        """
+from ai_doc.api.v1 import FindingAdapter, FindingSeverity
+
+
+class DowngradeErrors(FindingAdapter):
+    def adapt_findings(self, context, findings):
+        for finding in findings:
+            if finding.severity == FindingSeverity.ERROR:
+                finding.severity = FindingSeverity.WARNING
+        return findings
+
+
+class LeaveUnchanged(FindingAdapter):
+    def adapt_findings(self, context, findings):
+        return findings
+
+
+def register(registry):
+    registry.add_finding_adapter(DowngradeErrors())
+    registry.add_finding_adapter(LeaveUnchanged())
+""",
+        encoding="utf-8",
+    )
+
+    result = CliRunner().invoke(app, ["check", str(tmp_path), "--format", "json", "--allow-extensions"])
+
+    assert result.exit_code == 2
+    payload = json.loads(result.stdout)
+    assert payload["finding_audit"]["builtin_error_count"] == 1
+    assert [finding["severity"] for finding in payload["findings"]] == ["warning"]
+    assert payload["finding_audit"]["adapter_events"] == [
+        {
+            "adapter": payload["finding_audit"]["adapter_events"][0]["adapter"],
+            "code": "FINOPS_BUDGET_ERROR",
+            "severity": "error",
+            "path": "AGENTS.md",
+            "section": None,
+            "action": "severity_changed",
+        }
+    ]
+    assert payload["finding_audit"]["adapter_events"][0]["adapter"].endswith(".DowngradeErrors")
 
 
 def test_gepa_requires_explicit_models_even_with_ambient_credentials(
@@ -277,20 +396,19 @@ def test_security_workflow_runs_dedicated_security_suite() -> None:
     assert jobs
     assert any("tests/security" in step.get("run", "") for job in jobs.values() for step in job.get("steps", []))
     assert workflow.get("permissions") == {"contents": "read"}
-    assert "pull_request_target" not in workflow.get("on", {})
+    assert "pull_request_target" not in _workflow_events(workflow)
 
 
-def test_security_workflow_runs_blocking_scanners_and_mutation() -> None:
+def test_security_workflow_runs_blocking_scanners_without_duplicate_mutation() -> None:
     workflow = _workflow(".github/workflows/security.yml")
     jobs = workflow["jobs"]
 
-    assert _job_has_run(jobs["static"], "python -m bandit -r src")
+    assert _job_has_run(jobs["static"], "python -m bandit -r src --severity-level medium --confidence-level medium")
     assert _job_has_run(jobs["dependencies"], "python -m pip_audit --local --cache-dir .pip-audit-cache")
-    assert _job_has_run(jobs["mutation"], "python -m mutmut run")
     assert not _job_uses_continue_on_error(jobs["contracts"])
     assert not _job_uses_continue_on_error(jobs["static"])
     assert not _job_uses_continue_on_error(jobs["dependencies"])
-    assert not _job_uses_continue_on_error(jobs["mutation"])
+    assert "mutation" not in jobs
 
 
 def test_security_mutation_scope_includes_security_decision_logic() -> None:
@@ -311,15 +429,40 @@ def test_control_plane_markdown_is_not_blanket_ignored_by_primary_workflows() ->
     ):
         workflow = _workflow(workflow_path)
         for event_name in ("push", "pull_request"):
-            event = workflow.get("on", {}).get(event_name, {})
+            event = _workflow_events(workflow).get(event_name, {})
             ignored = event.get("paths-ignore", []) if isinstance(event, dict) else []
             assert "**/*.md" not in ignored
             for path in CONTROL_PLANE_PATHS:
                 assert not _path_is_ignored(path, ignored), f"{workflow_path} ignores {path}"
 
 
+def test_mutation_workflow_control_plane_scope_is_explicit() -> None:
+    workflow = _workflow(".github/workflows/mutation-testing.yml")
+    pull_request = _workflow_events(workflow).get("pull_request", {})
+    paths = pull_request.get("paths", [])
+
+    assert "!**/*.md" not in paths
+    for path in (
+        "AGENTS.md",
+        "CLAUDE.md",
+        ".ai/**",
+        ".codex/**",
+        ".claude/**",
+        ".github/workflows/mutation-testing.yml",
+        "docs/standards.md",
+        "docs/design/**",
+        "docs/operations/testing-and-release.md",
+    ):
+        assert path in paths
+
+
 def _workflow(path: str) -> dict[str, object]:
     return yaml.safe_load(Path(path).read_text(encoding="utf-8"))
+
+
+def _workflow_events(workflow: dict[str, object]) -> dict[str, object]:
+    events = workflow.get("on", workflow.get(True, {}))
+    return events if isinstance(events, dict) else {}
 
 
 def _path_is_ignored(path: str, patterns: list[str]) -> bool:

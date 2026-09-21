@@ -8,10 +8,22 @@ on:
       - "src/ai_doc/optimizer/**"
       - "src/ai_doc/evaluators/**"
       - "src/ai_doc/providers/semantic.py"
+      - "src/ai_doc/app.py"
+      - "src/ai_doc/extension_trust.py"
+      - "src/ai_doc/extensions/transport.py"
+      - "src/ai_doc/probes/execution_runner.py"
+      - "src/ai_doc/probes/workspace.py"
       - "tests/**"
       - "pyproject.toml"
+      - "AGENTS.md"
+      - "CLAUDE.md"
+      - ".ai/**"
+      - ".codex/**"
+      - ".claude/**"
       - ".github/workflows/mutation-testing.yml"
-      - "!**/*.md"
+      - "docs/standards.md"
+      - "docs/design/**"
+      - "docs/operations/testing-and-release.md"
   workflow_dispatch:
 
 permissions:

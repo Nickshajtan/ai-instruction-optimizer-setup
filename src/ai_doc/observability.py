@@ -19,7 +19,7 @@ from ai_doc.reporting.models import CheckReport, SearchOptimizeReport
 OBSERVATION_SCHEMA = "ai-doc.observation/v1"
 HASH_PREFIX_LENGTH = 16
 WARNING_PREFIX = "Observation logging failed:"
-TOKEN_SEMANTICS_REPORTED = "reported"  # nosec B105
+TOKEN_SEMANTICS_REPORTED = "reported"
 
 
 class ObservationWriteError(RuntimeError):

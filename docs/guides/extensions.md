@@ -174,8 +174,9 @@ Finding adapters may change the presented finding list, including suppressing a
 project-specific false positive. The default CLI quality gate still preserves the
 existence of pre-adaptation built-in error findings for exit-code purposes. JSON reports
 include `finding_audit.builtin_error_count` and adapter events such as `suppressed` or
-`severity_changed` so automation can distinguish "no finding ever existed" from "a
-finding existed and an adapter changed the presentation."
+`severity_changed`. Each adapter event includes the adapter identifier that caused that
+transition, so automation can distinguish "no finding ever existed" from "a finding
+existed and this adapter changed the presentation."
 
 Token counters may expose an `accuracy` attribute using `TokenCountAccuracy.EXACT`,
 `TokenCountAccuracy.ESTIMATED`, `TokenCountAccuracy.MIXED`, or a matching string. If an

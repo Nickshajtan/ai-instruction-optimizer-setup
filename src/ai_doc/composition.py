@@ -25,8 +25,8 @@ from ai_doc.providers.semantic import (
 )
 from ai_doc.tokens.counter import ApproximateTokenCounter, OptionalModelAwareTokenCounter, TokenCounter
 
-BUILTIN_TOKEN_COUNTER_APPROXIMATE = "approximate"  # nosec B105
-BUILTIN_TOKEN_COUNTER_OPENAI_TIKTOKEN = "openai-tiktoken"  # nosec B105
+BUILTIN_TOKEN_COUNTER_APPROXIMATE = "approximate"
+BUILTIN_TOKEN_COUNTER_OPENAI_TIKTOKEN = "openai-tiktoken"
 BUILTIN_EVALUATOR_PROMPTFOO = "promptfoo"
 BUILTIN_EVALUATOR_DEEPEVAL = "deepeval"
 BUILTIN_RECOMMENDATION_DEFAULT = "default"

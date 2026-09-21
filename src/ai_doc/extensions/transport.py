@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import os
-import subprocess  # nosec B404
+import subprocess
 import uuid
 from collections.abc import Mapping, Sequence
 from typing import Any
@@ -70,7 +70,7 @@ class ProcessTransport:
     def _invoke(self, request: Mapping[str, Any]) -> dict[str, Any]:
         payload = json.dumps(request, separators=(",", ":"))
         try:
-            completed = subprocess.run(  # nosec B603
+            completed = subprocess.run(
                 self.command,
                 input=payload,
                 capture_output=True,
