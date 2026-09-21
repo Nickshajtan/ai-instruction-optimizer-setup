@@ -1,0 +1,39 @@
+# Security and repository governance
+/.github/ @Nickshajtan
+
+# Agent control plane and AI engineering policy
+/AGENTS.md @Nickshajtan
+/CLAUDE.md @Nickshajtan
+/.ai/ @Nickshajtan
+/.codex/ @Nickshajtan
+/.claude/ @Nickshajtan
+
+# Normative engineering and security standards
+/docs/standards.md @Nickshajtan
+/docs/design/ @Nickshajtan
+/docs/operations/testing-and-release.md @Nickshajtan
+
+# Extension trust and executable boundaries
+/src/ai_doc/plugins/ @Nickshajtan
+/src/ai_doc/extensions/ @Nickshajtan
+
+# Configuration can influence capability selection and trust boundaries
+/src/ai_doc/config/ @Nickshajtan
+
+# External providers, evaluators, and model-backed execution
+/src/ai_doc/providers/ @Nickshajtan
+/src/ai_doc/evaluators/ @Nickshajtan
+/src/ai_doc/optimizer/prompt_suboptimizer.py @Nickshajtan
+
+# Execution probes and workspace isolation
+/src/ai_doc/probes/ @Nickshajtan
+
+# Composition / dependency wiring can alter security boundaries
+/src/ai_doc/composition.py @Nickshajtan
+/src/ai_doc/app.py @Nickshajtan
+
+# Security contracts themselves are protected
+/tests/security/ @Nickshajtan
+
+# Dependency and packaging authority
+/pyproject.toml @Nickshajtan
