@@ -259,6 +259,18 @@ def test_security_skills_exist_and_are_routed() -> None:
     assert "../.ai/skills/safe-external-execution/SKILL.md" in docs_agents
 
 
+def test_agent_specific_skills_mirror_shared_skill_wrappers() -> None:
+    shared = _skill_names(".ai/skills")
+    for agent_dir in (".codex/skills", ".claude/skills"):
+        agent = _skill_names(agent_dir)
+        assert agent == shared
+        for name in shared:
+            content = Path(agent_dir, name, "SKILL.md").read_text(encoding="utf-8-sig")
+            assert f".ai/skills/{name}/SKILL.md" in content
+            assert "adapter" in content
+            assert "routing only" in content
+
+
 def test_security_workflow_runs_dedicated_security_suite() -> None:
     workflow = _workflow(".github/workflows/security.yml")
     jobs = workflow["jobs"]
@@ -314,6 +326,10 @@ def _path_is_ignored(path: str, patterns: list[str]) -> bool:
     from fnmatch import fnmatch
 
     return any(fnmatch(path, pattern) for pattern in patterns)
+
+
+def _skill_names(root: str) -> set[str]:
+    return {path.parent.name for path in Path(root).glob("*/SKILL.md")}
 
 
 def _job_has_run(job: Any, command: str) -> bool:
