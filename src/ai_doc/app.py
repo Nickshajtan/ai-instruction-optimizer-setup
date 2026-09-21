@@ -105,22 +105,48 @@ def _adapter_audit_events(
 ) -> list[FindingAuditEvent]:
     before_by_object = {finding.object_id: finding for finding in before}
     after_by_object = {finding.object_id: finding for finding in after}
-    after_by_stable_identity = {finding.stable_identity: finding for finding in after}
     builtin_objects = {finding.object_id for finding in builtin_findings}
+    unmatched_after = list(after)
     events: list[FindingAuditEvent] = []
-    for identity in builtin_objects:
-        finding = before_by_object.get(identity)
+    for builtin in builtin_findings:
+        finding = before_by_object.get(builtin.object_id)
         if finding is None:
             continue
-        adapted = after_by_object.get(identity) or after_by_stable_identity.get(finding.stable_identity)
+        adapted = _match_after_snapshot(finding, after_by_object, unmatched_after)
         if adapted is None:
             events.append(_audit_event(adapter, finding, "suppressed"))
         elif finding.severity != adapted.severity:
             events.append(_audit_event(adapter, finding, "severity_changed"))
+        elif finding.stable_identity != adapted.stable_identity:
+            events.append(_audit_event(adapter, finding, "metadata_changed"))
     for identity, finding in before_by_object.items():
         if identity not in after_by_object and identity not in builtin_objects:
-            events.append(_audit_event(adapter, finding, "suppressed_extension"))
+            adapted = _match_after_snapshot(finding, after_by_object, unmatched_after)
+            if adapted is None:
+                events.append(_audit_event(adapter, finding, "suppressed_extension"))
     return events
+
+
+def _match_after_snapshot(
+    finding: _FindingSnapshot,
+    after_by_object: dict[int, _FindingSnapshot],
+    unmatched_after: list[_FindingSnapshot],
+) -> _FindingSnapshot | None:
+    adapted = after_by_object.get(finding.object_id)
+    if adapted is not None:
+        _discard_after_snapshot(unmatched_after, adapted.object_id)
+        return adapted
+    for index, candidate in enumerate(unmatched_after):
+        if candidate.stable_identity == finding.stable_identity:
+            return unmatched_after.pop(index)
+    return None
+
+
+def _discard_after_snapshot(unmatched_after: list[_FindingSnapshot], object_id: int) -> None:
+    for index, candidate in enumerate(unmatched_after):
+        if candidate.object_id == object_id:
+            unmatched_after.pop(index)
+            return
 
 
 def _finding_snapshot(finding: Finding) -> _FindingSnapshot:

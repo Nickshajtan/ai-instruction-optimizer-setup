@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Protocol
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from ai_doc.domain.evaluations import CandidateComparison, EvaluationResult
 from ai_doc.domain.findings import Finding
@@ -21,7 +21,7 @@ class FindingAuditEvent(BaseModel):
 
 class FindingAudit(BaseModel):
     builtin_error_count: int = 0
-    adapter_events: list[FindingAuditEvent] = []
+    adapter_events: list[FindingAuditEvent] = Field(default_factory=list)
 
 
 class CheckReport(BaseModel):
@@ -32,7 +32,7 @@ class CheckReport(BaseModel):
     context_cost: ContextCost
     profiles: dict[str, str]
     findings: list[Finding]
-    finding_audit: FindingAudit = FindingAudit()
+    finding_audit: FindingAudit = Field(default_factory=FindingAudit)
     evaluation: EvaluationResult | None = None
 
 

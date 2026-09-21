@@ -11,18 +11,12 @@ PROTOCOL_VERSION = "ai-doc.extension/v1"
 DEFAULT_TIMEOUT_SECONDS = 120.0
 DIAGNOSTIC_LIMIT = 4000
 DESCRIBE_OPERATION = "describe"
-DEFAULT_INHERITED_ENV_KEYS = {
-    "COMSPEC",
-    "HOME",
+MINIMAL_PROCESS_ENV_KEYS = {
     "LANG",
     "LC_ALL",
     "PATH",
     "PATHEXT",
     "SYSTEMROOT",
-    "TEMP",
-    "TMP",
-    "TMPDIR",
-    "USERPROFILE",
     "WINDIR",
 }
 
@@ -134,6 +128,6 @@ def _limit_diagnostics(stderr: str | bytes | None, limit: int = DIAGNOSTIC_LIMIT
 
 
 def _process_environment(configured: Mapping[str, str]) -> dict[str, str]:
-    environment = {key: os.environ[key] for key in DEFAULT_INHERITED_ENV_KEYS if key in os.environ}
+    environment = {key: os.environ[key] for key in MINIMAL_PROCESS_ENV_KEYS if key in os.environ}
     environment.update(configured)
     return environment

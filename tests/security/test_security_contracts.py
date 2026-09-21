@@ -10,10 +10,13 @@ import pytest
 import yaml
 from typer.testing import CliRunner
 
+from ai_doc.app import _adapter_audit_events, _finding_snapshot
 from ai_doc.cli.main import app
 from ai_doc.domain.documents import Document, DocumentationSnapshot, DocumentProfile
 from ai_doc.domain.evaluations import EvaluationScenario, EvaluationSuite
+from ai_doc.domain.findings import Finding, FindingCategory, FindingSeverity
 from ai_doc.domain.probes import ExecutionObservation, ExecutionStatus
+from ai_doc.extension_trust import ExtensionTrustError, ensure_extensions_authorized
 from ai_doc.probes.execution_runner import ExecutionActionVerifier, ExecutionProbeRunner
 from ai_doc.probes.workspace import UnsafeWorkspaceError, isolated_workspace
 
@@ -98,6 +101,22 @@ def test_nested_config_cannot_bypass_extension_authorization(tmp_path: Path) -> 
     assert result.exit_code == 1
     assert "python:module/extension.py" in result.output
     assert not side_effect.exists()
+
+
+def test_extension_trust_error_preserves_structured_declarations(tmp_path: Path) -> None:
+    (tmp_path / ".ai-doc.yaml").write_text(
+        "version: 1\ninclude: []\nextensions:\n  - path: .ai-doc/extensions/review.py\n",
+        encoding="utf-8",
+    )
+    from ai_doc.config.loader import load_config
+
+    config = load_config(tmp_path)
+
+    with pytest.raises(ExtensionTrustError) as exc_info:
+        ensure_extensions_authorized(config, allow_extensions=False)
+
+    assert exc_info.value.declarations == ("python:.ai-doc/extensions/review.py",)
+    assert "python:.ai-doc/extensions/review.py" in str(exc_info.value)
 
 
 def test_finding_adapter_cannot_hide_authoritative_builtin_failure(tmp_path: Path) -> None:
@@ -261,6 +280,160 @@ def register(registry):
     assert payload["finding_audit"]["adapter_events"][0]["adapter"].endswith(".DowngradeErrors")
 
 
+def test_finding_adapter_metadata_mutation_is_audited(tmp_path: Path) -> None:
+    extension_dir = tmp_path / ".ai-doc" / "extensions"
+    extension_dir.mkdir(parents=True)
+    (tmp_path / ".ai-doc.yaml").write_text(
+        """
+version: 1
+include: [AGENTS.md]
+profiles:
+  AGENTS.md: instruction
+budgets:
+  instruction:
+    error_tokens: 1
+extensions:
+  - path: .ai-doc/extensions/metadata.py
+""",
+        encoding="utf-8",
+    )
+    (tmp_path / "AGENTS.md").write_text("# Rules\n\nRun validation before merge.\n", encoding="utf-8")
+    (extension_dir / "metadata.py").write_text(
+        """
+from ai_doc.api.v1 import FindingAdapter, FindingSeverity
+
+
+class RewriteMetadata(FindingAdapter):
+    def adapt_findings(self, context, findings):
+        for finding in findings:
+            if finding.severity == FindingSeverity.ERROR:
+                finding.message = "Rewritten by adapter."
+                finding.section = "Rewritten"
+        return findings
+
+
+def register(registry):
+    registry.add_finding_adapter(RewriteMetadata())
+""",
+        encoding="utf-8",
+    )
+
+    result = CliRunner().invoke(app, ["check", str(tmp_path), "--format", "json", "--allow-extensions"])
+
+    assert result.exit_code == 2
+    payload = json.loads(result.stdout)
+    assert payload["finding_audit"]["builtin_error_count"] == 1
+    assert payload["finding_audit"]["adapter_events"][0]["action"] == "metadata_changed"
+    assert payload["finding_audit"]["adapter_events"][0]["adapter"].endswith(".RewriteMetadata")
+
+
+def test_finding_adapter_equivalent_replacement_is_not_false_suppression(tmp_path: Path) -> None:
+    extension_dir = tmp_path / ".ai-doc" / "extensions"
+    extension_dir.mkdir(parents=True)
+    (tmp_path / ".ai-doc.yaml").write_text(
+        """
+version: 1
+include: [AGENTS.md]
+profiles:
+  AGENTS.md: instruction
+budgets:
+  instruction:
+    error_tokens: 1
+extensions:
+  - path: .ai-doc/extensions/replace.py
+""",
+        encoding="utf-8",
+    )
+    (tmp_path / "AGENTS.md").write_text("# Rules\n\nRun validation before merge.\n", encoding="utf-8")
+    (extension_dir / "replace.py").write_text(
+        """
+from ai_doc.api.v1 import FindingAdapter, FindingSeverity
+
+
+class ReplaceEquivalent(FindingAdapter):
+    def adapt_findings(self, context, findings):
+        return [
+            finding.model_copy()
+            if finding.severity == FindingSeverity.ERROR
+            else finding
+            for finding in findings
+        ]
+
+
+def register(registry):
+    registry.add_finding_adapter(ReplaceEquivalent())
+""",
+        encoding="utf-8",
+    )
+
+    result = CliRunner().invoke(app, ["check", str(tmp_path), "--format", "json", "--allow-extensions"])
+
+    assert result.exit_code == 2
+    payload = json.loads(result.stdout)
+    assert payload["finding_audit"]["builtin_error_count"] == 1
+    assert payload["finding_audit"]["adapter_events"] == []
+
+
+def test_finding_adapter_equivalent_replacement_with_severity_change_is_audited(tmp_path: Path) -> None:
+    extension_dir = tmp_path / ".ai-doc" / "extensions"
+    extension_dir.mkdir(parents=True)
+    (tmp_path / ".ai-doc.yaml").write_text(
+        """
+version: 1
+include: [AGENTS.md]
+profiles:
+  AGENTS.md: instruction
+budgets:
+  instruction:
+    error_tokens: 1
+extensions:
+  - path: .ai-doc/extensions/replace_downgrade.py
+""",
+        encoding="utf-8",
+    )
+    (tmp_path / "AGENTS.md").write_text("# Rules\n\nRun validation before merge.\n", encoding="utf-8")
+    (extension_dir / "replace_downgrade.py").write_text(
+        """
+from ai_doc.api.v1 import FindingAdapter, FindingSeverity
+
+
+class ReplaceAndDowngrade(FindingAdapter):
+    def adapt_findings(self, context, findings):
+        return [
+            finding.model_copy(update={"severity": FindingSeverity.WARNING})
+            if finding.severity == FindingSeverity.ERROR
+            else finding
+            for finding in findings
+        ]
+
+
+def register(registry):
+    registry.add_finding_adapter(ReplaceAndDowngrade())
+""",
+        encoding="utf-8",
+    )
+
+    result = CliRunner().invoke(app, ["check", str(tmp_path), "--format", "json", "--allow-extensions"])
+
+    assert result.exit_code == 2
+    payload = json.loads(result.stdout)
+    assert payload["finding_audit"]["builtin_error_count"] == 1
+    assert payload["finding_audit"]["adapter_events"][0]["action"] == "severity_changed"
+    assert payload["finding_audit"]["adapter_events"][0]["adapter"].endswith(".ReplaceAndDowngrade")
+
+
+def test_finding_adapter_audit_matches_duplicate_logical_findings_as_multiset() -> None:
+    first = _audit_test_finding()
+    second = _audit_test_finding()
+    before = [_finding_snapshot(first), _finding_snapshot(second)]
+    builtin = list(before)
+    after = [_finding_snapshot(first.model_copy(update={"severity": FindingSeverity.WARNING})), _finding_snapshot(second)]
+
+    events = _adapter_audit_events("tests.DuplicateAdapter", builtin, before, after)
+
+    assert [event.action for event in events] == ["severity_changed"]
+
+
 def test_gepa_requires_explicit_models_even_with_ambient_credentials(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -290,7 +463,8 @@ def test_process_extension_does_not_receive_ambient_secret_environment(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    monkeypatch.setenv("OPENAI_API_KEY", "ambient-secret")
+    for key in ("OPENAI_API_KEY", "ANTHROPIC_API_KEY", "AWS_ACCESS_KEY_ID", "GITHUB_TOKEN", "HOME", "USERPROFILE"):
+        monkeypatch.setenv(key, f"ambient-{key.lower()}")
     observed = tmp_path / "observed-env.json"
     process = tmp_path / "analyzer.py"
     process.write_text(
@@ -304,7 +478,17 @@ from pathlib import Path
 
 request = json.loads(sys.stdin.read())
 Path(sys.argv[1]).write_text(json.dumps({
-    "openai": os.getenv("OPENAI_API_KEY"),
+    "ambient": {
+        key: os.getenv(key)
+        for key in [
+            "OPENAI_API_KEY",
+            "ANTHROPIC_API_KEY",
+            "AWS_ACCESS_KEY_ID",
+            "GITHUB_TOKEN",
+            "HOME",
+            "USERPROFILE",
+        ]
+    },
     "configured": os.getenv("AI_DOC_SECURITY_TEST_KEY"),
 }), encoding="utf-8")
 print(json.dumps({
@@ -334,7 +518,14 @@ extension_runtime:
 
     assert result.exit_code == 0
     environment = json.loads(observed.read_text(encoding="utf-8"))
-    assert environment["openai"] is None
+    assert environment["ambient"] == {
+        "OPENAI_API_KEY": None,
+        "ANTHROPIC_API_KEY": None,
+        "AWS_ACCESS_KEY_ID": None,
+        "GITHUB_TOKEN": None,
+        "HOME": None,
+        "USERPROFILE": None,
+    }
     assert environment["configured"] == "configured"
 
 
@@ -456,6 +647,28 @@ def test_mutation_workflow_control_plane_scope_is_explicit() -> None:
         assert path in paths
 
 
+def test_mutation_workflow_precondition_matches_authoritative_test_selection() -> None:
+    workflow = _workflow(".github/workflows/mutation-testing.yml")
+    jobs = workflow["jobs"]
+
+    assert _job_has_run(jobs["baseline"], "python -m pytest tests/unit tests/integration tests/security")
+
+
+def test_dependency_compatibility_uses_packaging_requirement_parser() -> None:
+    workflow_text = Path(".github/workflows/dependency-compatibility.yml").read_text(encoding="utf-8")
+
+    assert "python -m tools.minimum_constraints pyproject.toml minimum-constraints.txt" in workflow_text
+    assert "import re" not in workflow_text
+    assert "bandit[toml]" not in workflow_text
+
+
+def test_primary_markdown_ci_breadth_is_documented_as_conservative() -> None:
+    testing_docs = Path("docs/operations/testing-and-release.md").read_text(encoding="utf-8")
+
+    assert "primary workflows intentionally keep broad Markdown triggering" in testing_docs
+    assert "control-plane Markdown" in testing_docs
+
+
 def _workflow(path: str) -> dict[str, object]:
     return yaml.safe_load(Path(path).read_text(encoding="utf-8"))
 
@@ -501,6 +714,17 @@ def _snapshot(tmp_path: Path) -> DocumentationSnapshot:
 
 def _scenario() -> EvaluationScenario:
     return EvaluationScenario(id="change", task="Change docs")
+
+
+def _audit_test_finding() -> Finding:
+    return Finding(
+        code="DUPLICATE",
+        category=FindingCategory.RISK,
+        severity=FindingSeverity.ERROR,
+        path="AGENTS.md",
+        section="Rules",
+        message="Same logical finding.",
+    )
 
 
 class _SilentMutationProbe:

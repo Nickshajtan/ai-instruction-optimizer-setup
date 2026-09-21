@@ -174,9 +174,10 @@ Finding adapters may change the presented finding list, including suppressing a
 project-specific false positive. The default CLI quality gate still preserves the
 existence of pre-adaptation built-in error findings for exit-code purposes. JSON reports
 include `finding_audit.builtin_error_count` and adapter events such as `suppressed` or
-`severity_changed`. Each adapter event includes the adapter identifier that caused that
-transition, so automation can distinguish "no finding ever existed" from "a finding
-existed and this adapter changed the presentation."
+`severity_changed`. Metadata-only rewrites are reported as `metadata_changed`. Each
+adapter event includes the adapter identifier that caused that transition, so automation
+can distinguish "no finding ever existed" from "a finding existed and this adapter
+changed the presentation."
 
 Token counters may expose an `accuracy` attribute using `TokenCountAccuracy.EXACT`,
 `TokenCountAccuracy.ESTIMATED`, `TokenCountAccuracy.MIXED`, or a matching string. If an
@@ -255,12 +256,13 @@ components:
 
 Commands are argv arrays and run with `shell=False`. stdout is reserved for protocol JSON. stderr is reserved for diagnostics and may be surfaced on failures.
 
-Process extensions receive a minimal platform environment needed for ordinary process
-startup, such as `PATH` and temporary-directory variables when those exist. They do not
-inherit the full parent process environment, so ambient provider credentials such as
-`OPENAI_API_KEY` are not passed by default. Use the component's literal `env:` mapping
-only for non-secret adapter settings. Put secrets in a trusted wrapper or credential
-mechanism outside repository-controlled `.ai-doc.yaml`.
+Process extensions receive a minimal runtime-compatibility environment needed for
+ordinary process startup, such as executable lookup and platform system root variables
+when those exist. They do not inherit the full parent process environment, user-home
+locations, temporary-directory variables, shell variables, or ambient provider
+credentials such as `OPENAI_API_KEY` by default. Use the component's literal `env:`
+mapping only for non-secret adapter settings. Put secrets in a trusted wrapper or
+credential mechanism outside repository-controlled `.ai-doc.yaml`.
 
 ### Envelope
 

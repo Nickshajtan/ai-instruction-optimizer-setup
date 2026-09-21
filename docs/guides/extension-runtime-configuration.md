@@ -53,10 +53,11 @@ Commands are argv arrays and run without `shell=True`. Configure only trusted
 executables from trusted project configuration. Documentation content should not choose
 or rewrite the command.
 
-Process extensions do not inherit the full parent environment. `ai-doc` passes a small
-platform environment needed to start normal commands, such as `PATH` and temporary
-directory variables when present, and then adds literal values from the component's
-`env:` mapping. Do not place secrets in repository-controlled configuration; use a
+Process extensions do not inherit the full parent environment. `ai-doc` passes only a
+small runtime-compatibility environment, such as executable lookup and platform system
+root variables when present, and then adds literal values from the component's `env:`
+mapping. It does not pass user-home, shell, temporary-directory, or ambient credential
+variables by default. Do not place secrets in repository-controlled configuration; use a
 trusted wrapper, secret manager, or CI step to provide credentials outside `.ai-doc.yaml`.
 
 The command receives protocol JSON on stdin, writes protocol JSON on stdout, and writes

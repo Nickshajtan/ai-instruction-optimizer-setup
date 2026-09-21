@@ -50,7 +50,7 @@ jobs:
       - name: Install dependencies
         run: python -m pip install -e ".[dev]"
       - name: Verify tests before mutation
-        run: python -m pytest tests/unit tests/integration
+        run: python -m pytest tests/unit tests/integration tests/security
       - name: Run focused mutation baseline
         shell: bash
         run: |

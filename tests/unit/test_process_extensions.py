@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
 from typing import Any
@@ -22,7 +23,7 @@ from ai_doc.extensions.process import (
     ProcessTokenCounter,
     ProcessTransport,
 )
-from ai_doc.extensions.transport import DEFAULT_INHERITED_ENV_KEYS
+from ai_doc.extensions.transport import MINIMAL_PROCESS_ENV_KEYS
 from ai_doc.markdown.graph import DocumentGraph
 
 
@@ -172,8 +173,21 @@ def test_process_transport_passes_minimal_environment_and_explicit_overlay(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    monkeypatch.setenv("OPENAI_API_KEY", "ambient-secret")
-    monkeypatch.setenv("AI_DOC_ALLOWED_TEST_KEY", "ambient-allowed")
+    ambient_variables = {
+        "OPENAI_API_KEY": "ambient-openai",
+        "ANTHROPIC_API_KEY": "ambient-anthropic",
+        "AWS_ACCESS_KEY_ID": "ambient-aws",
+        "GITHUB_TOKEN": "ambient-github",
+        "HOME": "ambient-home",
+        "USERPROFILE": "ambient-userprofile",
+        "COMSPEC": "ambient-comspec",
+        "TEMP": "ambient-temp",
+        "TMP": "ambient-tmp",
+        "TMPDIR": "ambient-tmpdir",
+        "AI_DOC_ALLOWED_TEST_KEY": "ambient-allowed",
+    }
+    for key, value in ambient_variables.items():
+        monkeypatch.setenv(key, value)
     script = tmp_path / "env_probe.py"
     script.write_text(
         """
@@ -186,10 +200,24 @@ import sys
 data = json.loads(sys.stdin.read())
 result = {
     "payload_version": 1,
-    "openai": os.getenv("OPENAI_API_KEY"),
-    "ambient_allowed": os.getenv("AI_DOC_ALLOWED_TEST_KEY"),
+    "ambient": {
+        key: os.getenv(key)
+        for key in [
+            "OPENAI_API_KEY",
+            "ANTHROPIC_API_KEY",
+            "AWS_ACCESS_KEY_ID",
+            "GITHUB_TOKEN",
+            "HOME",
+            "USERPROFILE",
+            "COMSPEC",
+            "TEMP",
+            "TMP",
+            "TMPDIR",
+            "AI_DOC_ALLOWED_TEST_KEY",
+        ]
+    },
     "configured": os.getenv("AI_DOC_CONFIGURED_TEST_KEY"),
-    "has_path": bool(os.getenv("PATH")),
+    "minimal": {key: os.getenv(key) for key in ["LANG", "LC_ALL", "PATH", "PATHEXT", "SYSTEMROOT", "WINDIR"]},
 }
 print(json.dumps({
     "protocol": data["protocol"],
@@ -206,10 +234,9 @@ print(json.dumps({
         env={"AI_DOC_CONFIGURED_TEST_KEY": "configured-value"},
     ).invoke("env", {})
 
-    assert result["openai"] is None
-    assert result["ambient_allowed"] is None
+    assert result["ambient"] == {key: None for key in ambient_variables}
     assert result["configured"] == "configured-value"
-    assert result["has_path"] == ("PATH" in DEFAULT_INHERITED_ENV_KEYS)
+    assert result["minimal"]["PATH"] == (os.environ.get("PATH") if "PATH" in MINIMAL_PROCESS_ENV_KEYS else None)
 
 
 def test_process_transport_can_query_describe_manifest(tmp_path: Path) -> None:

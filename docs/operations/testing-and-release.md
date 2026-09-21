@@ -125,6 +125,10 @@ but they must not blanket-ignore Markdown. Control-plane files such as `AGENTS.m
 `CLAUDE.md`, `.ai/**`, `.codex/**`, `.claude/**`, `.github/**`,
 `docs/standards.md`, `docs/design/**`, and
 `docs/operations/testing-and-release.md` must continue to trigger relevant checks.
+For `0.2.0`, the primary workflows intentionally keep broad Markdown triggering and skip
+only ordinary guide pages plus release notes. This conservative choice keeps required
+checks reliable for control-plane Markdown even though some ordinary documentation
+changes may run more validation than strictly necessary.
 
 GitHub-maintained first-party Actions may remain on version tags for this release.
 Immutable commit SHA pinning is recommended defense in depth rather than a `0.2.0`

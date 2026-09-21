@@ -44,10 +44,11 @@ external executable
 parsing, protocol envelope validation, extension error responses, and stderr
 diagnostics. It accepts an operation name plus payload, so it is not evaluator-specific.
 
-Process extensions receive only a narrow platform environment plus explicit literal
-`env:` values from trusted configuration. The transport does not pass the full parent
-environment by default, which prevents ambient credentials from silently becoming
-extension authority.
+Process extensions receive only a narrow runtime-compatibility environment plus explicit
+literal `env:` values from trusted configuration. The transport does not pass the full
+parent environment, user-home paths, temporary-directory paths, shell variables, or
+ambient credentials by default, which prevents those host capabilities from silently
+becoming extension authority.
 
 Process adapters map internal domain objects into deliberate V1 wire DTOs before calling
 the transport. They do not serialize the full `AiDocConfig`, full optimizer
