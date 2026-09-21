@@ -37,7 +37,7 @@ from ai_doc.observability import (
 from ai_doc.optimizer.generator import SemanticCandidateGenerator
 from ai_doc.optimizer.invariants import SemanticInvariantDiscoverer, SemanticInvariantVerifier
 from ai_doc.optimizer.prompt_suboptimizer import PromptSubOptimizer
-from ai_doc.optimizer.search import SearchController
+from ai_doc.optimizer.search import SearchController, SearchResult
 from ai_doc.optimizer.semantic import (
     ProviderPairwiseSemanticEvaluator,
     ProviderPromptSubOptimizer,
@@ -80,6 +80,13 @@ class OptimizeInputs:
     baseline_report: CheckReport
     baseline_snapshot: DocumentationSnapshot
     static_duration_ms: int
+
+
+@dataclass(frozen=True)
+class OptimizeCompletion:
+    report: SearchOptimizeReport
+    exit_code: int
+    rendered_report: str
 
 
 def optimize_command(  # pylint: disable=too-many-arguments,too-many-positional-arguments
@@ -190,31 +197,12 @@ def optimize_command(  # pylint: disable=too-many-arguments,too-many-positional-
         typer.echo(str(exc), err=True)
         raise typer.Exit(1) from exc
 
-    recommended = next(
-        (candidate for candidate in result.run.candidates if candidate.id == result.run.recommended_candidate_id),
-        None,
-    )
-    report = SearchOptimizeReport(
-        baseline=inputs.baseline_report,
-        run=result.run,
-        candidates_evaluated=len([candidate for candidate in result.run.candidates if candidate.id != "baseline"]),
-        candidates_rejected=len([candidate for candidate in result.run.candidates if candidate.status == "rejected"]),
-        frontier=result.run.frontier.entries,
-        recommended_candidate=recommended,
-        baseline_in_frontier=bool(result.run.metadata.get("baseline_in_frontier")),
-    )
-    _write_run_artifacts(result.run_dir, report)
-    pairwise_postcondition_failed = (
-        require_pairwise_semantic and result.run.pairwise_comparisons_performed == 0
-    )
-    if result.run.pairwise_semantic_requested and result.run.pairwise_comparisons_performed == 0:
-        _warn_pairwise_not_performed(required=require_pairwise_semantic)
-    exit_code = (
-        3
-        if pairwise_postcondition_failed
-        else 4
-        if not result.run.recommended_candidate_id
-        else 0
+    completion = _complete_optimize_result(
+        inputs=inputs,
+        result=result,
+        require_pairwise_semantic=require_pairwise_semantic,
+        output_format=output_format,
+        show_frontier=show_frontier,
     )
     _safe_append_observation(
         project_root,
@@ -223,20 +211,56 @@ def optimize_command(  # pylint: disable=too-many-arguments,too-many-positional-
             timer=timer,
             root=project_root,
             config=inputs.config,
-            report=report,
+            report=completion.report,
             status="completed",
-            exit_code=exit_code,
+            exit_code=completion.exit_code,
             static_duration_ms=inputs.static_duration_ms,
             optimize_duration_ms=optimize_duration_ms,
         ),
     )
+    typer.echo(completion.rendered_report)
+    raise typer.Exit(completion.exit_code)
+
+
+def _complete_optimize_result(
+    *,
+    inputs: OptimizeInputs,
+    result: SearchResult,
+    require_pairwise_semantic: bool,
+    output_format: OutputFormat,
+    show_frontier: bool,
+) -> OptimizeCompletion:
+    search_result = result
+    generated_candidates = [candidate for candidate in search_result.run.candidates if candidate.id != "baseline"]
+    rejected_candidates = [candidate for candidate in search_result.run.candidates if candidate.status == "rejected"]
+    recommended = next(
+        (
+            candidate
+            for candidate in search_result.run.candidates
+            if candidate.id == search_result.run.recommended_candidate_id
+        ),
+        None,
+    )
+    report = SearchOptimizeReport(
+        baseline=inputs.baseline_report,
+        run=search_result.run,
+        candidates_evaluated=len(generated_candidates),
+        candidates_rejected=len(rejected_candidates),
+        frontier=search_result.run.frontier.entries,
+        recommended_candidate=recommended,
+        baseline_in_frontier=bool(search_result.run.metadata.get("baseline_in_frontier")),
+    )
+    _write_run_artifacts(search_result.run_dir, report)
+    pairwise_postcondition_failed = require_pairwise_semantic and search_result.run.pairwise_comparisons_performed == 0
+    if search_result.run.pairwise_semantic_requested and search_result.run.pairwise_comparisons_performed == 0:
+        _warn_pairwise_not_performed(required=require_pairwise_semantic)
+    exit_code = 3 if pairwise_postcondition_failed else 4 if not search_result.run.recommended_candidate_id else 0
     rendered_report = (
         render_json(report)
         if output_format == OutputFormat.JSON
         else render_search_optimize_console(report, show_frontier=show_frontier)
     )
-    typer.echo(rendered_report)
-    raise typer.Exit(exit_code)
+    return OptimizeCompletion(report=report, exit_code=exit_code, rendered_report=rendered_report)
 
 
 def _warn_pairwise_not_performed(*, required: bool) -> None:
