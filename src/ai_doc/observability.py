@@ -131,18 +131,28 @@ def new_run_id() -> str:
 
 def observation_path(root: Path, config: AiDocConfig) -> Path:
     configured = Path(config.observability.path)
-    return configured if configured.is_absolute() else root / configured
+    base = root.resolve()
+    path = configured if configured.is_absolute() else base / configured
+    try:
+        resolved = path.resolve(strict=False)
+        resolved.relative_to(base)
+    except (OSError, ValueError) as exc:
+        raise ObservationWriteError(
+            f"Observation path must stay inside the project root: {config.observability.path}"
+        ) from exc
+    return resolved
 
 
 def append_observation(root: Path, config: AiDocConfig, record: ObservationRecord) -> None:
     if not config.observability.enabled:
         return
-    path = observation_path(root, config)
+    path: Path | str = config.observability.path
     try:
+        path = observation_path(root, config)
         path.parent.mkdir(parents=True, exist_ok=True)
         with path.open("a", encoding="utf-8", newline="\n") as handle:
             handle.write(record.model_dump_json(by_alias=True) + "\n")
-    except OSError as exc:
+    except (ObservationWriteError, OSError) as exc:
         raise ObservationWriteError(f"{path}: {exc}") from exc
 
 

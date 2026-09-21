@@ -47,7 +47,9 @@ The semantic `expected` block remains available to B/evaluator integrations. The
 
 ## Command Contract
 
-Planning probes are provider-neutral. Configure:
+Planning probes are provider-neutral. The operator authorizes C-tier target probing by
+choosing to run `ai-doc probe` and by providing `AI_DOC_TARGET_COMMAND`; repository
+content cannot configure that command for itself. Configure:
 
 ```bash
 export AI_DOC_TARGET_COMMAND='your-target-adapter --plan'
@@ -99,6 +101,10 @@ The command returns a normalized planning observation:
 ```
 
 Provider authentication, API invocation, and Codex/Claude-specific formatting belong to the adapter command. The stable `ai-doc` contract stays provider-neutral.
+The adapter command runs with the caller's normal OS authority and environment unless the
+operator's wrapper constrains it. C1 sends repository-controlled scenario text and
+selected documentation to the command but does not grant repository configuration a way
+to choose the command.
 
 ## Context Selection
 
@@ -155,6 +161,21 @@ critical root/security/release instructions
 ```
 
 Repeated target runs are intentionally outside the current architecture and should be reserved for a separate design only when stronger statistical evidence justifies the cost.
+
+## Execution Trust Boundary
+
+C2 execution uses the same operator-selected `AI_DOC_TARGET_COMMAND` but sends
+`mode: execute` and runs the command with `cwd` set to a temporary workspace copy.
+Invoking `ai-doc execute` is the explicit operator action that authorizes real target
+execution for the configured command. The workspace copy protects the source repository
+from direct mutation, but it is not an OS sandbox: the target process still has the
+normal OS authority, ambient environment, network access, and user-level configuration
+available to the caller unless the operator's wrapper restricts them.
+
+Repository-controlled scenarios and documentation are untrusted input to that command.
+They can influence what the target is asked to plan or execute, but they do not select
+the target executable. Use a trusted wrapper when the target agent needs credentials or
+when host access must be narrowed.
 
 ## Non-Goals Of C1
 

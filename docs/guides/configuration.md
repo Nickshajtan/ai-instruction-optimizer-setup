@@ -393,7 +393,9 @@ observability:
 
 The default path is `.ai-doc/observations.jsonl`. Each line is an independent
 `ai-doc.observation/v1` JSON object. Logging is append-only and local; `ai-doc` does not
-upload observations or create a database.
+upload observations or create a database. The observation path must resolve inside the
+project root. Absolute paths outside the project, `..` traversal, and symlink escapes are
+rejected rather than rewritten or silently disabled.
 
 Observation records are intended to contain structured machine facts such as command
 status, duration, document counts, tier names, finding fingerprints, evaluation outcomes,

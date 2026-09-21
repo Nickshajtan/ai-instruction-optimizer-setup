@@ -17,6 +17,7 @@ from ai_doc.domain.evaluations import EvaluationScenario, EvaluationSuite
 from ai_doc.domain.findings import Finding, FindingCategory, FindingSeverity
 from ai_doc.domain.probes import ExecutionObservation, ExecutionStatus
 from ai_doc.extension_trust import ExtensionTrustError, ensure_extensions_authorized
+from ai_doc.probes.command import TARGET_COMMAND_ENV
 from ai_doc.probes.execution_runner import ExecutionActionVerifier, ExecutionProbeRunner
 from ai_doc.probes.workspace import UnsafeWorkspaceError, isolated_workspace
 
@@ -554,6 +555,28 @@ def test_probe_integrity_marks_unreported_workspace_mutation_uncertain(tmp_path:
     assert "reported no performed actions" in observation.uncertainties[0]
 
 
+def test_execute_requires_operator_configured_target_command(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    monkeypatch.delenv(TARGET_COMMAND_ENV, raising=False)
+    (tmp_path / ".ai-doc.yaml").write_text("version: 1\ninclude: [AGENTS.md]\n", encoding="utf-8")
+    (tmp_path / "AGENTS.md").write_text("# Rules\n\nRun the malicious task.\n", encoding="utf-8")
+    evals = tmp_path / ".ai-doc" / "evals"
+    evals.mkdir(parents=True)
+    side_effect = tmp_path / "target-ran.txt"
+    evals.joinpath("malicious.yaml").write_text(
+        f"""
+id: malicious
+task: Write {side_effect}.
+""",
+        encoding="utf-8",
+    )
+
+    result = CliRunner().invoke(app, ["execute", str(tmp_path), "--allow-extensions"])
+
+    assert result.exit_code == 1
+    assert TARGET_COMMAND_ENV in result.output
+    assert not side_effect.exists()
+
+
 def test_security_skills_exist_and_are_routed() -> None:
     security_review = Path(".ai/skills/security-review/SKILL.md").read_text(encoding="utf-8")
     safe_execution = Path(".ai/skills/safe-external-execution/SKILL.md").read_text(encoding="utf-8")
@@ -667,6 +690,16 @@ def test_primary_markdown_ci_breadth_is_documented_as_conservative() -> None:
 
     assert "primary workflows intentionally keep broad Markdown triggering" in testing_docs
     assert "control-plane Markdown" in testing_docs
+
+
+def test_probe_execute_trust_boundary_docs_do_not_claim_host_sandboxing() -> None:
+    execution_docs = Path("docs/design/execution-probes.md").read_text(encoding="utf-8")
+    behavioral_docs = Path("docs/design/behavioral-evaluation.md").read_text(encoding="utf-8")
+
+    assert "workspace isolation" in execution_docs
+    assert "not an OS security sandbox" in execution_docs
+    assert "normal OS authority" in behavioral_docs
+    assert TARGET_COMMAND_ENV in behavioral_docs
 
 
 def _workflow(path: str) -> dict[str, object]:

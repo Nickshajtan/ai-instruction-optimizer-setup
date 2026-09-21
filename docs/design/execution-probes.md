@@ -13,9 +13,9 @@ C3 repeated execution benchmark (not current architecture)
 
 ## Safety Boundary
 
-`ai-doc execute` never points the target command at the source repository. For each evaluation scenario it creates a temporary filesystem copy, invokes the configured target adapter with that copy as its working directory, records the result, measures the filesystem before/after delta, and deletes the temporary copy afterwards.
+`ai-doc execute` never points the target command at the source repository. For each evaluation scenario it creates a temporary filesystem copy, invokes the operator-configured target adapter with that copy as its working directory, records the result, measures the filesystem before/after delta, and deletes the temporary copy afterwards.
 
-This is **workspace isolation**, not an OS security sandbox. The adapter process is trusted: it can still access the host according to the operating system permissions of the caller. Container/VM isolation is a future adapter/deployment concern, not something the core CLI pretends to guarantee.
+This is **workspace isolation**, not an OS security sandbox. The adapter process is trusted: it can still access the host according to the operating system permissions of the caller, including ambient environment, credentials, network access, and user-level configuration unless the operator's wrapper restricts them. Container/VM isolation is a future adapter/deployment concern, not something the core CLI pretends to guarantee.
 
 Symlink-containing source trees are rejected by the workspace isolation boundary before
 copying because a symlink can point outside the temporary tree and undermine the
@@ -25,6 +25,10 @@ depth.
 ## Command Contract
 
 C2 reuses `AI_DOC_TARGET_COMMAND`; the adapter distinguishes the request by `mode`.
+Repository-controlled evaluation scenarios and documentation can influence the request
+payload, but repository configuration does not select this command. Choosing to run
+`ai-doc execute` with `AI_DOC_TARGET_COMMAND` set is the operator authorization boundary
+for real target-agent execution.
 
 ```bash
 export AI_DOC_TARGET_COMMAND='your-target-adapter'
