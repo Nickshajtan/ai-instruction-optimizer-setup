@@ -8,9 +8,10 @@ from ai_doc.domain.findings import Finding, FindingCategory, FindingSeverity
 
 LARGE_FILE_TOKENS = 8000
 LARGE_SECTION_TOKENS = 1800
+HEADING_LESS_DOCUMENT_TOKENS = 100
 MAX_HEADING_LEVEL_JUMP = 1
 ROOT_INSTRUCTION_FILES = {"AGENTS.md", "CLAUDE.md"}
-AI_DOC_PROFILES = {DocumentProfile.INSTRUCTION, DocumentProfile.SKILL}
+MARKDOWN_LINK_REACHABLE_PROFILES = {DocumentProfile.INSTRUCTION}
 
 STRUCTURE_LARGE_FILE = "STRUCTURE_LARGE_FILE"
 STRUCTURE_LARGE_SECTION = "STRUCTURE_LARGE_SECTION"
@@ -18,6 +19,7 @@ STRUCTURE_HEADING_JUMP = "STRUCTURE_HEADING_JUMP"
 STRUCTURE_DUPLICATE_SECTION = "STRUCTURE_DUPLICATE_SECTION"
 STRUCTURE_BROKEN_LOCAL_LINK = "STRUCTURE_BROKEN_LOCAL_LINK"
 STRUCTURE_ORPHANED_AI_DOC = "STRUCTURE_ORPHANED_AI_DOC"
+STRUCTURE_NO_HEADINGS = "STRUCTURE_NO_HEADINGS"
 
 
 class StructureAnalyzer:
@@ -51,6 +53,18 @@ class StructureAnalyzer:
                         )
                     )
             levels = [heading.level for heading in document.headings]
+            if not document.headings and _substantial_heading_less_document(document.text, document.token_count):
+                findings.append(
+                    Finding(
+                        code=STRUCTURE_NO_HEADINGS,
+                        category=FindingCategory.STRUCTURE,
+                        severity=FindingSeverity.WARNING,
+                        path=document.relative_path,
+                        message="Markdown file has substantial structured content but no headings.",
+                        evidence={"tokens": document.token_count},
+                        suggestion="Add headings that describe the major instruction or reference sections.",
+                    )
+                )
             for previous, current in zip(levels, levels[1:], strict=False):
                 if current - previous > MAX_HEADING_LEVEL_JUMP:
                     findings.append(
@@ -93,7 +107,7 @@ class StructureAnalyzer:
                         )
                     )
             if (
-                document.profile in AI_DOC_PROFILES
+                document.profile in MARKDOWN_LINK_REACHABLE_PROFILES
                 and not context.graph.incoming(document)
                 and document.relative_path not in ROOT_INSTRUCTION_FILES
             ):
@@ -109,3 +123,9 @@ class StructureAnalyzer:
                     )
                 )
         return findings
+
+
+def _substantial_heading_less_document(text: str, token_count: int) -> bool:
+    return token_count >= HEADING_LESS_DOCUMENT_TOKENS and any(
+        line.lstrip().startswith(("-", "*")) for line in text.splitlines()
+    )

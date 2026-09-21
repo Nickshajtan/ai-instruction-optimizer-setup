@@ -4,7 +4,7 @@ This guide explains the production behavior of `ai-doc optimize`. Agent-specific
 
 ## Mental Model
 
-The baseline remains a real Pareto competitor. Candidates are generated into an isolated output tree, pass safety gates, optionally pass semantic scenario evaluation, and are recommended only when the recommendation policy has evidence for preferring them. No generated candidate is required to win, and merely staying within configured tolerances is not enough: a recommended candidate must materially improve at least one recommendation dimension.
+The baseline remains a real Pareto competitor. Candidates are generated into an isolated output tree, pass safety gates, optionally pass semantic scenario evaluation, and are recommended only when the recommendation policy has evidence for preferring them. No generated candidate is required to win, and merely staying within configured tolerances is not enough: a recommended candidate needs to materially improve at least one recommendation dimension.
 
 The causal path is:
 
@@ -61,7 +61,7 @@ When the command is configured, adaptive semantic generation receives the curren
 
 Critical behavior has two complementary layers. Literal extraction protects explicit normative language such as MUST, NEVER, REQUIRED, and FORBIDDEN. The configured semantic service can additionally discover high-confidence critical behavior that lacks those exact keywords.
 
-Semantic discovery is treated as untrusted provider output until it is grounded against repository-owned source material. An accepted semantic critical invariant must identify a real source document, provide an evidence fragment that is present in that source, include evidence/rationale/confidence, and have a critical instruction or safety cue grounded in the repository evidence. Provider-declared `critical`, provider confidence, or a provider-authored summary containing MUST is not sufficient by itself to create a hard invariant.
+Semantic discovery is treated as untrusted provider output until it is grounded against repository-owned source material. An accepted semantic critical invariant is required to identify a real source document, provide an evidence fragment that is present in that source, include evidence/rationale/confidence, and have a critical instruction or safety cue grounded in the repository evidence. Provider-declared `critical`, provider confidence, or a provider-authored summary containing MUST is not sufficient by itself to create a hard invariant.
 
 Persisted accepted invariants retain their discovery source, source location, evidence fragment, confidence, and rationale. Malformed source paths, hallucinated evidence, and ordinary descriptive source text cannot be promoted merely by aggressive provider metadata.
 
@@ -87,17 +87,52 @@ This is deliberately still an approximation of agent loading behavior, not a cla
 
 Native/static checks and invariant verification are the authoritative A-tier constraints. They run without model calls and can reject unsafe candidates. Real Claude/Codex execution, benchmark harnesses, and repeated target-agent runs are out of scope for this optimizer path.
 
-`optimization.pairwise_semantic: true` or `ai-doc optimize --pairwise-semantic` enables a B-tier confidence layer after a candidate has survived deterministic gates and any required absolute semantic scenario evaluation. The pairwise evaluator compares the baseline and candidate for predicted instruction-following quality across clarity, ambiguity, scope precision, instruction hierarchy/priority, actionability, semantic requirement preservation, and conflicting-interpretation risk.
+`optimization.pairwise_semantic: true` or `ai-doc optimize --pairwise-semantic` requests a B-tier confidence layer after a candidate has survived deterministic gates and any required absolute semantic scenario evaluation. The pairwise evaluator compares the baseline and candidate for predicted instruction-following quality across clarity, ambiguity, scope precision, instruction hierarchy/priority, actionability, semantic requirement preservation, and conflicting-interpretation risk.
 
 Each dimension and the overall result uses `candidate`, `baseline`, `equivalent`, or `uncertain` with concise evidence. This evidence is recorded on candidate artifacts and may transparently support a recommendation, but missing, unavailable, budget-exhausted, equivalent, or uncertain B-tier evidence does not fail normal optimization.
 
 When `AI_DOC_SEMANTIC_COMMAND` is configured, the provider receives a `compare_pairwise` request containing baseline documents, candidate documents, scenarios, the fixed dimensions, allowed outcomes, and the ai-doc rubric. Without a command provider, `--pairwise-semantic` uses the optional DeepEval adapter; if DeepEval exposes `ArenaGEval`, ai-doc adapts that blinded pairwise API instead of comparing unrelated absolute scores. Framework details remain outside the domain result schema.
 
+Requested pairwise judging is not the same as performed pairwise judging. Candidates can
+be rejected by earlier deterministic, duplicate, invariant, budget, or semantic gates
+before they reach the pairwise evaluator. Optional pairwise can also be explicitly gated:
+`optimization.gated_pairwise: true` or `ai-doc optimize --gated-pairwise` skips pairwise
+for candidates that already have sufficient non-pairwise objective evidence for the
+current recommendation material-improvement rule. This is not positive inference from
+the absence of local/static findings; it uses existing objective evidence. It does not
+change required safety gates, GEPA re-gating, recommendation thresholds, or budget
+behavior.
+
+`run.json` and `report.json` therefore include:
+
+```json
+{
+  "pairwise_semantic_requested": true,
+  "pairwise_comparisons_performed": 0,
+  "pairwise_comparisons_skipped_not_needed": 1
+}
+```
+
+If pairwise judging was requested but no comparison occurred, the CLI prints a stderr
+diagnostic and preserves normal non-strict exit behavior. The diagnostic distinguishes
+intentional gated skips from runs where no candidate reached pairwise or no pairwise
+evaluator was available. `--require-pairwise-semantic` implies `--pairwise-semantic`,
+overrides optional gated skipping, and exits with semantic-evaluation failure code `3`
+when zero pairwise comparisons were performed. Deep scenario evaluation, semantic
+generation, invariant verification, prompt suboptimization, and intentional optional
+skips do not satisfy that postcondition.
+
+Optimization observations also record aggregate pairwise facts under
+`optimization.pairwise`, including whether pairwise judging was requested, how many
+comparisons were performed, how many optional comparisons were skipped as not needed,
+and counts for candidate-preferred, baseline-preferred, equivalent, and uncertain
+outcomes.
+
 ## Feedback And Repair
 
 A semantic failure can become structured feedback for a child candidate. The child is generated from the parent state, re-evaluated, and independently compared on the frontier. Persisted candidate evidence records the feedback that caused the repair, so the causal chain can be inspected after the run rather than reconstructed from logs.
 
-A repaired router must keep extracted detail reachable while preserving the useful context saving; semantic success alone is not permission to restore all detail to always-loaded context.
+A repaired router needs to keep extracted detail reachable while preserving the useful context saving; semantic success alone is not permission to restore all detail to always-loaded context.
 
 ## Telemetry And Budgets
 

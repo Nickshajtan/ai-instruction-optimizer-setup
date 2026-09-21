@@ -44,6 +44,8 @@ def run_static_check(
     if extensions:
         for analyzer in extensions.analyzers:
             findings.extend(analyzer.analyze(context))
+        for adapter in extensions.finding_adapters:
+            findings = adapter.adapt_findings(context, findings)
         findings = sort_findings(findings)
     duplicate_tokens = estimate_duplicate_tokens(context)
     cost = calculate_context_cost(context, duplicate_tokens)

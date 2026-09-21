@@ -13,6 +13,13 @@ large dependency or public contract without review.
 ## Evaluation And Optimization
 
 - DSPy integration.
+- Generic gated evidence execution framework. The current optimizer has a narrow
+  opt-in `gated_pairwise` policy for skipping optional pairwise judging when existing
+  non-pairwise objective evidence is already sufficient for the recommendation
+  material-improvement rule. This is not a generic evidence pipeline. Broader
+  orchestration for arbitrary stages, dependency graphs, applicability states, or
+  project-specific cascades remains deferred until repeated integrations show a stable
+  cross-project contract.
 - Promptfoo dogfooding validation: determine whether Promptfoo produces useful findings
   or evaluation evidence beyond A0 and the other existing tiers, enough to justify its
   dependency and operational cost. If it mostly duplicates A0, consider deprecation in a

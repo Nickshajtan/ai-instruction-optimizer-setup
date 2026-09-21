@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from ai_doc.analyzers.base import AnalysisContext, Analyzer
+from ai_doc.analyzers.base import AnalysisContext, Analyzer, FindingAdapter
 from ai_doc.domain.documents import Document, DocumentationSnapshot, DocumentProfile
 from ai_doc.domain.evaluations import (
     EvaluationResult,
@@ -67,6 +67,7 @@ __all__ = [
     "ExecutionStatus",
     "ExtensionRegistry",
     "Finding",
+    "FindingAdapter",
     "FindingCategory",
     "FindingSeverity",
     "LLMProvider",

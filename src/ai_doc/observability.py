@@ -11,7 +11,7 @@ from pydantic import BaseModel, Field
 
 from ai_doc import __version__
 from ai_doc.config.models import AiDocConfig
-from ai_doc.domain.evaluations import EvaluationResult
+from ai_doc.domain.evaluations import EvaluationResult, PairwiseOutcome
 from ai_doc.domain.findings import Finding
 from ai_doc.domain.optimization import CandidateCost, OptimizationRun
 from ai_doc.reporting.models import CheckReport, SearchOptimizeReport
@@ -81,6 +81,17 @@ class OptimizationObservation(BaseModel):
     final_candidate_id: str | None = None
     termination_reason: str
     repair_rounds: int | None = None
+    pairwise: PairwiseObservation | None = None
+
+
+class PairwiseObservation(BaseModel):
+    requested: bool
+    comparisons_performed: int
+    skipped_not_needed: int = 0
+    candidate_preferred: int = 0
+    baseline_preferred: int = 0
+    equivalent: int = 0
+    uncertain: int = 0
 
 
 class ProbeObservation(BaseModel):
@@ -330,6 +341,24 @@ def _optimization_observation(report: SearchOptimizeReport) -> OptimizationObser
         final_candidate_id=run.recommended_candidate_id,
         termination_reason=str(run.stopped_reason),
         repair_rounds=repair_rounds,
+        pairwise=_pairwise_observation(run),
+    )
+
+
+def _pairwise_observation(run: OptimizationRun) -> PairwiseObservation:
+    outcomes = [
+        candidate.evidence.pairwise_semantic.overall
+        for candidate in run.candidates
+        if candidate.evidence.pairwise_semantic is not None
+    ]
+    return PairwiseObservation(
+        requested=run.pairwise_semantic_requested,
+        comparisons_performed=run.pairwise_comparisons_performed,
+        skipped_not_needed=run.pairwise_comparisons_skipped_not_needed,
+        candidate_preferred=sum(1 for outcome in outcomes if outcome == PairwiseOutcome.CANDIDATE),
+        baseline_preferred=sum(1 for outcome in outcomes if outcome == PairwiseOutcome.BASELINE),
+        equivalent=sum(1 for outcome in outcomes if outcome == PairwiseOutcome.EQUIVALENT),
+        uncertain=sum(1 for outcome in outcomes if outcome == PairwiseOutcome.UNCERTAIN),
     )
 
 

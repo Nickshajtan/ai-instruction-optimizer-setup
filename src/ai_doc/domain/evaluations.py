@@ -52,6 +52,11 @@ class PairwiseOutcome(StrEnum):
     UNCERTAIN = "uncertain"
 
 
+class PairwiseExecutionDisposition(StrEnum):
+    PERFORMED = "performed"
+    SKIPPED_NOT_NEEDED = "skipped_not_needed"
+
+
 class PairwiseDimension(StrEnum):
     CLARITY = "clarity"
     AMBIGUITY = "ambiguity"

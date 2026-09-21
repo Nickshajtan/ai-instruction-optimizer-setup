@@ -6,6 +6,9 @@ from pathlib import Path
 from typer.testing import CliRunner
 
 from ai_doc.cli.main import app
+from ai_doc.config.models import DEFAULT_CONFIG
+from ai_doc.discovery.markdown_discovery import discover_markdown
+from ai_doc.tokens.counter import ApproximateTokenCounter
 
 
 def test_observability_disabled_does_not_create_observation_file(tmp_path: Path) -> None:
@@ -15,6 +18,72 @@ def test_observability_disabled_does_not_create_observation_file(tmp_path: Path)
 
     assert result.exit_code == 0
     assert not (tmp_path / ".ai-doc" / "observations.jsonl").exists()
+    assert "Observability is disabled for this run" not in result.stderr
+
+
+def test_explicit_config_omitting_observability_warns_without_writing_observations(tmp_path: Path) -> None:
+    config = tmp_path / "scoped.yaml"
+    config.write_text(
+        """
+version: 1
+include: [AGENTS.md]
+profiles:
+  AGENTS.md: instruction
+""",
+        encoding="utf-8",
+    )
+    (tmp_path / "AGENTS.md").write_text("# Rules\n\nRun validation.\n", encoding="utf-8")
+
+    result = CliRunner().invoke(app, ["check", str(tmp_path), "--config", str(config), "--format", "json"])
+
+    assert result.exit_code == 0
+    assert "Observability is disabled for this run" in result.stderr
+    assert str(config) in result.stderr
+    assert not (tmp_path / ".ai-doc" / "observations.jsonl").exists()
+
+
+def test_explicit_config_disabling_observability_warns(tmp_path: Path) -> None:
+    config = tmp_path / "scoped.yaml"
+    config.write_text(
+        """
+version: 1
+include: [AGENTS.md]
+profiles:
+  AGENTS.md: instruction
+observability:
+  enabled: false
+""",
+        encoding="utf-8",
+    )
+    (tmp_path / "AGENTS.md").write_text("# Rules\n\nRun validation.\n", encoding="utf-8")
+
+    result = CliRunner().invoke(app, ["check", str(tmp_path), "--config", str(config), "--format", "json"])
+
+    assert result.exit_code == 0
+    assert result.stderr.count("Observability is disabled for this run") == 1
+    assert not (tmp_path / ".ai-doc" / "observations.jsonl").exists()
+
+
+def test_explicit_config_enabling_observability_does_not_warn(tmp_path: Path) -> None:
+    config = tmp_path / "scoped.yaml"
+    config.write_text(
+        """
+version: 1
+include: [AGENTS.md]
+profiles:
+  AGENTS.md: instruction
+observability:
+  enabled: true
+""",
+        encoding="utf-8",
+    )
+    (tmp_path / "AGENTS.md").write_text("# Rules\n\nRun validation.\n", encoding="utf-8")
+
+    result = CliRunner().invoke(app, ["check", str(tmp_path), "--config", str(config), "--format", "json"])
+
+    assert result.exit_code == 0
+    assert "Observability is disabled for this run" not in result.stderr
+    assert (tmp_path / ".ai-doc" / "observations.jsonl").exists()
 
 
 def test_enabled_observability_appends_parseable_privacy_safe_records(tmp_path: Path) -> None:
@@ -120,6 +189,303 @@ extensions:
     assert "provider" not in record["providers"][0]
     assert "model" not in record["providers"][0]
     assert record["optimization"]["candidates_generated"] >= 1
+
+
+def test_optimize_observation_records_pairwise_execution_facts(tmp_path: Path) -> None:
+    _write_project(
+        tmp_path,
+        """
+observability:
+  enabled: true
+components:
+  provider: company
+optimization:
+  strategy: balanced
+  pairwise_semantic: true
+  population:
+    initial_candidates: 2
+  search:
+    max_candidates: 2
+    max_llm_requests: 20
+extensions:
+  - path: .ai-doc/extensions/observed.py
+""",
+    )
+    _write_provider_extension(tmp_path)
+
+    result = CliRunner().invoke(app, ["optimize", str(tmp_path), "--format", "json"])
+
+    assert result.exit_code in {0, 4}
+    record = json.loads((tmp_path / ".ai-doc" / "observations.jsonl").read_text(encoding="utf-8").splitlines()[-1])
+    pairwise = record["optimization"]["pairwise"]
+    assert pairwise["requested"] is True
+    assert pairwise["comparisons_performed"] >= 1
+    assert pairwise["uncertain"] >= 1
+
+
+def test_pairwise_semantic_warns_when_requested_but_not_performed(tmp_path: Path) -> None:
+    _write_project(tmp_path)
+
+    result = CliRunner().invoke(
+        app,
+        ["optimize", str(tmp_path), "--strategy", "conservative", "--pairwise-semantic", "--format", "json"],
+    )
+
+    assert result.exit_code in {0, 4}
+    report = json.loads(result.stdout)
+    assert report["run"]["pairwise_semantic_requested"] is True
+    assert report["run"]["pairwise_comparisons_performed"] == 0
+    assert "Pairwise semantic judging was requested but no comparison was performed:" in result.stderr
+    assert "This run did NOT receive a pairwise semantic judgment." in result.stderr
+
+
+def test_gated_pairwise_zero_performed_diagnostic_distinguishes_intentional_skip(tmp_path: Path) -> None:
+    _write_project(
+        tmp_path,
+        """
+components:
+  provider: company
+optimization:
+  strategy: balanced
+  pairwise_semantic: true
+  gated_pairwise: true
+  population:
+    initial_candidates: 1
+  search:
+    max_candidates: 1
+    max_llm_requests: 20
+extensions:
+  - path: .ai-doc/extensions/observed.py
+""",
+    )
+    (tmp_path / "AGENTS.md").write_text(
+        "# Rules\n\n"
+        "- Follow the concrete validation checklist before merging a documentation optimization.\n"
+        "- Follow the concrete validation checklist before merging a documentation optimization.\n",
+        encoding="utf-8",
+    )
+    _write_provider_extension(tmp_path)
+
+    result = CliRunner().invoke(app, ["optimize", str(tmp_path), "--format", "json"])
+
+    assert result.exit_code in {0, 4}
+    report = json.loads(result.stdout)
+    run = report["run"]
+    assert run["pairwise_semantic_requested"] is True
+    assert run["pairwise_comparisons_performed"] == 0
+    assert run["pairwise_comparisons_skipped_not_needed"] >= 1
+    assert "already had sufficient non-pairwise objective evidence" in result.stderr
+    assert "Other candidates may not have reached optional pairwise judging." in result.stderr
+    assert "No optional pairwise semantic judgment was needed for this run." not in result.stderr
+    assert "This run did NOT receive a pairwise semantic judgment." not in result.stderr
+
+
+def test_require_pairwise_semantic_fails_when_not_performed(tmp_path: Path) -> None:
+    _write_project(tmp_path)
+
+    result = CliRunner().invoke(
+        app,
+        ["optimize", str(tmp_path), "--strategy", "conservative", "--require-pairwise-semantic", "--format", "json"],
+    )
+
+    assert result.exit_code == 3
+    report = json.loads(result.stdout)
+    assert report["run"]["pairwise_semantic_requested"] is True
+    assert report["run"]["pairwise_comparisons_performed"] == 0
+    assert "Required pairwise semantic judging was not performed:" in result.stderr
+
+
+def test_require_pairwise_semantic_succeeds_when_comparison_occurs(tmp_path: Path) -> None:
+    _write_project(
+        tmp_path,
+        """
+components:
+  provider: company
+optimization:
+  strategy: balanced
+  population:
+    initial_candidates: 2
+  search:
+    max_candidates: 2
+    max_llm_requests: 20
+extensions:
+  - path: .ai-doc/extensions/observed.py
+""",
+    )
+    _write_provider_extension(tmp_path)
+
+    result = CliRunner().invoke(app, ["optimize", str(tmp_path), "--require-pairwise-semantic", "--format", "json"])
+
+    assert result.exit_code in {0, 4}
+    report = json.loads(result.stdout)
+    assert report["run"]["pairwise_semantic_requested"] is True
+    assert report["run"]["pairwise_comparisons_performed"] >= 1
+    assert "not performed" not in result.stderr
+
+
+def test_optimize_explicit_config_cannot_rediscover_default_output_root(tmp_path: Path) -> None:
+    (tmp_path / "docs").mkdir()
+    (tmp_path / "docs" / "source.md").write_text("# Source\n\nRun validation.\n", encoding="utf-8")
+    generated = tmp_path / ".ai-doc-output" / "previous" / "candidates" / "C001"
+    generated.mkdir(parents=True)
+    (generated / "generated.md").write_text("# Generated\n\nThis is optimizer output.\n", encoding="utf-8")
+    nested = tmp_path / ".ai-doc-output" / "a" / "b" / "c"
+    nested.mkdir(parents=True)
+    (nested / "candidate.md").write_text("# Nested Generated\n\nIgnore me.\n", encoding="utf-8")
+    config = tmp_path / "scoped.yaml"
+    config.write_text(
+        """
+version: 1
+include:
+  - "**/*.md"
+exclude:
+  - "vendor/**"
+profiles:
+  "docs/**/*.md": reference
+""",
+        encoding="utf-8",
+    )
+
+    result = CliRunner().invoke(
+        app,
+        ["optimize", str(tmp_path), "--config", str(config), "--strategy", "conservative", "--format", "json"],
+    )
+
+    assert result.exit_code in {0, 4}
+    report = json.loads(result.stdout)
+    assert report["baseline"]["files_analyzed"] == 1
+    assert report["baseline"]["profiles"] == {"docs/source.md": "reference"}
+
+
+def test_optimize_protects_custom_output_root_when_inside_project(tmp_path: Path) -> None:
+    (tmp_path / "docs").mkdir()
+    (tmp_path / "docs" / "source.md").write_text("# Source\n\nRun validation.\n", encoding="utf-8")
+    generated = tmp_path / "tmp" / "optimizer-results" / "previous"
+    generated.mkdir(parents=True)
+    (generated / "generated.md").write_text("# Generated\n\nThis is optimizer output.\n", encoding="utf-8")
+    config = tmp_path / "scoped.yaml"
+    config.write_text(
+        """
+version: 1
+include:
+  - "**/*.md"
+profiles:
+  "docs/**/*.md": reference
+""",
+        encoding="utf-8",
+    )
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "optimize",
+            str(tmp_path),
+            "--config",
+            str(config),
+            "--output",
+            "tmp/optimizer-results",
+            "--strategy",
+            "conservative",
+            "--format",
+            "json",
+        ],
+    )
+
+    assert result.exit_code in {0, 4}
+    report = json.loads(result.stdout)
+    assert report["baseline"]["files_analyzed"] == 1
+    assert report["baseline"]["profiles"] == {"docs/source.md": "reference"}
+
+
+def test_optimize_protects_normalized_custom_output_root(tmp_path: Path) -> None:
+    (tmp_path / "docs").mkdir()
+    (tmp_path / "docs" / "source.md").write_text("# Source\n\nRun validation.\n", encoding="utf-8")
+    generated = tmp_path / "tmp" / "optimizer-results"
+    generated.mkdir(parents=True)
+    (generated / "generated.md").write_text("# Generated\n\nThis is optimizer output.\n", encoding="utf-8")
+    config = tmp_path / "scoped.yaml"
+    config.write_text(
+        """
+version: 1
+include:
+  - "**/*.md"
+profiles:
+  "docs/**/*.md": reference
+""",
+        encoding="utf-8",
+    )
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "optimize",
+            str(tmp_path),
+            "--config",
+            str(config),
+            "--output",
+            "tmp/../tmp/optimizer-results",
+            "--strategy",
+            "conservative",
+            "--format",
+            "json",
+        ],
+    )
+
+    assert result.exit_code in {0, 4}
+    report = json.loads(result.stdout)
+    assert report["baseline"]["files_analyzed"] == 1
+    assert report["baseline"]["profiles"] == {"docs/source.md": "reference"}
+
+
+def test_optimize_does_not_exclude_similarly_named_unrelated_directories(tmp_path: Path) -> None:
+    (tmp_path / "docs").mkdir()
+    (tmp_path / "docs" / "source.md").write_text("# Source\n\nRun validation.\n", encoding="utf-8")
+    similar = tmp_path / "notes" / ".ai-doc-output-archive"
+    similar.mkdir(parents=True)
+    (similar / "kept.md").write_text("# Kept\n\nRun archive validation.\n", encoding="utf-8")
+    config = tmp_path / "scoped.yaml"
+    config.write_text(
+        """
+version: 1
+include:
+  - "**/*.md"
+profiles:
+  "docs/**/*.md": reference
+  "notes/**/*.md": reference
+""",
+        encoding="utf-8",
+    )
+
+    result = CliRunner().invoke(
+        app,
+        ["optimize", str(tmp_path), "--config", str(config), "--strategy", "conservative", "--format", "json"],
+    )
+
+    assert result.exit_code in {0, 4}
+    report = json.loads(result.stdout)
+    assert report["baseline"]["profiles"] == {
+        "docs/source.md": "reference",
+        "notes/.ai-doc-output-archive/kept.md": "reference",
+    }
+
+
+def test_generic_discovery_can_still_inspect_optimizer_output_when_configured(tmp_path: Path) -> None:
+    generated = tmp_path / ".ai-doc-output" / "previous"
+    generated.mkdir(parents=True)
+    (generated / "generated.md").write_text("# Generated\n\nInspectable artifact.\n", encoding="utf-8")
+    config = DEFAULT_CONFIG.model_copy(
+        update={
+            "include": [".ai-doc-output/**/*.md"],
+            "exclude": [],
+        },
+        deep=True,
+    )
+
+    snapshot = discover_markdown(tmp_path, config, ApproximateTokenCounter())
+
+    assert [document.relative_path for document in snapshot.documents] == [
+        ".ai-doc-output/previous/generated.md"
+    ]
 
 
 def _write_project(root: Path, config_extra: str = "") -> None:

@@ -40,8 +40,8 @@ Do not infer capability from interfaces alone. Require a production execution pa
 - Request/token/USD limits are accumulated provider-boundary controls. Without a trustworthy pre-call estimate, one completed call may report an overrun; verify that the usage is retained, the run stops normally, and no later external work begins after exhaustion is known.
 - For a budget-stopped run, require `run.json`/`report.json` plus an appropriate `stopped_*_budget` reason rather than treating ordinary exhaustion as an internal error.
 - Literal survival of a critical rule is not conclusive when semantic verification is configured. Inspect the global semantic decision for contradictory exceptions.
-- A known cheap static hard failure must reject before GEPA. If GEPA changes content, the changed tree must be gated again before later semantic work.
-- GEPA has no safety bypass: its output must survive the same applicable static, invariant, and evaluation gates.
+- A known cheap static hard failure is required to reject before GEPA. If GEPA changes content, the changed tree is required to be gated again before later semantic work.
+- GEPA has no safety bypass: its output is required to survive the same applicable static, invariant, and evaluation gates.
 
 ## Repair-Loop Review
 

@@ -54,8 +54,8 @@ Stable exit codes:
 
 - Extensions must be explicitly configured.
 - Extension paths must stay inside the project root.
-- In-process extensions register analyzer, evaluator, token-counter, recommendation-policy,
-  or semantic-provider behavior through `register(registry)`.
+- In-process extensions register analyzer, finding-adapter, evaluator, token-counter,
+  recommendation-policy, or semantic-provider behavior through `register(registry)`.
 - The registry validates registrations and reports actionable errors.
 - Extension examples must import from `ai_doc.api.v1`.
 - Extension loading executes code; document trust requirements wherever extensions are
@@ -190,9 +190,9 @@ Stable exit codes:
 - Normative project rules belong in this standards document.
 - Architecture rationale belongs in `docs/design/architecture.md` and `docs/design/decisions.md`.
 - Deferred work belongs in `docs/design/deferred.md`.
-- User-facing documentation MUST NOT promote an internal abstraction, configuration
+- User-facing documentation must not promote an internal abstraction, configuration
   declaration, approximation, test adapter, or deferred capability into a stronger product
   capability without evidence from the production execution path.
-- Ecosystem/runtime claims MUST distinguish file discovery and parsing support from
+- Ecosystem/runtime claims must distinguish file discovery and parsing support from
   runtime-behavior support, target-adapter observation, SDK/native integration, and
   deferred loaders.

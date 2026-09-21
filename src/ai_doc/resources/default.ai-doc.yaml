@@ -59,6 +59,8 @@ optimization:
   engine: deepeval
   # Optional B-tier predictive pairwise judging; native/static A-tier checks remain authoritative.
   pairwise_semantic: false
+  # Optional shortcut: skip pairwise when existing objective evidence is already sufficient.
+  gated_pairwise: false
   strategy: balanced
   population:
     initial_candidates: 4

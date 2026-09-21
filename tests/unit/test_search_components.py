@@ -6,8 +6,15 @@ import pytest
 from ai_doc.config.models import DEFAULT_CONFIG
 from ai_doc.config.search import RecommendationConfig, RuntimeSearchConfig
 from ai_doc.domain.documents import DocumentationSnapshot
-from ai_doc.domain.evaluations import EvaluationSuite, PairwiseOutcome
-from ai_doc.domain.findings import Finding
+from ai_doc.domain.evaluations import (
+    EvaluationResult,
+    EvaluationScenario,
+    EvaluationSuite,
+    PairwiseExecutionDisposition,
+    PairwiseOutcome,
+    PairwiseSemanticResult,
+)
+from ai_doc.domain.findings import Finding, FindingCategory, FindingSeverity
 from ai_doc.domain.optimization import (
     Candidate,
     CandidateCost,
@@ -21,8 +28,15 @@ from ai_doc.domain.scores import ContextCost
 from ai_doc.optimizer.evaluation import fingerprint_candidate, hard_constraint_failures
 from ai_doc.optimizer.feedback import update_search_memory
 from ai_doc.optimizer.recommendation import RecommendationPolicy
-from ai_doc.optimizer.search import PAIRWISE_BUDGET_REJECTION, SearchController, SearchState
-from ai_doc.providers.semantic import SemanticBudgetExceeded
+from ai_doc.optimizer.search import (
+    PAIRWISE_BUDGET_REJECTION,
+    CandidateDraft,
+    CandidateWorkspace,
+    EvaluationContext,
+    SearchController,
+    SearchState,
+)
+from ai_doc.providers.semantic import ProviderUsage, SemanticBudgetExceeded
 from ai_doc.reporting.models import CheckReport
 
 
@@ -109,6 +123,58 @@ class BrokenPairwiseEvaluator:
         raise RuntimeError("provider offline")
 
 
+class CountingPairwiseEvaluator:
+    def __init__(self, outcome: PairwiseOutcome = PairwiseOutcome.CANDIDATE) -> None:
+        self.calls = 0
+        self.outcome = outcome
+
+    def compare_pairwise(self, *_args: object) -> PairwiseSemanticResult:
+        self.calls += 1
+        return PairwiseSemanticResult(engine="test-pairwise", overall=self.outcome)
+
+
+class FailingEvaluator:
+    def evaluate(self, *_args: object) -> EvaluationResult:
+        return EvaluationResult(engine="test", passed=False)
+
+
+def _search_context(tmp_path: Path, baseline: Candidate, baseline_tokens: int = 1000) -> EvaluationContext:
+    snapshot = DocumentationSnapshot(root=tmp_path, documents=())
+    return EvaluationContext(snapshot, baseline, EvaluationSuite(), _report(baseline_tokens), [], 0, tmp_path)
+
+
+def _search_context_with_scenario(tmp_path: Path, baseline: Candidate) -> EvaluationContext:
+    snapshot = DocumentationSnapshot(root=tmp_path, documents=())
+    suite = EvaluationSuite(scenarios=[EvaluationScenario(id="case", task="follow the rules")])
+    return EvaluationContext(snapshot, baseline, suite, _report(1000), [], 0, tmp_path)
+
+
+def _draft(parent: Candidate) -> CandidateDraft:
+    return CandidateDraft(
+        candidate_id="C001",
+        generation=1,
+        parent=parent,
+        strategy="test",
+        proposal=CandidateProposal(operations=[]),
+        rendered={"AGENTS.md": "# Candidate\n"},
+        source=DocumentationSnapshot(root=Path("."), documents=()),
+        feedback=None,
+        generation_usage=ProviderUsage(requests=0),
+        gepa_usage=ProviderUsage(requests=0),
+    )
+
+
+def _workspace(tmp_path: Path, tokens: int, findings: list[Finding] | None = None) -> CandidateWorkspace:
+    candidate_dir = tmp_path / "candidate"
+    candidate_dir.mkdir(exist_ok=True)
+    return CandidateWorkspace(
+        candidate_dir=candidate_dir,
+        diff_path=tmp_path / "diff.patch",
+        report=_report(tokens, findings),
+        snapshot=DocumentationSnapshot(root=tmp_path, documents=()),
+    )
+
+
 def test_pairwise_budget_exhaustion_remains_optional_uncertain(tmp_path: Path) -> None:
     controller = SearchController(
         DEFAULT_CONFIG,
@@ -137,6 +203,205 @@ def test_pairwise_provider_failure_propagates_operational_error(tmp_path: Path) 
 
     with pytest.raises(RuntimeError, match="provider offline"):
         controller._semantic_pairwise(snapshot, snapshot, EvaluationSuite())
+
+
+def test_gated_pairwise_disabled_preserves_optional_pairwise_execution(tmp_path: Path) -> None:
+    baseline = _candidate("baseline", 1000, clarity=0.9)
+    evaluator = CountingPairwiseEvaluator()
+    controller = SearchController(
+        DEFAULT_CONFIG,
+        RuntimeSearchConfig(pairwise_semantic=True, gated_pairwise=False),
+        tmp_path,
+        pairwise_semantic_evaluator=evaluator,
+    )
+
+    candidate, _, _ = controller._evaluate_candidate(
+        _draft(baseline),
+        _search_context_with_scenario(tmp_path, baseline),
+        set(),
+        _workspace(tmp_path, 500, []),
+        [],
+    )
+
+    assert evaluator.calls == 1
+    assert candidate.evidence.pairwise_semantic is not None
+    assert candidate.evidence.pairwise_semantic_disposition == PairwiseExecutionDisposition.PERFORMED
+
+
+def test_gated_pairwise_skips_when_objective_evidence_is_sufficient(tmp_path: Path) -> None:
+    baseline = _candidate("baseline", 1000, clarity=0.9)
+    evaluator = CountingPairwiseEvaluator()
+    controller = SearchController(
+        DEFAULT_CONFIG,
+        RuntimeSearchConfig(pairwise_semantic=True, gated_pairwise=True),
+        tmp_path,
+        pairwise_semantic_evaluator=evaluator,
+    )
+
+    candidate, _, _ = controller._evaluate_candidate(
+        _draft(baseline),
+        _search_context_with_scenario(tmp_path, baseline),
+        set(),
+        _workspace(tmp_path, 500, []),
+        [],
+    )
+
+    assert evaluator.calls == 0
+    assert candidate.evidence.pairwise_semantic is None
+    assert candidate.evidence.pairwise_semantic_disposition == PairwiseExecutionDisposition.SKIPPED_NOT_NEEDED
+    run = controller._build_run(
+        SearchState(candidates=[baseline, candidate], reports={}),
+        baseline,
+        StopReason.PATIENCE,
+        tmp_path,
+    )
+    assert run.pairwise_comparisons_performed == 0
+    assert run.pairwise_comparisons_skipped_not_needed == 1
+
+
+def test_gated_pairwise_runs_when_material_improvement_needs_pairwise(tmp_path: Path) -> None:
+    baseline = _candidate("baseline", 1000, clarity=1.0)
+    evaluator = CountingPairwiseEvaluator()
+    controller = SearchController(
+        DEFAULT_CONFIG,
+        RuntimeSearchConfig(pairwise_semantic=True, gated_pairwise=True),
+        tmp_path,
+        pairwise_semantic_evaluator=evaluator,
+    )
+
+    candidate, _, _ = controller._evaluate_candidate(
+        _draft(baseline),
+        _search_context(tmp_path, baseline),
+        set(),
+        _workspace(tmp_path, 1000, []),
+        [],
+    )
+
+    assert evaluator.calls == 1
+    assert candidate.evidence.pairwise_semantic is not None
+    assert candidate.evidence.pairwise_semantic_disposition == PairwiseExecutionDisposition.PERFORMED
+    assert controller._pairwise_comparisons_performed == 1
+
+
+def test_required_pairwise_overrides_optional_gate(tmp_path: Path) -> None:
+    baseline = _candidate("baseline", 1000, clarity=0.9)
+    evaluator = CountingPairwiseEvaluator()
+    controller = SearchController(
+        DEFAULT_CONFIG,
+        RuntimeSearchConfig(pairwise_semantic=True, require_pairwise_semantic=True, gated_pairwise=True),
+        tmp_path,
+        pairwise_semantic_evaluator=evaluator,
+    )
+
+    candidate, _, _ = controller._evaluate_candidate(
+        _draft(baseline),
+        _search_context(tmp_path, baseline),
+        set(),
+        _workspace(tmp_path, 500, []),
+        [],
+    )
+
+    assert evaluator.calls == 1
+    assert candidate.evidence.pairwise_semantic_disposition == PairwiseExecutionDisposition.PERFORMED
+
+
+def test_static_rejection_does_not_mark_pairwise_not_needed(tmp_path: Path) -> None:
+    baseline = _candidate("baseline", 1000, clarity=0.9)
+    evaluator = CountingPairwiseEvaluator()
+    controller = SearchController(
+        DEFAULT_CONFIG,
+        RuntimeSearchConfig(pairwise_semantic=True, gated_pairwise=True),
+        tmp_path,
+        pairwise_semantic_evaluator=evaluator,
+    )
+    finding = Finding(
+        code="x-error",
+        category=FindingCategory.RISK,
+        severity=FindingSeverity.ERROR,
+        path="AGENTS.md",
+        message="new error",
+    )
+
+    candidate, _, _ = controller._evaluate_candidate(
+        _draft(baseline),
+        _search_context(tmp_path, baseline),
+        set(),
+        _workspace(tmp_path, 500, [finding]),
+        [],
+    )
+
+    assert evaluator.calls == 0
+    assert candidate.status == "rejected"
+    assert candidate.evidence.pairwise_semantic_disposition is None
+
+
+def test_semantic_evaluation_rejection_does_not_mark_pairwise_not_needed(tmp_path: Path) -> None:
+    baseline = _candidate("baseline", 1000, clarity=1.0)
+    pairwise = CountingPairwiseEvaluator()
+    controller = SearchController(
+        DEFAULT_CONFIG,
+        RuntimeSearchConfig(pairwise_semantic=True, gated_pairwise=True),
+        tmp_path,
+        evaluator=FailingEvaluator(),
+        pairwise_semantic_evaluator=pairwise,
+    )
+
+    candidate, _, _ = controller._evaluate_candidate(
+        _draft(baseline),
+        _search_context_with_scenario(tmp_path, baseline),
+        set(),
+        _workspace(tmp_path, 500, []),
+        [],
+    )
+
+    assert pairwise.calls == 0
+    assert candidate.status == "rejected"
+    assert candidate.evidence.pairwise_semantic_disposition is None
+
+
+def test_unavailable_pairwise_is_not_marked_not_needed(tmp_path: Path) -> None:
+    baseline = _candidate("baseline", 1000, clarity=0.9)
+    controller = SearchController(
+        DEFAULT_CONFIG,
+        RuntimeSearchConfig(pairwise_semantic=True, gated_pairwise=True),
+        tmp_path,
+    )
+
+    candidate, _, _ = controller._evaluate_candidate(
+        _draft(baseline),
+        _search_context(tmp_path, baseline),
+        set(),
+        _workspace(tmp_path, 500, []),
+        [],
+    )
+
+    assert candidate.evidence.pairwise_semantic is None
+    assert candidate.evidence.pairwise_semantic_disposition is None
+
+
+def test_budget_blocked_pairwise_is_not_marked_not_needed(tmp_path: Path) -> None:
+    baseline = _candidate("baseline", 1000, clarity=0.9)
+    evaluator = CountingPairwiseEvaluator()
+    runtime = RuntimeSearchConfig(pairwise_semantic=True, gated_pairwise=True)
+    runtime.search.max_llm_requests = 0
+    controller = SearchController(
+        DEFAULT_CONFIG,
+        runtime,
+        tmp_path,
+        pairwise_semantic_evaluator=evaluator,
+    )
+
+    candidate, _, stop = controller._evaluate_candidate(
+        _draft(baseline),
+        _search_context(tmp_path, baseline),
+        set(),
+        _workspace(tmp_path, 500, []),
+        [],
+    )
+
+    assert stop == StopReason.REQUEST_BUDGET
+    assert evaluator.calls == 0
+    assert candidate.evidence.pairwise_semantic_disposition is None
 
 
 def test_run_reason_uses_recommended_candidate_evidence(tmp_path: Path) -> None:

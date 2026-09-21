@@ -119,7 +119,12 @@ def _reliability_eligible(candidate: ObjectiveVector, baseline: ObjectiveVector,
 
 def _material_improvement(candidate_record: Candidate, candidate: ObjectiveVector, baseline: ObjectiveVector) -> bool:
     """Require evidence that replacing the baseline improves at least one optimization objective."""
-    return bool(_improved_objectives(candidate, baseline)) or _pairwise_candidate_preferred(candidate_record)
+    return has_non_pairwise_material_improvement(candidate, baseline) or _pairwise_candidate_preferred(candidate_record)
+
+
+def has_non_pairwise_material_improvement(candidate: ObjectiveVector, baseline: ObjectiveVector) -> bool:
+    """Return whether existing objective evidence already supplies material improvement."""
+    return bool(_improved_objectives(candidate, baseline))
 
 
 def _lower_optional(candidate: float | None, baseline: float | None) -> bool:

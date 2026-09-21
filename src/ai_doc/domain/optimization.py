@@ -6,7 +6,12 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-from ai_doc.domain.evaluations import EvaluationCaseResult, EvaluationResult, PairwiseSemanticResult
+from ai_doc.domain.evaluations import (
+    EvaluationCaseResult,
+    EvaluationResult,
+    PairwiseExecutionDisposition,
+    PairwiseSemanticResult,
+)
 from ai_doc.domain.findings import Finding
 from ai_doc.domain.proposals import CandidateProposal
 
@@ -117,6 +122,7 @@ class CandidateEvidence(BaseModel):
     invariant_decisions: list[InvariantDecision] = Field(default_factory=list)
     effective_context: dict[str, list[str]] = Field(default_factory=dict)
     pairwise_semantic: PairwiseSemanticResult | None = None
+    pairwise_semantic_disposition: PairwiseExecutionDisposition | None = None
     recommendation_reason: str | None = None
 
 
@@ -166,6 +172,9 @@ class OptimizationRun(BaseModel):
     strategy: str
     seed: int | None = None
     baseline_candidate_id: str = "baseline"
+    pairwise_semantic_requested: bool = False
+    pairwise_comparisons_performed: int = Field(default=0, ge=0)
+    pairwise_comparisons_skipped_not_needed: int = Field(default=0, ge=0)
     candidates: list[Candidate] = Field(default_factory=list)
     frontier: ParetoArchive = Field(default_factory=ParetoArchive)
     recommended_candidate_id: str | None = None

@@ -124,7 +124,7 @@ When semantic verification is configured, exact literal survival is not a safety
 
 Deterministic strategies remain cheap and reproducible. Production semantic generation receives documents, invariants, strategy, previous summaries, explored transformations, structured feedback, and search memory. Rendered output enters the staged safety/evaluation/Pareto path.
 
-Feedback is derived from candidate evidence. A repair child is a normal candidate and must pass the same gates and semantic evaluation. Persisted evidence keeps the feedback that produced the child.
+Feedback is derived from candidate evidence. A repair child is a normal candidate and is required to pass the same gates and semantic evaluation. Persisted evidence keeps the feedback that produced the child.
 
 ## Pareto And Recommendation
 
@@ -221,4 +221,4 @@ Do not import optimizer/evaluator/provider internals from project extensions unl
 
 ## Where To Read Next
 
-For operational usage, read [Semantic Optimization](../guides/semantic-optimization.md). Until the v0.3 acceptance cycle is closed on a green branch head, [`../../specs/semantic-optimizer-core-v0.3.md`](../../specs/semantic-optimizer-core-v0.3.md) remains the authoritative acceptance document.
+For operational usage, read [Semantic Optimization](../guides/semantic-optimization.md).

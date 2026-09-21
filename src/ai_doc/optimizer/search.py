@@ -15,6 +15,7 @@ from ai_doc.domain.evaluations import (
     EvaluationResult,
     EvaluationSuite,
     Evaluator,
+    PairwiseExecutionDisposition,
     PairwiseSemanticEvaluator,
     PairwiseSemanticResult,
 )
@@ -25,6 +26,7 @@ from ai_doc.domain.optimization import (
     CandidateFingerprint,
     CandidateStatus,
     InvariantDecision,
+    ObjectiveVector,
     OptimizationFeedback,
     OptimizationRun,
     SearchMemory,
@@ -53,7 +55,7 @@ from ai_doc.optimizer.invariants import (
 )
 from ai_doc.optimizer.pareto import ParetoArchiveBuilder, ParetoSelector
 from ai_doc.optimizer.prompt_suboptimizer import PromptArtifact, PromptSubOptimizer
-from ai_doc.optimizer.recommendation import RecommendationPolicy
+from ai_doc.optimizer.recommendation import RecommendationPolicy, has_non_pairwise_material_improvement
 from ai_doc.optimizer.semantic import uncertain_pairwise_result
 from ai_doc.plugins.registry import ExtensionRegistry
 from ai_doc.providers.semantic import ProviderUsage, SemanticBudgetExceeded, UsageDrainer
@@ -89,6 +91,7 @@ class SearchState:
 @dataclass(frozen=True)
 class EvaluationContext:
     baseline: DocumentationSnapshot
+    baseline_candidate: Candidate
     suite: EvaluationSuite
     baseline_report: CheckReport
     invariants: list[Invariant]
@@ -163,6 +166,8 @@ class SearchController:  # pylint: disable=too-many-instance-attributes
         self.semantic_invariant_verifier = semantic_invariant_verifier
         self.semantic_invariant_discoverer = semantic_invariant_discoverer
         self.prompt_suboptimizer = prompt_suboptimizer
+        self._pairwise_comparisons_performed = 0
+        self._pairwise_comparisons_skipped_not_needed = 0
 
     @staticmethod
     def default_recommendation_policy(runtime: RuntimeSearchConfig) -> RecommendationPolicy:
@@ -171,6 +176,8 @@ class SearchController:  # pylint: disable=too-many-instance-attributes
     def optimize(
         self, baseline: DocumentationSnapshot, suite: EvaluationSuite, baseline_report: CheckReport
     ) -> SearchResult:
+        self._pairwise_comparisons_performed = 0
+        self._pairwise_comparisons_skipped_not_needed = 0
         run_dir = create_run_dir(self.output_root)
         write_snapshot_tree(baseline, run_dir / "baseline")
         invariants = extract_invariants(baseline, self.semantic_invariant_discoverer)
@@ -181,7 +188,15 @@ class SearchController:  # pylint: disable=too-many-instance-attributes
             candidates=[baseline_candidate],
             reports={BASELINE_CANDIDATE_ID: baseline_report},
         )
-        context = EvaluationContext(baseline, suite, baseline_report, invariants, critical_count, run_dir)
+        context = EvaluationContext(
+            baseline,
+            baseline_candidate,
+            suite,
+            baseline_report,
+            invariants,
+            critical_count,
+            run_dir,
+        )
         initial_stop = self._budget_stop_for_candidates(state.candidates)
         if initial_stop is not None:
             state.budget_stop_stage = "semantic invariant discovery"
@@ -438,6 +453,13 @@ class SearchController:  # pylint: disable=too-many-instance-attributes
             draft.gepa_usage,
         )
         budget_stop = self._budget_stop_with_extra(prior_candidates, partial_cost)
+        candidate_objective = objective_from_report(
+            workspace.report,
+            regressions,
+            context.critical_count,
+            None,
+        )
+        pairwise_disposition: PairwiseExecutionDisposition | None = None
         if tier0 or duplicate or budget_stop is not None:
             evaluation = None
             semantic_usage = ProviderUsage(requests=0)
@@ -445,11 +467,24 @@ class SearchController:  # pylint: disable=too-many-instance-attributes
             pairwise_usage = ProviderUsage(requests=0)
         else:
             evaluation, semantic_usage = self._semantic_evaluate(context.baseline, workspace.snapshot, context.suite)
+            candidate_objective = objective_from_report(
+                workspace.report,
+                regressions,
+                context.critical_count,
+                evaluation,
+            )
             if evaluation is not None and not evaluation.passed:
                 pairwise = None
                 pairwise_usage = ProviderUsage(requests=0)
+            elif self._optional_pairwise_not_needed(context.baseline_candidate, candidate_objective):
+                pairwise = None
+                pairwise_usage = ProviderUsage(requests=0)
+                pairwise_disposition = PairwiseExecutionDisposition.SKIPPED_NOT_NEEDED
+                self._pairwise_comparisons_skipped_not_needed += 1
             else:
                 pairwise, pairwise_usage = self._semantic_pairwise(context.baseline, workspace.snapshot, context.suite)
+                if pairwise is not None:
+                    pairwise_disposition = PairwiseExecutionDisposition.PERFORMED
         evaluation_usage = _combine_usage(invariant_usage, semantic_usage, pairwise_usage)
         failures = hard_constraint_failures(workspace.report, regressions, evaluation, context.baseline_report)
         if duplicate:
@@ -466,6 +501,7 @@ class SearchController:  # pylint: disable=too-many-instance-attributes
             evaluation_usage,
             failures,
             pairwise=pairwise,
+            pairwise_disposition=pairwise_disposition,
             fingerprint=fingerprint,
         )
         self._write_candidate_evidence(candidate, workspace, evaluation)
@@ -483,6 +519,7 @@ class SearchController:  # pylint: disable=too-many-instance-attributes
         evaluation_usage: ProviderUsage,
         failures: list[str],
         pairwise: PairwiseSemanticResult | None = None,
+        pairwise_disposition: PairwiseExecutionDisposition | None = None,
         fingerprint: CandidateFingerprint | None = None,
     ) -> Candidate:
         cost = self._candidate_cost(
@@ -497,6 +534,7 @@ class SearchController:  # pylint: disable=too-many-instance-attributes
             invariant_decisions=decisions,
             effective_context=self._effective_context(evaluation),
             pairwise_semantic=pairwise,
+            pairwise_semantic_disposition=pairwise_disposition,
         )
         return Candidate(
             id=draft.candidate_id,
@@ -576,6 +614,9 @@ class SearchController:  # pylint: disable=too-many-instance-attributes
             run_id=run_dir.name,
             strategy=self.runtime.mode.value,
             seed=self.runtime.seed,
+            pairwise_semantic_requested=self.runtime.pairwise_semantic,
+            pairwise_comparisons_performed=self._pairwise_comparisons_performed,
+            pairwise_comparisons_skipped_not_needed=self._pairwise_comparisons_skipped_not_needed,
             candidates=state.candidates,
             frontier=self.archive_builder.build(state.candidates),
             recommended_candidate_id=recommended.id if recommended else None,
@@ -678,6 +719,7 @@ class SearchController:  # pylint: disable=too-many-instance-attributes
             result = self.pairwise_semantic_evaluator.compare_pairwise(baseline, candidate, suite)
         except SemanticBudgetExceeded:
             return uncertain_pairwise_result("semantic-pairwise", PAIRWISE_BUDGET_REJECTION), ProviderUsage(requests=0)
+        self._pairwise_comparisons_performed += 1
         component = getattr(self.pairwise_semantic_evaluator, "evaluator", self.pairwise_semantic_evaluator)
         if isinstance(component, UsageDrainer):
             usage = component.drain_usage()
@@ -686,6 +728,19 @@ class SearchController:  # pylint: disable=too-many-instance-attributes
             if not usage.requests:
                 usage = ProviderUsage(requests=1)
         return result, usage
+
+    def _optional_pairwise_not_needed(
+        self,
+        baseline: Candidate,
+        candidate_objective: ObjectiveVector | None,
+    ) -> bool:
+        if not self.runtime.gated_pairwise or self.runtime.require_pairwise_semantic:
+            return False
+        if self.pairwise_semantic_evaluator is None:
+            return False
+        if baseline.objective_vector is None or candidate_objective is None:
+            return False
+        return has_non_pairwise_material_improvement(candidate_objective, baseline.objective_vector)
 
     def _drain_invariant_usage(self) -> ProviderUsage:
         verifier = self.semantic_invariant_verifier or self.semantic_invariant_discoverer

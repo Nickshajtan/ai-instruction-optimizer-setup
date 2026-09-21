@@ -72,7 +72,8 @@ def _duplicate_findings(
             )
     for locations in items.values():
         if len(locations) > 1:
-            first_path, first_section = locations[0]
+            unique_locations = list(dict.fromkeys(locations))
+            first_path, first_section = unique_locations[0]
             findings.append(
                 Finding(
                     code=FINOPS_DUPLICATE_LIST_ITEM,
@@ -81,7 +82,10 @@ def _duplicate_findings(
                     path=first_path,
                     section=first_section,
                     message="Duplicated list item increases always-loaded context.",
-                    evidence={"occurrences": len(locations)},
+                    evidence={
+                        "occurrences": len(locations),
+                        "duplicate_scopes": len(unique_locations),
+                    },
                     suggestion="Remove duplicated bullets unless the repetition is intentional for safety.",
                 )
             )
