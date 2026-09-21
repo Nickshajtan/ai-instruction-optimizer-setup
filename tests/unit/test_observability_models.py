@@ -17,6 +17,7 @@ def test_pairwise_observation_accounts_for_all_terminal_outcomes(tmp_path: Path)
         strategy="balanced",
         pairwise_semantic_requested=True,
         pairwise_comparisons_performed=4,
+        pairwise_comparisons_skipped_not_needed=2,
         candidates=[
             _candidate("baseline", None),
             _candidate("C001", PairwiseOutcome.CANDIDATE),
@@ -48,6 +49,7 @@ def test_pairwise_observation_accounts_for_all_terminal_outcomes(tmp_path: Path)
     assert record.optimization is not None
     pairwise = record.optimization.pairwise
     assert pairwise is not None
+    assert pairwise.skipped_not_needed == 2
     assert pairwise.candidate_preferred == 1
     assert pairwise.baseline_preferred == 1
     assert pairwise.equivalent == 1

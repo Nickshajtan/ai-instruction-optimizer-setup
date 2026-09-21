@@ -116,6 +116,13 @@ def optimize_command(  # pylint: disable=too-many-arguments,too-many-positional-
             help="Require at least one pairwise semantic comparison to actually run.",
         ),
     ] = False,
+    gated_pairwise: Annotated[
+        bool,
+        typer.Option(
+            "--gated-pairwise",
+            help="Skip optional pairwise judging when objective evidence is already sufficient.",
+        ),
+    ] = False,
     gepa: Annotated[bool, typer.Option("--gepa", help="Enable GEPA prompt sub-optimizer.")] = False,
     seed: Annotated[int | None, typer.Option("--seed", help="Random seed.")] = None,
     show_frontier: Annotated[bool, typer.Option("--show-frontier", help="Print all frontier candidates.")] = False,
@@ -150,6 +157,8 @@ def optimize_command(  # pylint: disable=too-many-arguments,too-many-positional-
         pairwise_semantic=pairwise_semantic
         or require_pairwise_semantic
         or inputs.config.optimization.pairwise_semantic,
+        require_pairwise_semantic=require_pairwise_semantic,
+        gated_pairwise=gated_pairwise or inputs.config.optimization.gated_pairwise,
     )
     _apply_overrides(runtime, candidates, generations, max_candidates, max_cost, max_requests)
     if runtime.mode == OptimizeMode.CONSERVATIVE:
@@ -253,7 +262,10 @@ def _complete_optimize_result(
     _write_run_artifacts(search_result.run_dir, report)
     pairwise_postcondition_failed = require_pairwise_semantic and search_result.run.pairwise_comparisons_performed == 0
     if search_result.run.pairwise_semantic_requested and search_result.run.pairwise_comparisons_performed == 0:
-        _warn_pairwise_not_performed(required=require_pairwise_semantic)
+        _warn_pairwise_not_performed(
+            required=require_pairwise_semantic,
+            skipped_not_needed=search_result.run.pairwise_comparisons_skipped_not_needed,
+        )
     exit_code = 3 if pairwise_postcondition_failed else 4 if not search_result.run.recommended_candidate_id else 0
     rendered_report = (
         render_json(report)
@@ -263,7 +275,15 @@ def _complete_optimize_result(
     return OptimizeCompletion(report=report, exit_code=exit_code, rendered_report=rendered_report)
 
 
-def _warn_pairwise_not_performed(*, required: bool) -> None:
+def _warn_pairwise_not_performed(*, required: bool, skipped_not_needed: int) -> None:
+    if skipped_not_needed and not required:
+        typer.echo("Pairwise semantic judging was requested and intentionally skipped:", err=True)
+        typer.echo(
+            f"{skipped_not_needed} candidate(s) already had sufficient non-pairwise objective evidence.",
+            err=True,
+        )
+        typer.echo("No optional pairwise semantic judgment was needed for this run.", err=True)
+        return
     heading = (
         "Required pairwise semantic judging was not performed:"
         if required

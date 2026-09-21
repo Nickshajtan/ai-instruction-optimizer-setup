@@ -46,6 +46,7 @@ class OptimizationConfig(BaseModel):
     engine: EvaluationEngine = EvaluationEngine.DEEPEVAL
     deepeval_model: str | None = None
     pairwise_semantic: bool = False
+    gated_pairwise: bool = False
     strategy: OptimizeMode = OptimizeMode.BALANCED
     population: PopulationConfig = Field(default_factory=PopulationConfig)
     search: SearchConfig = Field(default_factory=SearchConfig)

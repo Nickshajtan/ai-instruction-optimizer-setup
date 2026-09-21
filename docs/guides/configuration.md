@@ -302,6 +302,7 @@ optimization:
   engine: deepeval
   deepeval_model: gpt-4o-mini
   pairwise_semantic: false
+  gated_pairwise: false
   strategy: balanced
   population:
     initial_candidates: 4
@@ -353,10 +354,22 @@ provider, `optimization.deepeval_model` must be set so no implicit provider/mode
 selected.
 
 Pairwise judging only runs for candidates that survive earlier gates. Reports expose
-`run.pairwise_semantic_requested` and `run.pairwise_comparisons_performed` so automation
-can distinguish "not requested" from "requested but no candidate reached B-tier." Use
-`ai-doc optimize --require-pairwise-semantic` when a run should fail unless at least one
-pairwise comparison actually occurs.
+`run.pairwise_semantic_requested`, `run.pairwise_comparisons_performed`, and
+`run.pairwise_comparisons_skipped_not_needed` so automation can distinguish "not
+requested", "requested but no candidate reached B-tier", and "requested but optional
+judging was intentionally unnecessary."
+
+`gated_pairwise` is an opt-in shortcut for optional pairwise judging. When enabled,
+`ai-doc` skips pairwise for a candidate that already has non-pairwise objective evidence
+sufficient for the recommendation material-improvement rule. It does not weaken static
+checks, invariant verification, semantic evaluation, GEPA re-gating, recommendation
+thresholds, or budget enforcement. Use `ai-doc optimize --gated-pairwise` for a single
+run.
+
+Use `ai-doc optimize --require-pairwise-semantic` when a run should fail unless at
+least one pairwise comparison actually occurs. Strict pairwise overrides
+`gated_pairwise`; an intentional optional skip never satisfies the required-pairwise
+postcondition.
 
 ## Local Observation Logging
 

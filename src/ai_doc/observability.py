@@ -87,6 +87,7 @@ class OptimizationObservation(BaseModel):
 class PairwiseObservation(BaseModel):
     requested: bool
     comparisons_performed: int
+    skipped_not_needed: int = 0
     candidate_preferred: int = 0
     baseline_preferred: int = 0
     equivalent: int = 0
@@ -353,6 +354,7 @@ def _pairwise_observation(run: OptimizationRun) -> PairwiseObservation:
     return PairwiseObservation(
         requested=run.pairwise_semantic_requested,
         comparisons_performed=run.pairwise_comparisons_performed,
+        skipped_not_needed=run.pairwise_comparisons_skipped_not_needed,
         candidate_preferred=sum(1 for outcome in outcomes if outcome == PairwiseOutcome.CANDIDATE),
         baseline_preferred=sum(1 for outcome in outcomes if outcome == PairwiseOutcome.BASELINE),
         equivalent=sum(1 for outcome in outcomes if outcome == PairwiseOutcome.EQUIVALENT),

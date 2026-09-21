@@ -239,6 +239,45 @@ def test_pairwise_semantic_warns_when_requested_but_not_performed(tmp_path: Path
     assert "This run did NOT receive a pairwise semantic judgment." in result.stderr
 
 
+def test_gated_pairwise_zero_performed_diagnostic_distinguishes_intentional_skip(tmp_path: Path) -> None:
+    _write_project(
+        tmp_path,
+        """
+components:
+  provider: company
+optimization:
+  strategy: balanced
+  pairwise_semantic: true
+  gated_pairwise: true
+  population:
+    initial_candidates: 1
+  search:
+    max_candidates: 1
+    max_llm_requests: 20
+extensions:
+  - path: .ai-doc/extensions/observed.py
+""",
+    )
+    (tmp_path / "AGENTS.md").write_text(
+        "# Rules\n\n"
+        "- Follow the concrete validation checklist before merging a documentation optimization.\n"
+        "- Follow the concrete validation checklist before merging a documentation optimization.\n",
+        encoding="utf-8",
+    )
+    _write_provider_extension(tmp_path)
+
+    result = CliRunner().invoke(app, ["optimize", str(tmp_path), "--format", "json"])
+
+    assert result.exit_code in {0, 4}
+    report = json.loads(result.stdout)
+    run = report["run"]
+    assert run["pairwise_semantic_requested"] is True
+    assert run["pairwise_comparisons_performed"] == 0
+    assert run["pairwise_comparisons_skipped_not_needed"] >= 1
+    assert "intentionally skipped" in result.stderr
+    assert "This run did NOT receive a pairwise semantic judgment." not in result.stderr
+
+
 def test_require_pairwise_semantic_fails_when_not_performed(tmp_path: Path) -> None:
     _write_project(tmp_path)
 

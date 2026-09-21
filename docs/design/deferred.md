@@ -13,15 +13,13 @@ large dependency or public contract without review.
 ## Evaluation And Optimization
 
 - DSPy integration.
-- Generic gated evidence execution policy. The current optimizer already has staged
-  deterministic gates, optional local/static semantic analyzers, provider-backed
-  generation/evaluation/invariant/pairwise operations, budget stops, and recommendation
-  policy. A downstream "cheapest sufficient evidence first" cascade is directionally
-  aligned with those concepts, but promoting it into core now would require a new
-  execution-policy taxonomy to represent stage applicability, skipped/not-needed,
-  unavailable, attempted, uncertain, decisive, and strict pairwise postconditions across
-  heterogeneous stages. Until repeated integrations show a stable generic policy, a
-  downstream wrapper remains the appropriate place for project-specific cascades.
+- Generic gated evidence execution framework. The current optimizer has a narrow
+  opt-in `gated_pairwise` policy for skipping optional pairwise judging when existing
+  non-pairwise objective evidence is already sufficient for the recommendation
+  material-improvement rule. This is not a generic evidence pipeline. Broader
+  orchestration for arbitrary stages, dependency graphs, applicability states, or
+  project-specific cascades remains deferred until repeated integrations show a stable
+  cross-project contract.
 - Promptfoo dogfooding validation: determine whether Promptfoo produces useful findings
   or evaluation evidence beyond A0 and the other existing tiers, enough to justify its
   dependency and operational cost. If it mostly duplicates A0, consider deprecation in a

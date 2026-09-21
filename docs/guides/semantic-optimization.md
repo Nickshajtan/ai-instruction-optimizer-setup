@@ -95,25 +95,38 @@ When `AI_DOC_SEMANTIC_COMMAND` is configured, the provider receives a `compare_p
 
 Requested pairwise judging is not the same as performed pairwise judging. Candidates can
 be rejected by earlier deterministic, duplicate, invariant, budget, or semantic gates
-before they reach the pairwise evaluator. `run.json` and `report.json` therefore include:
+before they reach the pairwise evaluator. Optional pairwise can also be explicitly gated:
+`optimization.gated_pairwise: true` or `ai-doc optimize --gated-pairwise` skips pairwise
+for candidates that already have sufficient non-pairwise objective evidence for the
+current recommendation material-improvement rule. This is not positive inference from
+the absence of local/static findings; it uses existing objective evidence. It does not
+change required safety gates, GEPA re-gating, recommendation thresholds, or budget
+behavior.
+
+`run.json` and `report.json` therefore include:
 
 ```json
 {
   "pairwise_semantic_requested": true,
-  "pairwise_comparisons_performed": 0
+  "pairwise_comparisons_performed": 0,
+  "pairwise_comparisons_skipped_not_needed": 1
 }
 ```
 
 If pairwise judging was requested but no comparison occurred, the CLI prints a stderr
-warning and preserves normal non-strict exit behavior. `--require-pairwise-semantic`
-implies `--pairwise-semantic` and exits with semantic-evaluation failure code `3` when
-zero pairwise comparisons were performed. Deep scenario evaluation, semantic generation,
-invariant verification, or prompt suboptimization do not satisfy that postcondition.
+diagnostic and preserves normal non-strict exit behavior. The diagnostic distinguishes
+intentional gated skips from runs where no candidate reached pairwise or no pairwise
+evaluator was available. `--require-pairwise-semantic` implies `--pairwise-semantic`,
+overrides optional gated skipping, and exits with semantic-evaluation failure code `3`
+when zero pairwise comparisons were performed. Deep scenario evaluation, semantic
+generation, invariant verification, prompt suboptimization, and intentional optional
+skips do not satisfy that postcondition.
 
 Optimization observations also record aggregate pairwise facts under
 `optimization.pairwise`, including whether pairwise judging was requested, how many
-comparisons were performed, and counts for candidate-preferred, baseline-preferred,
-equivalent, and uncertain outcomes.
+comparisons were performed, how many optional comparisons were skipped as not needed,
+and counts for candidate-preferred, baseline-preferred, equivalent, and uncertain
+outcomes.
 
 ## Feedback And Repair
 

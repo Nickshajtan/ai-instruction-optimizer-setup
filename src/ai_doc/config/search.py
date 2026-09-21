@@ -69,3 +69,5 @@ class RuntimeSearchConfig(BaseModel):
     concurrency: int = Field(default=3, ge=1)
     seed: int | None = None
     pairwise_semantic: bool = False
+    require_pairwise_semantic: bool = False
+    gated_pairwise: bool = False
