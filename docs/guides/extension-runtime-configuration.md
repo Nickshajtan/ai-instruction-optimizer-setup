@@ -34,6 +34,8 @@ extension_runtime:
       type: command
       command: [python, examples/extensions/company.py]
       timeout: 120
+      env:
+        AI_DOC_EXTENSION_MODE: trusted
 ```
 
 `extension_runtime` makes process implementations available. `components` selects global
@@ -47,7 +49,15 @@ speaks the protocol. The adapter command owns any provider authentication, SDK u
 runtime-specific prompt formatting; merely configuring a command does not make the
 evidence equivalent to a native runtime loader or agent integration.
 
-Commands are argv arrays and run without `shell=True`. Configure only trusted executables from trusted project configuration. Documentation content should not choose or rewrite the command.
+Commands are argv arrays and run without `shell=True`. Configure only trusted
+executables from trusted project configuration. Documentation content should not choose
+or rewrite the command.
+
+Process extensions do not inherit the full parent environment. `ai-doc` passes a small
+platform environment needed to start normal commands, such as `PATH` and temporary
+directory variables when present, and then adds literal values from the component's
+`env:` mapping. Do not place secrets in repository-controlled configuration; use a
+trusted wrapper, secret manager, or CI step to provide credentials outside `.ai-doc.yaml`.
 
 The command receives protocol JSON on stdin, writes protocol JSON on stdout, and writes
 diagnostics on stderr. `ProcessTransport` owns those process and protocol mechanics;

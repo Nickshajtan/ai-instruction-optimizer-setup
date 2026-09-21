@@ -31,7 +31,7 @@ ai-doc --version
 ai-doc version
 ai-doc doctor examples/basic
 ai-doc doctor examples/basic --format json
-ai-doc check examples/basic
+ai-doc check examples/basic --allow-extensions
 ai-doc optimize examples/basic --strategy balanced --show-frontier
 ```
 
@@ -92,17 +92,33 @@ The GitHub Actions workflow runs on Windows, Linux, and macOS with Python 3.12:
 - wheel smoke;
 - CLI smoke.
 
+A dedicated `Security` workflow runs `python -m pytest tests/security` for causal
+security regression coverage. Keep this check failing on regressions; do not mark it
+advisory for extension trust, provider selection, process environment, probe evidence,
+or workspace isolation contracts.
+
+Workflow path filters may skip ordinary guide/release-note documentation where useful,
+but they must not blanket-ignore Markdown. Control-plane files such as `AGENTS.md`,
+`CLAUDE.md`, `.ai/**`, `.codex/**`, `.claude/**`, `.github/**`, and
+`docs/standards.md` must continue to trigger relevant checks.
+
+GitHub-maintained first-party Actions may remain on version tags for this release.
+Immutable commit SHA pinning is recommended defense in depth rather than a `0.2.0`
+blocker for those Actions. New third-party Actions should use a full commit SHA with a
+human-readable version comment unless a PR documents why that is not practical.
+
 Executable builds should run on native OS runners. Do not add unsupported
 cross-compilation.
 
 ## Release Checklist
 
 1. Run default verification.
-2. Run wheel smoke.
-3. Run executable smoke on each release platform and extras mode being published.
-4. Confirm `ai-doc doctor` in executable mode reports `standalone executable`.
-5. Confirm missing deep-evaluator dependencies return exit code `3`.
-6. Confirm checksums exist for executable artifacts.
-7. Update [Release Notes](release-notes.md) with user-visible behavior and public
+2. Run `python -m pytest tests/security`.
+3. Run wheel smoke.
+4. Run executable smoke on each release platform and extras mode being published.
+5. Confirm `ai-doc doctor` in executable mode reports `standalone executable`.
+6. Confirm missing deep-evaluator dependencies return exit code `3`.
+7. Confirm checksums exist for executable artifacts.
+8. Update [Release Notes](release-notes.md) with user-visible behavior and public
    contract changes.
-8. Publish wheel/sdist and executable artifacts with checksums.
+9. Publish wheel/sdist and executable artifacts with checksums.

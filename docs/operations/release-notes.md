@@ -30,6 +30,10 @@ extension contracts for downstream vendoring.
   mutation model configuration when enabled.
 - Hardened execution probes so unexplained workspace mutation is reported as
   uncertainty, and symlinks are rejected at the workspace isolation boundary.
+- Restricted process-extension environment inheritance to a minimal runtime environment
+  plus explicit configured `env:` values.
+- Added a dedicated `tests/security` regression suite and GitHub Actions security check.
+- Refined CI path filters so security/control-plane Markdown is not blanket-ignored.
 - Added an explicit-config observability warning when a `--config` run has observation
   logging disabled or omitted.
 - Clarified that optimizer-owned output exclusion is an optimizer input-ownership

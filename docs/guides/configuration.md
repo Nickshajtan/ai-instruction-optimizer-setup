@@ -465,7 +465,13 @@ extension_runtime:
   providers:
     company-provider:
       command: [python, .ai-doc/extensions/company_process.py]
+      env:
+        AI_DOC_EXTENSION_MODE: trusted
 ```
+
+Process extensions receive a minimal platform environment plus literal values from
+`env:`. They do not inherit the full parent environment, so ambient secrets such as
+provider API keys are not passed by default.
 
 Built-in names include `approximate` and `openai-tiktoken` for token counters,
 `default` for the default recommendation policy, and `semantic-command` for the

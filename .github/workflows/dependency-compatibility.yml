@@ -5,12 +5,14 @@ on:
     branches:
       - main
     paths-ignore:
-      - "**/*.md"
+      - "docs/guides/**"
+      - "docs/operations/release-notes.md"
   push:
     branches:
       - main
     paths-ignore:
-      - "**/*.md"
+      - "docs/guides/**"
+      - "docs/operations/release-notes.md"
   workflow_dispatch:
 
 permissions:

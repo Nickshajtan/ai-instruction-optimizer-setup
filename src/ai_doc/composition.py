@@ -37,13 +37,13 @@ def register_configured_extensions(config: AiDocConfig, registry: ExtensionRegis
     _register_builtins(registry)
     for name, analyzer in config.extension_runtime.analyzers.items():
         registry.add_analyzer(
-            ProcessAnalyzer(_transport(name, "analyzer", analyzer.type, analyzer.command, analyzer.timeout))
+            ProcessAnalyzer(_transport(name, "analyzer", analyzer.type, analyzer.command, analyzer.timeout, analyzer.env))
         )
     for name, evaluator in config.extension_runtime.evaluators.items():
         registry.add_evaluator(
             name,
             ProcessEvaluator(
-                _transport(name, "evaluator", evaluator.type, evaluator.command, evaluator.timeout),
+                _transport(name, "evaluator", evaluator.type, evaluator.command, evaluator.timeout, evaluator.env),
                 engine=name,
             ),
         )
@@ -51,7 +51,7 @@ def register_configured_extensions(config: AiDocConfig, registry: ExtensionRegis
         registry.add_token_counter(
             name,
             ProcessTokenCounter(
-                _transport(name, "token counter", counter.type, counter.command, counter.timeout),
+                _transport(name, "token counter", counter.type, counter.command, counter.timeout, counter.env),
                 label=name,
             ),
         )
@@ -59,13 +59,15 @@ def register_configured_extensions(config: AiDocConfig, registry: ExtensionRegis
         registry.add_recommendation_policy(
             name,
             ProcessRecommendationPolicy(
-                _transport(name, "recommendation policy", policy.type, policy.command, policy.timeout)
+                _transport(name, "recommendation policy", policy.type, policy.command, policy.timeout, policy.env)
             ),
         )
     for name, provider in config.extension_runtime.providers.items():
         registry.add_provider(
             name,
-            ProcessSemanticProvider(_transport(name, "provider", provider.type, provider.command, provider.timeout)),
+            ProcessSemanticProvider(
+                _transport(name, "provider", provider.type, provider.command, provider.timeout, provider.env)
+            ),
         )
     return registry
 
@@ -134,7 +136,14 @@ def _register_builtins(registry: ExtensionRegistry) -> None:
         registry.add_provider(BUILTIN_PROVIDER_SEMANTIC_COMMAND, CommandSemanticProvider())
 
 
-def _transport(name: str, capability: str, extension_type: str, command: list[str], timeout: float) -> ProcessTransport:
+def _transport(
+    name: str,
+    capability: str,
+    extension_type: str,
+    command: list[str],
+    timeout: float,
+    env: dict[str, str],
+) -> ProcessTransport:
     if extension_type != "command":
         raise ValueError(f"Unsupported {capability} extension type for {name!r}: {extension_type!r}")
-    return ProcessTransport(command, timeout=timeout)
+    return ProcessTransport(command, timeout=timeout, env=env)

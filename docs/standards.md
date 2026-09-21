@@ -65,6 +65,8 @@ Stable exit codes:
   described.
 - Finding adapters may adapt the presented finding list, but the default CLI quality
   gate must preserve the existence of pre-adaptation built-in error findings.
+- Process extensions must not inherit the full parent process environment by default;
+  pass only the documented minimal runtime environment plus explicit configured values.
 
 ## Architecture Standards
 
@@ -173,6 +175,8 @@ Stable exit codes:
   needs multiple scenarios with different expectations.
 - Critical workflows require causal assertions showing that changing a meaningful input
   changes the downstream decision.
+- Security-critical trust boundaries must have causal regression tests under
+  `tests/security` and a dedicated failing CI check.
 - Important happy paths should have negative/adversarial counterparts, especially around
   semantic evaluation, invariants, routing, budgets, and recommendation.
 - Mock external boundaries rather than the implementation under test. Prefer deterministic

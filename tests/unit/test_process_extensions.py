@@ -22,6 +22,7 @@ from ai_doc.extensions.process import (
     ProcessTokenCounter,
     ProcessTransport,
 )
+from ai_doc.extensions.transport import DEFAULT_INHERITED_ENV_KEYS
 from ai_doc.markdown.graph import DocumentGraph
 
 
@@ -165,6 +166,50 @@ def test_process_transport_invokes_generic_operation(tmp_path: Path) -> None:
     assert result["protocol"] == PROTOCOL_VERSION
     assert result["request_id"]
     assert result["payload"] == {"value": 42}
+
+
+def test_process_transport_passes_minimal_environment_and_explicit_overlay(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv("OPENAI_API_KEY", "ambient-secret")
+    monkeypatch.setenv("AI_DOC_ALLOWED_TEST_KEY", "ambient-allowed")
+    script = tmp_path / "env_probe.py"
+    script.write_text(
+        """
+from __future__ import annotations
+
+import json
+import os
+import sys
+
+data = json.loads(sys.stdin.read())
+result = {
+    "payload_version": 1,
+    "openai": os.getenv("OPENAI_API_KEY"),
+    "ambient_allowed": os.getenv("AI_DOC_ALLOWED_TEST_KEY"),
+    "configured": os.getenv("AI_DOC_CONFIGURED_TEST_KEY"),
+    "has_path": bool(os.getenv("PATH")),
+}
+print(json.dumps({
+    "protocol": data["protocol"],
+    "request_id": data["request_id"],
+    "status": "ok",
+    "result": result,
+}))
+""",
+        encoding="utf-8",
+    )
+
+    result = ProcessTransport(
+        [sys.executable, str(script)],
+        env={"AI_DOC_CONFIGURED_TEST_KEY": "configured-value"},
+    ).invoke("env", {})
+
+    assert result["openai"] is None
+    assert result["ambient_allowed"] is None
+    assert result["configured"] == "configured-value"
+    assert result["has_path"] == ("PATH" in DEFAULT_INHERITED_ENV_KEYS)
 
 
 def test_process_transport_can_query_describe_manifest(tmp_path: Path) -> None:

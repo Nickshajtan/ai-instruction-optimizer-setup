@@ -76,6 +76,7 @@ class CommandExtensionConfig(BaseModel):
     type: str = "command"
     command: list[str]
     timeout: float = Field(default=120, gt=0)
+    env: dict[str, str] = Field(default_factory=dict)
 
 
 class ComponentSelectionConfig(BaseModel):

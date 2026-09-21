@@ -244,6 +244,8 @@ extension_runtime:
     company-provider:
       type: command
       command: [python, examples/extensions/company.py]
+      env:
+        AI_DOC_EXTENSION_MODE: trusted
 components:
   token_counter: company-counter
   recommendation_policy: company-policy
@@ -251,6 +253,13 @@ components:
 ```
 
 Commands are argv arrays and run with `shell=False`. stdout is reserved for protocol JSON. stderr is reserved for diagnostics and may be surfaced on failures.
+
+Process extensions receive a minimal platform environment needed for ordinary process
+startup, such as `PATH` and temporary-directory variables when those exist. They do not
+inherit the full parent process environment, so ambient provider credentials such as
+`OPENAI_API_KEY` are not passed by default. Use the component's literal `env:` mapping
+only for non-secret adapter settings. Put secrets in a trusted wrapper or credential
+mechanism outside repository-controlled `.ai-doc.yaml`.
 
 ### Envelope
 
@@ -330,11 +339,11 @@ the repository checkout is trusted.
 Python extensions execute arbitrary in-process code. Process extensions execute arbitrary
 external commands. `shell=False` avoids shell parsing, but it does not sandbox the
 command. Documentation content must not choose executables. Process extensions may
-receive project documentation content and selected metadata. By default, process
-extensions inherit the parent process environment; configured environment overlays add to
-that environment rather than replacing it. Configure commands deliberately, avoid logging
-secrets, and pass provider credentials only to trusted adapters. The process runtime is a
-protocol boundary, not a sandbox.
+receive project documentation content and selected metadata. Process extensions receive
+only the minimal runtime environment plus literal configured `env:` values, not the full
+host environment. Configure commands deliberately, avoid logging secrets, and pass
+provider credentials only through trusted mechanisms outside untrusted repository
+configuration. The process runtime is a protocol boundary, not a sandbox.
 
 ## Failure Behavior
 
