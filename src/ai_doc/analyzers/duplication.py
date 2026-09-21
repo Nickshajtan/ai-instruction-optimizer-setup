@@ -4,15 +4,14 @@ from collections import defaultdict
 from dataclasses import dataclass
 
 from ai_doc.analyzers.base import AnalysisContext
+from ai_doc.analyzers.structure import has_substantial_headingless_structure
 from ai_doc.domain.analysis import TextUnitKind
-from ai_doc.domain.documents import Document
 from ai_doc.domain.findings import Finding, FindingCategory, FindingSeverity
 from ai_doc.markdown.extraction import extract_text_units
 from ai_doc.tokens.counter import ApproximateTokenCounter
 
 MIN_DUPLICATE_PARAGRAPH_LENGTH = 60
 MIN_DUPLICATE_LIST_ITEM_LENGTH = 20
-HEADING_LESS_DOCUMENT_TOKENS = 100
 FINOPS_DUPLICATE_PARAGRAPH = "FINOPS_DUPLICATE_PARAGRAPH"
 FINOPS_DUPLICATE_LIST_ITEM = "FINOPS_DUPLICATE_LIST_ITEM"
 
@@ -32,7 +31,7 @@ class DuplicationAnalyzer:
             location = DuplicateLocation(
                 path=document.relative_path,
                 section=None,
-                structural_headingless=_substantial_headingless_document(document),
+                structural_headingless=has_substantial_headingless_structure(document),
             )
             for unit in extract_text_units(document):
                 locations = paragraph_locations if unit.kind == TextUnitKind.PARAGRAPH else item_locations
@@ -117,7 +116,3 @@ def _duplicate_findings(
 
 def _is_local_unnamed_scope_duplicate(locations: list[DuplicateLocation]) -> bool:
     return len(locations) == 1 and locations[0].section is None and locations[0].structural_headingless
-
-
-def _substantial_headingless_document(document: Document) -> bool:
-    return document.token_count >= HEADING_LESS_DOCUMENT_TOKENS and not document.headings

@@ -225,6 +225,28 @@ def test_headingless_local_duplicate_flood_is_bounded_by_structure_signal(tmp_pa
     assert codes.count("FINOPS_DUPLICATE_LIST_ITEM") == 0
 
 
+def test_headingless_duplicate_suppression_requires_structure_signal(tmp_path: Path) -> None:
+    repeated = (
+        "1. Always validate migrations before deployment because deployment safety depends on schema state, "
+        "generated artifacts, release-window timing, rollback ownership, environment approval, database backup "
+        "verification, extension compatibility, and release communication.\n"
+    )
+    (tmp_path / "notes.md").write_text(
+        "Operational instructions without headings.\n\n"
+        + repeated
+        + "2. Always update release notes before tagging because downstream teams review operational risk, "
+        "migration timing, documentation changes, semantic-provider configuration, extension compatibility, "
+        "release ownership, and support expectations.\n"
+        + repeated,
+        encoding="utf-8",
+    )
+    report = run_static_check(tmp_path, _config(include=["notes.md"], profiles={"notes.md": "instruction"}))
+    codes = [finding.code for finding in report.findings]
+
+    assert "STRUCTURE_NO_HEADINGS" not in codes
+    assert codes.count("FINOPS_DUPLICATE_LIST_ITEM") == 1
+
+
 def test_tiny_headingless_fragment_does_not_report_structure_signal(tmp_path: Path) -> None:
     (tmp_path / "note.md").write_text("Short note.\n", encoding="utf-8")
     report = run_static_check(tmp_path, _config(include=["note.md"], profiles={"note.md": "instruction"}))

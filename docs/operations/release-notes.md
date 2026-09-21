@@ -1,4 +1,4 @@
-h# Release Notes
+# Release Notes
 
 Use this page to identify user-visible behavior and public contract changes for each
 `ai-doc` release. It is the canonical release-history document for downstream vendoring

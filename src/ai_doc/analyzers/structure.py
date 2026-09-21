@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections import Counter
 
 from ai_doc.analyzers.base import AnalysisContext
-from ai_doc.domain.documents import DocumentProfile
+from ai_doc.domain.documents import Document, DocumentProfile
 from ai_doc.domain.findings import Finding, FindingCategory, FindingSeverity
 
 LARGE_FILE_TOKENS = 8000
@@ -53,7 +53,7 @@ class StructureAnalyzer:
                         )
                     )
             levels = [heading.level for heading in document.headings]
-            if not document.headings and _substantial_heading_less_document(document.text, document.token_count):
+            if has_substantial_headingless_structure(document):
                 findings.append(
                     Finding(
                         code=STRUCTURE_NO_HEADINGS,
@@ -125,7 +125,9 @@ class StructureAnalyzer:
         return findings
 
 
-def _substantial_heading_less_document(text: str, token_count: int) -> bool:
-    return token_count >= HEADING_LESS_DOCUMENT_TOKENS and any(
-        line.lstrip().startswith(("-", "*")) for line in text.splitlines()
+def has_substantial_headingless_structure(document: Document) -> bool:
+    return (
+        not document.headings
+        and document.token_count >= HEADING_LESS_DOCUMENT_TOKENS
+        and any(line.lstrip().startswith(("-", "*")) for line in document.text.splitlines())
     )
