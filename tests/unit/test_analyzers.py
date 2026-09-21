@@ -52,20 +52,32 @@ def test_modal_vocabulary_reports_same_term_in_uppercase_and_lowercase(tmp_path:
     assert modal_findings[0].evidence == {"terms": ["must"]}
 
 
-def test_repeated_headingless_list_item_collapses_to_one_duplicate_finding(tmp_path: Path) -> None:
+def test_repeated_headingless_list_item_is_covered_by_structure_signal(tmp_path: Path) -> None:
     (tmp_path / "notes.md").write_text(
-        "- Always validate migrations before deployment.\n"
-        "- Always validate migrations before deployment.\n"
-        "- Always validate migrations before deployment.\n",
+        "Operational release notes for maintainers.\n\n"
+        "- Always validate migrations before deployment because deployment safety depends on "
+        "schema state, generated artifacts, release-window timing, rollback ownership, environment "
+        "approval, database backup verification, extension compatibility, and release communication.\n"
+        "- Always update release notes before tagging because downstream teams review those notes for "
+        "operational risk, migration timing, documentation changes, semantic-provider configuration, "
+        "extension compatibility, release ownership, and support expectations.\n"
+        "- Always preserve documented public contracts because extension authors depend on stable imports, "
+        "command behavior, JSON report fields, configuration validation, and release notes when they vendor "
+        "a new copy into downstream repositories.\n"
+        "- Always run unit tests before completion because several extension adapters share the static "
+        "analysis path, optimizer gates, reporting contracts, observation output, and command-line failure "
+        "semantics used by downstream automation.\n"
+        "- Always validate migrations before deployment because deployment safety depends on "
+        "schema state, generated artifacts, release-window timing, rollback ownership, environment "
+        "approval, database backup verification, extension compatibility, and release communication.\n",
         encoding="utf-8",
     )
     report = run_static_check(tmp_path, _config(include=["notes.md"], profiles={"notes.md": "instruction"}))
 
     duplicates = [finding for finding in report.findings if finding.code == "FINOPS_DUPLICATE_LIST_ITEM"]
 
-    assert len(duplicates) == 1
-    assert duplicates[0].evidence["occurrences"] == 3
-    assert duplicates[0].evidence["duplicate_scopes"] == 1
+    assert "STRUCTURE_NO_HEADINGS" in {finding.code for finding in report.findings}
+    assert duplicates == []
 
 
 def test_unrelated_headingless_list_items_do_not_create_duplicate_findings(tmp_path: Path) -> None:
@@ -105,6 +117,25 @@ def test_repeated_occurrences_across_documents_do_not_emit_per_occurrence_flood(
 
     assert len(duplicates) == 1
     assert duplicates[0].evidence["occurrences"] == 5
+    assert duplicates[0].evidence["duplicate_scopes"] == 2
+
+
+def test_structured_cross_scope_duplicate_remains_detectable(tmp_path: Path) -> None:
+    repeated = "- Always validate migrations before deployment.\n"
+    (tmp_path / "notes.md").write_text(
+        "# Release\n\n"
+        f"{repeated}\n"
+        "# Operations\n\n"
+        f"{repeated}",
+        encoding="utf-8",
+    )
+    report = run_static_check(tmp_path, _config(include=["notes.md"], profiles={"notes.md": "instruction"}))
+
+    duplicates = [finding for finding in report.findings if finding.code == "FINOPS_DUPLICATE_LIST_ITEM"]
+
+    assert len(duplicates) == 1
+    assert duplicates[0].section == "Release"
+    assert duplicates[0].evidence["occurrences"] == 2
     assert duplicates[0].evidence["duplicate_scopes"] == 2
 
 
@@ -173,7 +204,47 @@ def test_noisy_headingless_duplicate_case_keeps_structure_signal(tmp_path: Path)
 
     codes = {finding.code for finding in report.findings}
     assert "STRUCTURE_NO_HEADINGS" in codes
-    assert "FINOPS_DUPLICATE_LIST_ITEM" in codes
+    assert "FINOPS_DUPLICATE_LIST_ITEM" not in codes
+
+
+def test_headingless_local_duplicate_flood_is_bounded_by_structure_signal(tmp_path: Path) -> None:
+    bullets = [
+        f"- Repeated operational instruction {index:02d} must be followed before deployment because release safety "
+        "depends on validation evidence, rollback ownership, generated artifacts, environment approvals, "
+        "database backups, and stakeholder communication."
+        for index in range(15)
+    ]
+    (tmp_path / "notes.md").write_text(
+        "Operational instructions without headings.\n\n" + "\n".join(bullets) + "\n\n" + "\n".join(bullets),
+        encoding="utf-8",
+    )
+    report = run_static_check(tmp_path, _config(include=["notes.md"], profiles={"notes.md": "instruction"}))
+    codes = [finding.code for finding in report.findings]
+
+    assert codes.count("STRUCTURE_NO_HEADINGS") == 1
+    assert codes.count("FINOPS_DUPLICATE_LIST_ITEM") == 0
+
+
+def test_headingless_duplicate_suppression_requires_structure_signal(tmp_path: Path) -> None:
+    repeated = (
+        "1. Always validate migrations before deployment because deployment safety depends on schema state, "
+        "generated artifacts, release-window timing, rollback ownership, environment approval, database backup "
+        "verification, extension compatibility, and release communication.\n"
+    )
+    (tmp_path / "notes.md").write_text(
+        "Operational instructions without headings.\n\n"
+        + repeated
+        + "2. Always update release notes before tagging because downstream teams review operational risk, "
+        "migration timing, documentation changes, semantic-provider configuration, extension compatibility, "
+        "release ownership, and support expectations.\n"
+        + repeated,
+        encoding="utf-8",
+    )
+    report = run_static_check(tmp_path, _config(include=["notes.md"], profiles={"notes.md": "instruction"}))
+    codes = [finding.code for finding in report.findings]
+
+    assert "STRUCTURE_NO_HEADINGS" not in codes
+    assert codes.count("FINOPS_DUPLICATE_LIST_ITEM") == 1
 
 
 def test_tiny_headingless_fragment_does_not_report_structure_signal(tmp_path: Path) -> None:

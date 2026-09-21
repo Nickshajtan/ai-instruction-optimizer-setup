@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 from collections import defaultdict
+from dataclasses import dataclass
 
 from ai_doc.analyzers.base import AnalysisContext
+from ai_doc.analyzers.structure import has_substantial_headingless_structure
 from ai_doc.domain.analysis import TextUnitKind
 from ai_doc.domain.findings import Finding, FindingCategory, FindingSeverity
 from ai_doc.markdown.extraction import extract_text_units
@@ -14,11 +16,23 @@ FINOPS_DUPLICATE_PARAGRAPH = "FINOPS_DUPLICATE_PARAGRAPH"
 FINOPS_DUPLICATE_LIST_ITEM = "FINOPS_DUPLICATE_LIST_ITEM"
 
 
+@dataclass(frozen=True)
+class DuplicateLocation:
+    path: str
+    section: str | None
+    structural_headingless: bool
+
+
 class DuplicationAnalyzer:
     def analyze(self, context: AnalysisContext) -> list[Finding]:
-        paragraph_locations: dict[str, list[tuple[str, str | None]]] = defaultdict(list)
-        item_locations: dict[str, list[tuple[str, str | None]]] = defaultdict(list)
+        paragraph_locations: dict[str, list[DuplicateLocation]] = defaultdict(list)
+        item_locations: dict[str, list[DuplicateLocation]] = defaultdict(list)
         for document in context.snapshot.documents:
+            location = DuplicateLocation(
+                path=document.relative_path,
+                section=None,
+                structural_headingless=has_substantial_headingless_structure(document),
+            )
             for unit in extract_text_units(document):
                 locations = paragraph_locations if unit.kind == TextUnitKind.PARAGRAPH else item_locations
                 minimum = (
@@ -27,7 +41,13 @@ class DuplicationAnalyzer:
                     else MIN_DUPLICATE_LIST_ITEM_LENGTH
                 )
                 if unit.kind in {TextUnitKind.PARAGRAPH, TextUnitKind.LIST_ITEM} and len(unit.normalized_text) > minimum:
-                    locations[unit.normalized_text].append((unit.path, unit.section))
+                    locations[unit.normalized_text].append(
+                        DuplicateLocation(
+                            path=unit.path,
+                            section=unit.section,
+                            structural_headingless=location.structural_headingless,
+                        )
+                    )
         return _duplicate_findings(paragraph_locations, item_locations)
 
 
@@ -48,20 +68,20 @@ def estimate_duplicate_tokens(context: AnalysisContext) -> int:
 
 
 def _duplicate_findings(
-    paragraphs: dict[str, list[tuple[str, str | None]]],
-    items: dict[str, list[tuple[str, str | None]]],
+    paragraphs: dict[str, list[DuplicateLocation]],
+    items: dict[str, list[DuplicateLocation]],
 ) -> list[Finding]:
     findings: list[Finding] = []
     for normalized, locations in paragraphs.items():
         if len(locations) > 1:
-            first_path, first_section = locations[0]
+            first = locations[0]
             findings.append(
                 Finding(
                     code=FINOPS_DUPLICATE_PARAGRAPH,
                     category=FindingCategory.FINOPS,
                     severity=FindingSeverity.WARNING,
-                    path=first_path,
-                    section=first_section,
+                    path=first.path,
+                    section=first.section,
                     message="Repeated paragraph appears in multiple documentation locations.",
                     evidence={
                         "occurrences": len(locations),
@@ -73,14 +93,16 @@ def _duplicate_findings(
     for locations in items.values():
         if len(locations) > 1:
             unique_locations = list(dict.fromkeys(locations))
-            first_path, first_section = unique_locations[0]
+            if _is_local_unnamed_scope_duplicate(unique_locations):
+                continue
+            first = unique_locations[0]
             findings.append(
                 Finding(
                     code=FINOPS_DUPLICATE_LIST_ITEM,
                     category=FindingCategory.FINOPS,
                     severity=FindingSeverity.WARNING,
-                    path=first_path,
-                    section=first_section,
+                    path=first.path,
+                    section=first.section,
                     message="Duplicated list item increases always-loaded context.",
                     evidence={
                         "occurrences": len(locations),
@@ -90,3 +112,7 @@ def _duplicate_findings(
                 )
             )
     return findings
+
+
+def _is_local_unnamed_scope_duplicate(locations: list[DuplicateLocation]) -> bool:
+    return len(locations) == 1 and locations[0].section is None and locations[0].structural_headingless

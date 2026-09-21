@@ -34,10 +34,11 @@ large dependency or public contract without review.
 
 ## Extension Contracts
 
-The current Extension API supports analyzer, evaluator, token-counter, recommendation
-policy, and semantic-provider contracts through public API types, programmatic
-registration, project-local Python extensions, and process extensions. These additional
-extension contracts still need separate design before implementation:
+The current Extension API supports analyzer, finding-adapter, evaluator, token-counter,
+recommendation-policy, and semantic-provider contracts through public API types,
+programmatic registration, project-local Python extensions, and process extensions where
+documented in the Extension API guide. These additional extension contracts still need
+separate design before implementation:
 
 - runtime-specific loading models;
 - invariant detectors;
