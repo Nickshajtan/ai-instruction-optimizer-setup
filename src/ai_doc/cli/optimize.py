@@ -276,20 +276,19 @@ def _complete_optimize_result(
 
 
 def _warn_pairwise_not_performed(*, required: bool, skipped_not_needed: int) -> None:
+    heading = (
+        "Required pairwise semantic judging was not performed:"
+        if required
+        else "Pairwise semantic judging was requested but no comparison was performed:"
+    )
+    typer.echo(heading, err=True)
     if skipped_not_needed and not required:
-        typer.echo("Pairwise semantic judging was requested and intentionally skipped:", err=True)
         typer.echo(
             f"{skipped_not_needed} candidate(s) already had sufficient non-pairwise objective evidence.",
             err=True,
         )
-        typer.echo("No optional pairwise semantic judgment was needed for this run.", err=True)
+        typer.echo("Other candidates may not have reached optional pairwise judging.", err=True)
         return
-    heading = (
-        "Required pairwise semantic judging was not performed:"
-        if required
-        else "Pairwise semantic judging was requested but not performed:"
-    )
-    typer.echo(heading, err=True)
     typer.echo("0 candidates reached the B-tier after earlier gates.", err=True)
     typer.echo("This run did NOT receive a pairwise semantic judgment.", err=True)
 

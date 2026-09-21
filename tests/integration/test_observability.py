@@ -235,7 +235,7 @@ def test_pairwise_semantic_warns_when_requested_but_not_performed(tmp_path: Path
     report = json.loads(result.stdout)
     assert report["run"]["pairwise_semantic_requested"] is True
     assert report["run"]["pairwise_comparisons_performed"] == 0
-    assert "Pairwise semantic judging was requested but not performed:" in result.stderr
+    assert "Pairwise semantic judging was requested but no comparison was performed:" in result.stderr
     assert "This run did NOT receive a pairwise semantic judgment." in result.stderr
 
 
@@ -274,7 +274,9 @@ extensions:
     assert run["pairwise_semantic_requested"] is True
     assert run["pairwise_comparisons_performed"] == 0
     assert run["pairwise_comparisons_skipped_not_needed"] >= 1
-    assert "intentionally skipped" in result.stderr
+    assert "already had sufficient non-pairwise objective evidence" in result.stderr
+    assert "Other candidates may not have reached optional pairwise judging." in result.stderr
+    assert "No optional pairwise semantic judgment was needed for this run." not in result.stderr
     assert "This run did NOT receive a pairwise semantic judgment." not in result.stderr
 
 
