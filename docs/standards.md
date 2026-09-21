@@ -54,8 +54,8 @@ Stable exit codes:
 
 - Extensions must be explicitly configured.
 - Extension paths must stay inside the project root.
-- In-process extensions register analyzer, evaluator, token-counter, recommendation-policy,
-  or semantic-provider behavior through `register(registry)`.
+- In-process extensions register analyzer, finding-adapter, evaluator, token-counter,
+  recommendation-policy, or semantic-provider behavior through `register(registry)`.
 - The registry validates registrations and reports actionable errors.
 - Extension examples must import from `ai_doc.api.v1`.
 - Extension loading executes code; document trust requirements wherever extensions are
