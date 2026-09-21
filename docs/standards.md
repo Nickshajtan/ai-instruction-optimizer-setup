@@ -53,6 +53,9 @@ Stable exit codes:
 ## Extension Standards
 
 - Extensions must be explicitly configured.
+- Repository-declared executable extensions must not execute unless the operator
+  explicitly authorizes them with `--allow-extensions` on the command being run.
+- Repository configuration must not be able to authorize its own executable extensions.
 - Extension paths must stay inside the project root.
 - In-process extensions register analyzer, finding-adapter, evaluator, token-counter,
   recommendation-policy, or semantic-provider behavior through `register(registry)`.
@@ -60,6 +63,8 @@ Stable exit codes:
 - Extension examples must import from `ai_doc.api.v1`.
 - Extension loading executes code; document trust requirements wherever extensions are
   described.
+- Finding adapters may adapt the presented finding list, but the default CLI quality
+  gate must preserve the existence of pre-adaptation built-in error findings.
 
 ## Architecture Standards
 
@@ -69,6 +74,8 @@ Stable exit codes:
 - LLM providers must remain replaceable behind protocols.
 - Source repository files must not be mutated during optimization.
 - Findings and evaluation results must use stable machine-readable schemas.
+- GEPA must require explicit reflection and mutation model configuration when enabled;
+  do not fall back to provider, credential, dependency, or hardcoded model defaults.
 - FinOps, clarity, reliability, and critical invariant recall must remain separate
   dimensions.
 - Semantic success and invariant preservation dominate token reduction.

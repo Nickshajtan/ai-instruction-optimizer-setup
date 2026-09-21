@@ -29,6 +29,17 @@ ai-doc check . --format json --non-interactive
 
 Use `--non-interactive` in automation so a CI job never waits for a prompt.
 
+Executable extensions declared by `.ai-doc.yaml` are disabled by default. A trusted CI
+job that intentionally uses project-local Python extensions or process-backed extensions
+must opt in explicitly:
+
+```bash
+ai-doc check . --format json --non-interactive --allow-extensions
+```
+
+Do not add a repository config setting to enable extension execution for arbitrary
+checkouts; repository content is data, not authorization.
+
 ## Deep Evaluation
 
 Use deep checks when semantic behavior matters. Static checks can find structural and
@@ -174,10 +185,11 @@ Failed to load extension:
 
 Action:
 
-1. Confirm the path is inside the project root.
-2. Confirm the file defines `register(registry)`.
-3. Confirm registered analyzers provide `analyze(context)`.
-4. Rerun with debug mode if stack details are needed.
+1. Confirm the repository is trusted and rerun with `--allow-extensions`.
+2. Confirm the path is inside the project root.
+3. Confirm the file defines `register(registry)`.
+4. Confirm registered analyzers provide `analyze(context)`.
+5. Rerun with debug mode if stack details are needed.
 
 ### Broken Process Extension
 

@@ -15,7 +15,10 @@ from ai_doc.tokens.counter import ApproximateTokenCounter
 
 
 def _json_check(path: str, *extra: str) -> tuple[int, dict[str, object]]:
-    result = CliRunner().invoke(app, ["check", path, "--format", "json", "--non-interactive", *extra])
+    result = CliRunner().invoke(
+        app,
+        ["check", path, "--format", "json", "--non-interactive", "--allow-extensions", *extra],
+    )
     assert result.exit_code in {0, 2, 3}, result.output
     return result.exit_code, json.loads(result.stdout)
 
@@ -79,14 +82,14 @@ def test_target_probe_example_runs_plan_and_execute(monkeypatch) -> None:
     monkeypatch.setenv(TARGET_COMMAND_ENV, command)
     runner = CliRunner()
 
-    probe = runner.invoke(app, ["probe", "examples/target-probe"])
+    probe = runner.invoke(app, ["probe", "examples/target-probe", "--allow-extensions"])
     assert probe.exit_code == 0, probe.output
     probe_report = json.loads(probe.stdout)
     planned = probe_report["observations"][0]["observation"]
     assert planned["target"] == "fake-target"
     assert "write a summary artifact during execution" in planned["planned_actions"]
 
-    execute = runner.invoke(app, ["execute", "examples/target-probe"])
+    execute = runner.invoke(app, ["execute", "examples/target-probe", "--allow-extensions"])
     assert execute.exit_code == 0, execute.output
     execute_report = json.loads(execute.stdout)
     executed = execute_report["observations"][0]["observation"]

@@ -72,3 +72,63 @@ def test_deterministic_search_does_not_consume_llm_request_budget(tmp_path: Path
     assert "stopped_request_budget" not in run_json
     assert '"generation_requests": 0' in run_json
     assert '"evaluation_requests": 0' in run_json
+
+
+def test_gepa_disabled_does_not_require_models(tmp_path: Path) -> None:
+    _write_fixture(tmp_path)
+
+    result = CliRunner().invoke(app, ["optimize", str(tmp_path), "--strategy", "balanced", "--max-candidates", "1"])
+
+    assert result.exit_code == 0
+
+
+def test_gepa_requires_reflection_model(tmp_path: Path) -> None:
+    _write_fixture(tmp_path)
+    _append_gepa_config(tmp_path, "mutation_model: explicit-mutation\n")
+
+    result = CliRunner().invoke(app, ["optimize", str(tmp_path), "--gepa"])
+
+    assert result.exit_code == 1
+    assert "optimization.gepa.reflection_model" in result.output
+
+
+def test_gepa_requires_mutation_model(tmp_path: Path) -> None:
+    _write_fixture(tmp_path)
+    _append_gepa_config(tmp_path, "reflection_model: explicit-reflection\n")
+
+    result = CliRunner().invoke(app, ["optimize", str(tmp_path), "--gepa"])
+
+    assert result.exit_code == 1
+    assert "optimization.gepa.mutation_model" in result.output
+
+
+def test_gepa_requires_models_even_with_ambient_openai_key(monkeypatch, tmp_path: Path) -> None:
+    _write_fixture(tmp_path)
+    monkeypatch.setenv("OPENAI_API_KEY", "ambient-test-key")
+
+    result = CliRunner().invoke(app, ["optimize", str(tmp_path), "--gepa"])
+
+    assert result.exit_code == 1
+    assert "optimization.gepa.reflection_model" in result.output
+    assert "optimization.gepa.mutation_model" in result.output
+
+
+def test_gepa_with_explicit_models_keeps_existing_path_available(tmp_path: Path) -> None:
+    _write_fixture(tmp_path)
+    _append_gepa_config(
+        tmp_path,
+        "reflection_model: explicit-reflection\n    mutation_model: explicit-mutation\n",
+    )
+
+    result = CliRunner().invoke(app, ["optimize", str(tmp_path), "--gepa", "--max-candidates", "1"])
+
+    assert result.exit_code == 0
+    run_dir = next((tmp_path / ".ai-doc-output").iterdir())
+    run_json = (run_dir / "run.json").read_text(encoding="utf-8")
+    assert '"reflection_model": "explicit-reflection"' in run_json
+    assert '"mutation_model": "explicit-mutation"' in run_json
+
+
+def _append_gepa_config(root: Path, body: str) -> None:
+    with (root / ".ai-doc.yaml").open("a", encoding="utf-8") as handle:
+        handle.write(f"\n  gepa:\n    {body}")

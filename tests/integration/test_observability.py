@@ -103,8 +103,8 @@ extensions:
     )
 
     runner = CliRunner()
-    first = runner.invoke(app, ["check", str(tmp_path), "--format", "json"])
-    second = runner.invoke(app, ["check", str(tmp_path), "--format", "json"])
+    first = runner.invoke(app, ["check", str(tmp_path), "--format", "json", "--allow-extensions"])
+    second = runner.invoke(app, ["check", str(tmp_path), "--format", "json", "--allow-extensions"])
 
     assert first.exit_code == 0
     assert second.exit_code == 0
@@ -165,7 +165,7 @@ extensions:
     )
     _write_provider_extension(tmp_path)
 
-    result = CliRunner().invoke(app, ["optimize", str(tmp_path), "--format", "json"])
+    result = CliRunner().invoke(app, ["optimize", str(tmp_path), "--format", "json", "--allow-extensions"])
 
     assert result.exit_code in {0, 4}
     records = [
@@ -213,7 +213,7 @@ extensions:
     )
     _write_provider_extension(tmp_path)
 
-    result = CliRunner().invoke(app, ["optimize", str(tmp_path), "--format", "json"])
+    result = CliRunner().invoke(app, ["optimize", str(tmp_path), "--format", "json", "--allow-extensions"])
 
     assert result.exit_code in {0, 4}
     record = json.loads((tmp_path / ".ai-doc" / "observations.jsonl").read_text(encoding="utf-8").splitlines()[-1])
@@ -266,7 +266,7 @@ extensions:
     )
     _write_provider_extension(tmp_path)
 
-    result = CliRunner().invoke(app, ["optimize", str(tmp_path), "--format", "json"])
+    result = CliRunner().invoke(app, ["optimize", str(tmp_path), "--format", "json", "--allow-extensions"])
 
     assert result.exit_code in {0, 4}
     report = json.loads(result.stdout)
@@ -314,7 +314,10 @@ extensions:
     )
     _write_provider_extension(tmp_path)
 
-    result = CliRunner().invoke(app, ["optimize", str(tmp_path), "--require-pairwise-semantic", "--format", "json"])
+    result = CliRunner().invoke(
+        app,
+        ["optimize", str(tmp_path), "--require-pairwise-semantic", "--format", "json", "--allow-extensions"],
+    )
 
     assert result.exit_code in {0, 4}
     report = json.loads(result.stdout)

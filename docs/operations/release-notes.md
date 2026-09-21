@@ -20,6 +20,16 @@ extension contracts for downstream vendoring.
   reports and observation records.
 - Added `FindingAdapter` as a first-class Python extension capability through
   `registry.add_finding_adapter(...)`.
+- Added `--allow-extensions` as the explicit trust gate for repository-declared Python
+  and process extensions. Commands now fail closed instead of executing configured
+  extensions from an untrusted checkout by default.
+- Preserved pre-adaptation built-in error findings as authoritative for the default
+  `check` exit code and added finding audit data for adapter suppression or severity
+  changes.
+- Removed implicit GEPA model defaults. GEPA now requires explicit reflection and
+  mutation model configuration when enabled.
+- Hardened execution probes so unexplained workspace mutation is reported as
+  uncertainty, and symlinks are rejected at the workspace isolation boundary.
 - Added an explicit-config observability warning when a `--config` run has observation
   logging disabled or omitted.
 - Clarified that optimizer-owned output exclusion is an optimizer input-ownership

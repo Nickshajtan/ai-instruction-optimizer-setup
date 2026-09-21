@@ -11,6 +11,7 @@ from ai_doc.config.loader import ConfigError, load_config
 from ai_doc.config.models import AiDocConfig
 from ai_doc.discovery.markdown_discovery import discover_markdown
 from ai_doc.evaluators.suite import load_evaluation_suite
+from ai_doc.extension_trust import ExtensionTrustError, ensure_extensions_authorized
 from ai_doc.extensions.process import ProcessExtensionError
 from ai_doc.ml.nli_sentence_transformers import SentenceTransformersNLIEngine
 from ai_doc.ml.sentence_transformers import LocalModelUnavailableError
@@ -34,6 +35,13 @@ def execute_command(
     path: Annotated[Path, typer.Argument(help="Repository root to execute against in an isolated copy.")] = Path("."),
     root: Annotated[Path | None, typer.Option("--root", help="Explicit project root.")] = None,
     config: Annotated[Path | None, typer.Option("--config", help="Path to .ai-doc.yaml.")] = None,
+    allow_extensions: Annotated[
+        bool,
+        typer.Option(
+            "--allow-extensions",
+            help="Execute trusted project-local Python and process extensions declared by repository config.",
+        ),
+    ] = False,
 ) -> None:
     """Run one real target-agent execution per configured scenario in a temporary workspace copy."""
 
@@ -43,6 +51,7 @@ def execute_command(
     try:
         loaded = load_config(project_root, config)
         warn_if_explicit_config_disables_observability(config, loaded)
+        ensure_extensions_authorized(loaded, allow_extensions=allow_extensions)
         extensions = load_extensions(project_root, loaded.extensions)
         register_configured_extensions(loaded, extensions)
         snapshot = discover_markdown(project_root, loaded, resolve_token_counter(loaded, extensions))
@@ -55,6 +64,7 @@ def execute_command(
         report = ExecutionProbeRunner(probe, verifier).run(snapshot, suite)
     except (
         ConfigError,
+        ExtensionTrustError,
         ExtensionError,
         ProcessExtensionError,
         KeyError,

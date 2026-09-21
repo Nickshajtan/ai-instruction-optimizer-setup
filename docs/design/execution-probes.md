@@ -17,7 +17,10 @@ C3 repeated execution benchmark (not current architecture)
 
 This is **workspace isolation**, not an OS security sandbox. The adapter process is trusted: it can still access the host according to the operating system permissions of the caller. Container/VM isolation is a future adapter/deployment concern, not something the core CLI pretends to guarantee.
 
-Symlink-containing source trees are rejected by the default workspace copier because a symlink can point outside the temporary tree and undermine the filesystem-isolation claim.
+Symlink-containing source trees are rejected by the workspace isolation boundary before
+copying because a symlink can point outside the temporary tree and undermine the
+filesystem-isolation claim. The manifest walk retains the same rejection as defense in
+depth.
 
 ## Command Contract
 
@@ -59,7 +62,9 @@ The command runs with `cwd` set to the temporary repository copy and returns a n
 }
 ```
 
-`ai-doc` does not trust the adapter for filesystem-change reporting. It computes `created_paths`, `modified_paths`, and `deleted_paths` independently from SHA-256 manifests of the temporary workspace.
+`ai-doc` does not trust the adapter for filesystem-change reporting. It computes
+`created_paths`, `modified_paths`, and `deleted_paths` independently from SHA-256
+manifests of the temporary workspace.
 
 ## Behavioral Verification
 
@@ -67,7 +72,17 @@ C2 reuses the scenario `behavior.required` and `behavior.forbidden` action contr
 
 Exact action matching is always available. Optional local NLI can recognize semantically equivalent wording. NLI remains a verifier of target evidence, never a substitute target.
 
-A target-reported `status: succeeded` is useful metadata, but it is not by itself proof that tests passed or that the task is correct. C2 currently combines real execution, action evidence, and independently observed repository delta. Stronger independent postcondition/test verification can be added without changing the provider-neutral target contract.
+A target-reported `status: succeeded` is useful metadata, but it is not by itself proof
+that tests passed or that the task is correct. C2 currently combines real execution,
+action evidence, and independently observed repository delta. Stronger independent
+postcondition/test verification can be added without changing the provider-neutral
+target contract.
+
+Workspace deltas can deterministically prove only file creation, modification, deletion,
+or no tracked file changes. They do not prove the semantic intent of a natural-language
+action. If the workspace changes while the target reports no performed actions,
+`ai-doc` records an uncertainty and downgrades a reported `succeeded` status to
+`uncertain`. Legitimate read-only executions with no workspace delta remain successful.
 
 ## FinOps
 

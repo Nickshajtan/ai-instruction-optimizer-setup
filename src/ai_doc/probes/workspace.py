@@ -28,6 +28,14 @@ def workspace_manifest(root: Path) -> dict[str, str]:
     return result
 
 
+def assert_no_workspace_symlinks(root: Path) -> None:
+    for path in sorted(root.rglob("*")):
+        if path.is_symlink():
+            raise UnsafeWorkspaceError(
+                f"Execution workspace isolation rejects unsupported symlink before copy: {path}"
+            )
+
+
 def compare_manifests(before: dict[str, str], after: dict[str, str]) -> WorkspaceDelta:
     before_paths = set(before)
     after_paths = set(after)
@@ -40,6 +48,7 @@ def compare_manifests(before: dict[str, str], after: dict[str, str]) -> Workspac
 
 @contextmanager
 def isolated_workspace(source_root: Path) -> Iterator[Path]:
+    assert_no_workspace_symlinks(source_root)
     workspace_manifest(source_root)
     with tempfile.TemporaryDirectory(prefix="ai-doc-exec-") as temporary:
         destination = Path(temporary) / "repo"
@@ -49,4 +58,5 @@ def isolated_workspace(source_root: Path) -> Iterator[Path]:
             symlinks=True,
             ignore=shutil.ignore_patterns(*IGNORED_NAMES),
         )
+        assert_no_workspace_symlinks(destination)
         yield destination

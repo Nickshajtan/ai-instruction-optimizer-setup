@@ -325,6 +325,8 @@ optimization:
     minimum_clarity_delta: -0.02
   gepa:
     enabled: false
+    reflection_model: null
+    mutation_model: null
 ```
 
 CLI options can override common search settings:
@@ -371,6 +373,12 @@ least one pairwise comparison actually occurs. Strict pairwise overrides
 `gated_pairwise`; an intentional optional skip never satisfies the required-pairwise
 postcondition.
 
+GEPA prompt suboptimization is disabled by default. When enabled through
+`optimization.gepa.enabled`, `--gepa`, or `--experimental-gepa`, both
+`optimization.gepa.reflection_model` and `optimization.gepa.mutation_model` must be set
+explicitly. `ai-doc` does not infer GEPA models from installed packages, provider
+credentials, DeepEval defaults, or hardcoded OpenAI model names.
+
 ## Local Observation Logging
 
 Observation logging records one local JSONL record per opted-in command run. Use it when
@@ -403,6 +411,10 @@ is printed to stderr.
 Extensions are explicit, project-local Python files configured with the `extensions` key.
 Configured files must stay inside the project root because extension loading executes
 Python code.
+
+Configuration declares extension capabilities; it does not authorize them. Commands that
+may execute project-local Python extensions or `extension_runtime` processes fail closed
+unless the operator passes `--allow-extensions`.
 
 Python extensions can register analyzers, finding adapters, evaluators, token counters,
 recommendation policies, and semantic providers. Registering a component makes it

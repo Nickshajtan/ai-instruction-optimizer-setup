@@ -14,12 +14,15 @@ analyzed, use [Configuration](configuration.md) instead.
 
 ## Where Extensions Run
 
-Extensions run when a command loads the analyzer or evaluation pipeline:
+Extensions run when the operator explicitly authorizes them on a command that loads the
+analyzer, evaluation, or probe pipeline:
 
-- `ai-doc check`
-- `ai-doc check --deep`, before the optional deep evaluator runs
-- `ai-doc optimize`, for baseline and candidate static gates
-- `ai-doc optimize --deep`, where a configured evaluator can replace the built-in deep evaluator
+- `ai-doc check --allow-extensions`
+- `ai-doc check --deep --allow-extensions`, before the optional deep evaluator runs
+- `ai-doc optimize --allow-extensions`, for baseline and candidate static gates
+- `ai-doc optimize --deep --allow-extensions`, where a configured evaluator can replace the built-in deep evaluator
+- `ai-doc probe --allow-extensions`
+- `ai-doc execute --allow-extensions`
 
 Extensions do not currently extend `init`, `doctor`, `setup`, `version`, packaging/build
 behavior, runtime-specific loading models, pricing models, custom document profiles, or
@@ -77,6 +80,7 @@ Rules:
 - paths are relative to the project root unless absolute;
 - paths must stay inside the project root;
 - extensions are loaded only when explicitly configured;
+- configured extensions execute only when the operator passes `--allow-extensions`;
 - extension code executes with normal Python privileges;
 - do not configure untrusted extension files.
 
@@ -165,6 +169,13 @@ produce and transform findings. For backward compatibility, analyzer objects reg
 with `registry.add_analyzer(...)` that also implement `adapt_findings(...)` are adapted
 once. Project-specific policy belongs here when it would otherwise require
 organization-specific heading names or workflow assumptions in `ai-doc` core.
+
+Finding adapters may change the presented finding list, including suppressing a
+project-specific false positive. The default CLI quality gate still preserves the
+existence of pre-adaptation built-in error findings for exit-code purposes. JSON reports
+include `finding_audit.builtin_error_count` and adapter events such as `suppressed` or
+`severity_changed` so automation can distinguish "no finding ever existed" from "a
+finding existed and an adapter changed the presentation."
 
 Token counters may expose an `accuracy` attribute using `TokenCountAccuracy.EXACT`,
 `TokenCountAccuracy.ESTIMATED`, `TokenCountAccuracy.MIXED`, or a matching string. If an
@@ -310,19 +321,33 @@ does not print a Python traceback.
 
 ## Security
 
-Both Python extensions and process extensions are trusted project configuration. Python
-extensions execute arbitrary in-process code. Process extensions execute arbitrary
+Both Python extensions and process extensions are executable capabilities. Repository
+configuration can declare them, but it cannot authorize them. By default, ordinary
+commands fail closed when `.ai-doc.yaml` or a nested `.ai-doc.yaml` declares Python
+extensions or `extension_runtime` process components. Pass `--allow-extensions` only when
+the repository checkout is trusted.
+
+Python extensions execute arbitrary in-process code. Process extensions execute arbitrary
 external commands. `shell=False` avoids shell parsing, but it does not sandbox the
 command. Documentation content must not choose executables. Process extensions may
 receive project documentation content and selected metadata. By default, process
-extensions inherit the parent process environment; configured environment overlays add
-to that environment rather than replacing it. Configure commands deliberately, avoid
-logging secrets, and pass provider credentials only to trusted adapters. The process
-runtime is a protocol boundary, not a sandbox.
+extensions inherit the parent process environment; configured environment overlays add to
+that environment rather than replacing it. Configure commands deliberately, avoid logging
+secrets, and pass provider credentials only to trusted adapters. The process runtime is a
+protocol boundary, not a sandbox.
 
 ## Failure Behavior
 
-Normal mode reports concise diagnostics:
+Normal mode reports concise diagnostics for missing extension authorization:
+
+```text
+Executable extensions are configured but were not executed.
+
+Repository-controlled configuration cannot authorize extension execution.
+Rerun with --allow-extensions only for a trusted repository.
+```
+
+Trusted extension failures also report concise diagnostics:
 
 ```text
 Failed to load extension:

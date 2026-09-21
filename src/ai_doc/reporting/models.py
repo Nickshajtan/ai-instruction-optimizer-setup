@@ -10,6 +10,19 @@ from ai_doc.domain.optimization import Candidate, OptimizationRun, ParetoEntry
 from ai_doc.domain.scores import ContextCost, ScoreSet
 
 
+class FindingAuditEvent(BaseModel):
+    code: str
+    severity: str
+    path: str
+    section: str | None = None
+    action: str
+
+
+class FindingAudit(BaseModel):
+    builtin_error_count: int = 0
+    adapter_events: list[FindingAuditEvent] = []
+
+
 class CheckReport(BaseModel):
     files_analyzed: int
     total_tokens: int
@@ -18,6 +31,7 @@ class CheckReport(BaseModel):
     context_cost: ContextCost
     profiles: dict[str, str]
     findings: list[Finding]
+    finding_audit: FindingAudit = FindingAudit()
     evaluation: EvaluationResult | None = None
 
 

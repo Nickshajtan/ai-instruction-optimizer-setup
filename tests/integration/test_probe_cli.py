@@ -19,7 +19,7 @@ def test_probe_cli_runs_real_command_once_per_scenario(monkeypatch) -> None:
     monkeypatch.setenv(TARGET_COMMAND_ENV, _fixture_command())
     runner = CliRunner()
 
-    result = runner.invoke(app, ["probe", "examples/basic"])
+    result = runner.invoke(app, ["probe", "examples/basic", "--allow-extensions"])
 
     assert result.exit_code == 0, result.output
     report = json.loads(result.stdout)
@@ -35,7 +35,7 @@ def test_probe_cli_fails_cleanly_without_target_command(monkeypatch) -> None:
     monkeypatch.delenv(TARGET_COMMAND_ENV, raising=False)
     runner = CliRunner()
 
-    result = runner.invoke(app, ["probe", "examples/basic"])
+    result = runner.invoke(app, ["probe", "examples/basic", "--allow-extensions"])
 
     assert result.exit_code == 1
     assert TARGET_COMMAND_ENV in result.output
