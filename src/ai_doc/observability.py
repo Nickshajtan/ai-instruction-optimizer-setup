@@ -19,6 +19,7 @@ from ai_doc.reporting.models import CheckReport, SearchOptimizeReport
 OBSERVATION_SCHEMA = "ai-doc.observation/v1"
 HASH_PREFIX_LENGTH = 16
 WARNING_PREFIX = "Observation logging failed:"
+TOKEN_SEMANTICS_REPORTED = "reported"  # nosec B105
 
 
 class ObservationWriteError(RuntimeError):
@@ -422,7 +423,7 @@ def _provider_observations(cost: CandidateCost) -> list[ProviderObservation]:
                 input_tokens=cost.input_tokens,
                 output_tokens=cost.output_tokens,
                 cache_hits=cost.cache_hits,
-                token_semantics="reported",
+                token_semantics=TOKEN_SEMANTICS_REPORTED,
                 cost_usd=cost.total_cost,
                 cost_source=_cost_source(cost),
             )
@@ -445,7 +446,7 @@ def _append_provider_usage(
             requests=requests,
             input_tokens=input_tokens,
             output_tokens=output_tokens,
-            token_semantics="reported",
+            token_semantics=TOKEN_SEMANTICS_REPORTED,
         )
     )
 

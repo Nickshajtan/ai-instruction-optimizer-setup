@@ -34,6 +34,8 @@ extension contracts for downstream vendoring.
   plus explicit configured `env:` values.
 - Added a dedicated `tests/security` regression suite and GitHub Actions security check.
 - Refined CI path filters so security/control-plane Markdown is not blanket-ignored.
+- Added normative security engineering standards, security-review skills, Bandit,
+  pip-audit, and focused mutation coverage for security-sensitive decision logic.
 - Added an explicit-config observability warning when a `--config` run has observation
   logging disabled or omitted.
 - Clarified that optimizer-owned output exclusion is an optimizer input-ownership

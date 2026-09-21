@@ -48,3 +48,5 @@ or release-process changes:
 - [packaging maintenance](../.ai/skills/packaging-maintenance/SKILL.md)
 - [extension API maintenance](../.ai/skills/extension-api-maintenance/SKILL.md)
 - [verification maintenance](../.ai/skills/verification-maintenance/SKILL.md)
+- [security review](../.ai/skills/security-review/SKILL.md)
+- [safe external execution](../.ai/skills/safe-external-execution/SKILL.md)

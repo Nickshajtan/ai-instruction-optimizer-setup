@@ -2,23 +2,37 @@ from __future__ import annotations
 
 import json
 import sys
+import tomllib
 from pathlib import Path
+from typing import Any
 
 import pytest
 import yaml
 from typer.testing import CliRunner
 
 from ai_doc.cli.main import app
+from ai_doc.domain.documents import Document, DocumentationSnapshot, DocumentProfile
+from ai_doc.domain.evaluations import EvaluationScenario, EvaluationSuite
+from ai_doc.domain.probes import ExecutionObservation, ExecutionStatus
+from ai_doc.probes.execution_runner import ExecutionActionVerifier, ExecutionProbeRunner
 from ai_doc.probes.workspace import UnsafeWorkspaceError, isolated_workspace
 
 CONTROL_PLANE_PATHS = (
     "AGENTS.md",
     "CLAUDE.md",
-    ".ai/skills/security/SKILL.md",
-    ".codex/skills/security/SKILL.md",
-    ".claude/skills/security/SKILL.md",
+    ".ai/skills/security-review/SKILL.md",
+    ".ai/skills/safe-external-execution/SKILL.md",
     ".github/workflows/security.yml",
     "docs/standards.md",
+)
+
+SECURITY_MUTATION_TARGETS = (
+    "src/ai_doc/app.py",
+    "src/ai_doc/extension_trust.py",
+    "src/ai_doc/extensions/transport.py",
+    "src/ai_doc/optimizer/prompt_suboptimizer.py",
+    "src/ai_doc/probes/execution_runner.py",
+    "src/ai_doc/probes/workspace.py",
 )
 
 
@@ -218,11 +232,62 @@ def test_workspace_isolation_rejects_symlink_boundary(tmp_path: Path) -> None:
         pass
 
 
+def test_probe_integrity_marks_unreported_workspace_mutation_uncertain(tmp_path: Path) -> None:
+    snapshot = _snapshot(tmp_path)
+    suite = EvaluationSuite(scenarios=[_scenario()])
+
+    report = ExecutionProbeRunner(_SilentMutationProbe(), ExecutionActionVerifier()).run(snapshot, suite)
+
+    observation = report.observations[0].observation
+    assert observation.workspace_delta.created_paths == ["unreported.txt"]
+    assert observation.status == ExecutionStatus.UNCERTAIN
+    assert "reported no performed actions" in observation.uncertainties[0]
+
+
+def test_security_skills_exist_and_are_routed() -> None:
+    security_review = Path(".ai/skills/security-review/SKILL.md").read_text(encoding="utf-8")
+    safe_execution = Path(".ai/skills/safe-external-execution/SKILL.md").read_text(encoding="utf-8")
+    agents = Path("AGENTS.md").read_text(encoding="utf-8")
+    docs_agents = Path("docs/AGENTS.md").read_text(encoding="utf-8")
+
+    assert "Trust boundary:" in security_review
+    assert "Can configuration authorize itself?" in security_review
+    assert "Safe argument passing is not the same problem as safe authorization." in safe_execution
+    assert ".ai/skills/security-review/SKILL.md" in agents
+    assert ".ai/skills/safe-external-execution/SKILL.md" in agents
+    assert "../.ai/skills/security-review/SKILL.md" in docs_agents
+    assert "../.ai/skills/safe-external-execution/SKILL.md" in docs_agents
+
+
 def test_security_workflow_runs_dedicated_security_suite() -> None:
     workflow = _workflow(".github/workflows/security.yml")
     jobs = workflow["jobs"]
     assert jobs
     assert any("tests/security" in step.get("run", "") for job in jobs.values() for step in job.get("steps", []))
+    assert workflow.get("permissions") == {"contents": "read"}
+    assert "pull_request_target" not in workflow.get("on", {})
+
+
+def test_security_workflow_runs_blocking_scanners_and_mutation() -> None:
+    workflow = _workflow(".github/workflows/security.yml")
+    jobs = workflow["jobs"]
+
+    assert _job_has_run(jobs["static"], "python -m bandit -r src")
+    assert _job_has_run(jobs["dependencies"], "python -m pip_audit --local --cache-dir .pip-audit-cache")
+    assert _job_has_run(jobs["mutation"], "python -m mutmut run")
+    assert not _job_uses_continue_on_error(jobs["contracts"])
+    assert not _job_uses_continue_on_error(jobs["static"])
+    assert not _job_uses_continue_on_error(jobs["dependencies"])
+    assert not _job_uses_continue_on_error(jobs["mutation"])
+
+
+def test_security_mutation_scope_includes_security_decision_logic() -> None:
+    pyproject = tomllib.loads(Path("pyproject.toml").read_text(encoding="utf-8"))
+    mutmut = pyproject["tool"]["mutmut"]
+
+    assert "tests/security" in mutmut["pytest_add_cli_args_test_selection"]
+    for target in SECURITY_MUTATION_TARGETS:
+        assert target in mutmut["only_mutate"]
 
 
 def test_control_plane_markdown_is_not_blanket_ignored_by_primary_workflows() -> None:
@@ -249,3 +314,47 @@ def _path_is_ignored(path: str, patterns: list[str]) -> bool:
     from fnmatch import fnmatch
 
     return any(fnmatch(path, pattern) for pattern in patterns)
+
+
+def _job_has_run(job: Any, command: str) -> bool:
+    return any(command in step.get("run", "") for step in job.get("steps", []))
+
+
+def _job_uses_continue_on_error(job: Any) -> bool:
+    if job.get("continue-on-error") is True:
+        return True
+    return any(step.get("continue-on-error") is True for step in job.get("steps", []))
+
+
+def _snapshot(tmp_path: Path) -> DocumentationSnapshot:
+    text = "# Rules\nRun validation.\n"
+    path = tmp_path / "AGENTS.md"
+    path.write_text(text, encoding="utf-8")
+    document = Document(
+        path=path,
+        relative_path="AGENTS.md",
+        profile=DocumentProfile.INSTRUCTION,
+        text=text,
+        token_count=4,
+    )
+    return DocumentationSnapshot(root=tmp_path, documents=(document,))
+
+
+def _scenario() -> EvaluationScenario:
+    return EvaluationScenario(id="change", task="Change docs")
+
+
+class _SilentMutationProbe:
+    def run(
+        self,
+        workspace_root: Path,
+        _snapshot: DocumentationSnapshot,
+        scenario: EvaluationScenario,
+    ) -> ExecutionObservation:
+        (workspace_root / "unreported.txt").write_text("changed", encoding="utf-8")
+        return ExecutionObservation(
+            target="codex",
+            scenario_id=scenario.id,
+            status=ExecutionStatus.SUCCEEDED,
+            performed_actions=[],
+        )

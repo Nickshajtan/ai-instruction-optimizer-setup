@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import shutil
-import subprocess
+import subprocess  # nosec B404
 import tempfile
 from pathlib import Path
 
@@ -21,7 +21,7 @@ PROMPTFOO_CONTAINS_ASSERTION = "contains"
 PROMPTFOO_NOT_CONTAINS_ASSERTION = "not-contains"
 PROMPTFOO_RESULTS_KEY = "results"
 PROMPTFOO_SUCCESS_KEY = "success"
-PROMPTFOO_PASS_KEY = "pass"
+PROMPTFOO_PASS_KEY = "pass"  # nosec B105
 PROMPTFOO_REASON_KEY = "reason"
 SKIPPED_REASON_KEY = "skipped"
 NO_SCENARIOS_REASON = "no scenarios"
@@ -95,7 +95,7 @@ class SubprocessPromptfooRunner(PromptfooRunner):
         return shutil.which(PROMPTFOO_EXECUTABLE) is not None
 
     def run(self, config_path: Path, output_path: Path) -> subprocess.CompletedProcess[str]:
-        return subprocess.run(
+        return subprocess.run(  # nosec B603
             [PROMPTFOO_EXECUTABLE, "eval", "-c", str(config_path), "--output", str(output_path)],
             check=False,
             capture_output=True,

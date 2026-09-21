@@ -68,6 +68,60 @@ Stable exit codes:
 - Process extensions must not inherit the full parent process environment by default;
   pass only the documented minimal runtime environment plus explicit configured values.
 
+## Security Standards
+
+- Repository-controlled content is untrusted input unless an independently trusted
+  boundary explicitly grants it additional authority. This includes configuration,
+  Markdown, nested configuration, extension declarations, executable paths, commands and
+  arguments, provider/model identifiers, target-agent output, generated files, and
+  external process responses.
+- Configuration is not authorization. Repository-controlled configuration cannot
+  independently authorize executable extensions, arbitrary process execution, external
+  provider activation, access to credentials, elevated filesystem authority, or other
+  privileged capabilities.
+- Every security-sensitive change must identify the trusted actor, untrusted input,
+  privileged operation, authorization boundary, validation boundary, failure behavior,
+  and audit evidence. If these cannot be identified, do not invent implicit trust.
+- Grant only the authority required for the operation. Review environment variables,
+  credentials, filesystem access, network access, subprocess execution, writable
+  locations, and inherited process state. Permission to execute is not permission to
+  inherit every available capability.
+- Security-sensitive ambiguity must fail closed with explicit rejection or explicit
+  uncertainty rather than unsupported success.
+- Do not silently activate external model/provider behavior based only on ambient
+  credentials, installed packages, SDK defaults, implicit model defaults, or unrelated
+  environment state. External execution and provider selection must follow explicit
+  project configuration and authorization contracts.
+- `shell=False` prevents shell interpretation, but it is not an authorization mechanism.
+  Review who chooses the executable, who chooses arguments, who authorizes execution,
+  which environment is inherited, which filesystem is accessible, which network authority
+  exists, and which evidence is trusted afterward.
+- External agents, providers, and subprocesses may return claims, but their self-report
+  is not automatically authoritative. Security-sensitive conclusions must account for
+  independent deterministic evidence where it exists, and must not claim semantic
+  certainty beyond the evidence available.
+- Isolation abstractions must enforce their own invariants, including symlink rejection,
+  workspace boundaries, output boundaries, and writable paths. Do not rely on unrelated
+  upstream operations accidentally enforcing those invariants.
+- Extension mechanisms must not silently weaken authoritative built-in security or safety
+  evidence. Any mechanism capable of suppressing, downgrading, replacing, or transforming
+  authoritative findings requires explicit security review.
+- Secrets and credentials must not be committed, written to ordinary diagnostics, included
+  in observations, included in generated fixtures, exposed unnecessarily to child
+  processes, or copied into security-test artifacts. Tests requiring secret-like data must
+  use synthetic values.
+- Every fixed vulnerability class must receive a causal regression test where practical:
+  attacker-controlled input, production boundary, attempted security-sensitive effect,
+  and protected result.
+- Where a security guarantee depends on a conditional decision, mutation testing should
+  be able to detect meaningful weakening of that decision. Do not require mutation
+  testing for code that contains no meaningful security decision.
+- Security-sensitive dependencies and CI automation must be reviewed proportionally to
+  their authority. GitHub Actions should prefer first-party or well-established Actions,
+  newly introduced third-party Actions should prefer immutable full-SHA references, and
+  workflow permissions must remain least privilege. Avoid privileged workflow triggers
+  unless required and reviewed.
+
 ## Architecture Standards
 
 - Core domain models must not import Typer.

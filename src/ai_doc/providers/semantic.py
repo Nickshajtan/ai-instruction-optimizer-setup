@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import os
 import shlex
-import subprocess
+import subprocess  # nosec B404
 from decimal import Decimal
 from typing import Protocol, runtime_checkable
 
@@ -100,7 +100,7 @@ class CommandSemanticProvider:
     def invoke(self, operation: str, payload: dict[str, object]) -> SemanticResponse:
         request = {"operation": operation, "payload": payload}
         try:
-            completed = subprocess.run(
+            completed = subprocess.run(  # nosec B603
                 shlex.split(self.command),
                 input=json.dumps(request),
                 text=True,

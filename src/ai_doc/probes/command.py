@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import os
 import shlex
-import subprocess
+import subprocess  # nosec B404
 from pathlib import Path
 
 from pydantic import BaseModel, Field, ValidationError
@@ -74,7 +74,7 @@ class CommandTargetProbe:
             ],
         )
         try:
-            completed = subprocess.run(
+            completed = subprocess.run(  # nosec B603
                 split_command(self.command),
                 input=request.model_dump_json(),
                 text=True,

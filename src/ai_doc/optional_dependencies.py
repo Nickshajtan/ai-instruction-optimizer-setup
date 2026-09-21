@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import re
 import shutil
-import subprocess
+import subprocess  # nosec B404
 import sys
 from dataclasses import dataclass
 from importlib.util import find_spec
@@ -117,7 +117,7 @@ DEPENDENCIES_BY_ENGINE: dict[EvaluationEngine, OptionalDependency] = {
 
 class PythonPackageInstaller:
     def install(self, requirement: str) -> None:
-        completed = subprocess.run(
+        completed = subprocess.run(  # nosec B603
             [sys.executable, "-m", "pip", "install", requirement],
             check=False,
             capture_output=True,
@@ -188,7 +188,7 @@ def _node_version() -> tuple[int, int, int] | None:
     executable = shutil.which("node")
     if not executable:
         return None
-    completed = subprocess.run(
+    completed = subprocess.run(  # nosec B603
         [executable, "--version"],
         check=False,
         capture_output=True,

@@ -39,7 +39,7 @@ class StopReason(StrEnum):
     CANDIDATE_BUDGET = "stopped_candidate_budget"
     REQUEST_BUDGET = "stopped_request_budget"
     COST_BUDGET = "stopped_budget"
-    TOKEN_BUDGET = "stopped_token_budget"
+    TOKEN_BUDGET = "stopped_token_budget"  # nosec B105
     PATIENCE = "stopped_patience"
 
 
