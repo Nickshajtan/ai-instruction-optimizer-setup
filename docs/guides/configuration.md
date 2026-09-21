@@ -404,9 +404,9 @@ Extensions are explicit, project-local Python files configured with the `extensi
 Configured files must stay inside the project root because extension loading executes
 Python code.
 
-Python extensions can register analyzers, evaluators, token counters, recommendation
-policies, and semantic providers. Registering a component makes it available; selecting a
-named component makes it affect a production path.
+Python extensions can register analyzers, finding adapters, evaluators, token counters,
+recommendation policies, and semantic providers. Registering a component makes it
+available; selecting a named component makes it affect a production path.
 
 ```yaml
 components:

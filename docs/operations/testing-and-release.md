@@ -103,5 +103,6 @@ cross-compilation.
 4. Confirm `ai-doc doctor` in executable mode reports `standalone executable`.
 5. Confirm missing deep-evaluator dependencies return exit code `3`.
 6. Confirm checksums exist for executable artifacts.
-7. Review `docs/design/deferred.md` for release notes.
+7. Update [Release Notes](release-notes.md) with user-visible behavior and public
+   contract changes.
 8. Publish wheel/sdist and executable artifacts with checksums.
