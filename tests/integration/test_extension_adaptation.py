@@ -19,7 +19,7 @@ def test_project_extension_can_adapt_core_clarity_finding_through_cli(tmp_path: 
     assert _has_finding(stock_findings, "CLARITY_NO_ACTIONABLE_CONTENT", "Deployment")
 
     _write_project(tmp_path, extension=True)
-    adapted = CliRunner().invoke(app, ["check", str(tmp_path), "--format", "json"])
+    adapted = CliRunner().invoke(app, ["check", str(tmp_path), "--format", "json", "--allow-extensions"])
 
     assert adapted.exit_code == 0
     adapted_findings = json.loads(adapted.stdout)["findings"]
@@ -62,7 +62,7 @@ def register(registry):
     _write_extension(
         extension_dir / "second.py",
         """
-from ai_doc.api.v1 import AnalysisContext, Finding, FindingAdapter
+from ai_doc.api.v1 import AnalysisContext, Finding, FindingAdapter, FindingSeverity
 
 
 class SecondAdapter(FindingAdapter):
@@ -83,7 +83,7 @@ extensions:
 """,
     )
 
-    result = CliRunner().invoke(app, ["check", str(tmp_path), "--format", "json"])
+    result = CliRunner().invoke(app, ["check", str(tmp_path), "--format", "json", "--allow-extensions"])
 
     assert result.exit_code == 0
     findings = json.loads(result.stdout)["findings"]
@@ -142,13 +142,113 @@ extensions:
 """,
     )
 
-    result = CliRunner().invoke(app, ["check", str(tmp_path), "--format", "json"])
+    result = CliRunner().invoke(app, ["check", str(tmp_path), "--format", "json", "--allow-extensions"])
 
     assert result.exit_code == 0
     findings = json.loads(result.stdout)["findings"]
     assert _has_finding(findings, "ORG_STEP_2", "Architecture")
     assert not _has_finding(findings, "ORG_STEP_1", "Architecture")
     assert not _has_finding(findings, "ORG_STEP_3", "Architecture")
+
+
+def test_adapter_cannot_make_builtin_error_exit_successful(tmp_path: Path) -> None:
+    _write_budget_error_project(tmp_path)
+    extension_dir = tmp_path / ".ai-doc" / "extensions"
+    extension_dir.mkdir(parents=True)
+    _write_extension(
+        extension_dir / "suppress_errors.py",
+        """
+from ai_doc.api.v1 import AnalysisContext, Finding, FindingAdapter, FindingSeverity
+
+
+class SuppressErrors(FindingAdapter):
+    def adapt_findings(self, context: AnalysisContext, findings: list[Finding]) -> list[Finding]:
+        return [finding for finding in findings if finding.severity != "error"]
+
+
+def register(registry):
+    registry.add_finding_adapter(SuppressErrors())
+""",
+    )
+    _append_extension_config(tmp_path, ".ai-doc/extensions/suppress_errors.py")
+
+    result = CliRunner().invoke(app, ["check", str(tmp_path), "--format", "json", "--allow-extensions"])
+
+    assert result.exit_code == 2
+    payload = json.loads(result.stdout)
+    assert not any(finding["severity"] == "error" for finding in payload["findings"])
+    assert payload["finding_audit"]["builtin_error_count"] == 1
+    assert payload["finding_audit"]["adapter_events"][0]["action"] == "suppressed"
+
+
+def test_adapter_downgraded_builtin_error_remains_blocking_and_auditable(tmp_path: Path) -> None:
+    _write_budget_error_project(tmp_path)
+    extension_dir = tmp_path / ".ai-doc" / "extensions"
+    extension_dir.mkdir(parents=True)
+    _write_extension(
+        extension_dir / "downgrade_errors.py",
+        """
+from ai_doc.api.v1 import AnalysisContext, Finding, FindingAdapter, FindingSeverity
+
+
+class DowngradeErrors(FindingAdapter):
+    def adapt_findings(self, context: AnalysisContext, findings: list[Finding]) -> list[Finding]:
+        return [
+            finding.model_copy(update={"severity": FindingSeverity.WARNING})
+            if finding.severity == FindingSeverity.ERROR
+            else finding
+            for finding in findings
+        ]
+
+
+def register(registry):
+    registry.add_finding_adapter(DowngradeErrors())
+""",
+    )
+    _append_extension_config(tmp_path, ".ai-doc/extensions/downgrade_errors.py")
+
+    result = CliRunner().invoke(app, ["check", str(tmp_path), "--format", "json", "--allow-extensions"])
+
+    assert result.exit_code == 2
+    payload = json.loads(result.stdout)
+    assert all(finding["severity"] != "error" for finding in payload["findings"])
+    assert payload["finding_audit"]["builtin_error_count"] == 1
+    assert payload["finding_audit"]["adapter_events"][0]["action"] == "severity_changed"
+
+
+def test_extension_analyzer_error_still_fails_check(tmp_path: Path) -> None:
+    _write_project(tmp_path, extension=False)
+    extension_dir = tmp_path / ".ai-doc" / "extensions"
+    extension_dir.mkdir(parents=True)
+    _write_extension(
+        extension_dir / "error_analyzer.py",
+        """
+from ai_doc.api.v1 import AnalysisContext, Finding, FindingCategory, FindingSeverity
+
+
+class ErrorAnalyzer:
+    def analyze(self, context: AnalysisContext) -> list[Finding]:
+        return [
+            Finding(
+                code="ORG_ERROR",
+                category=FindingCategory.RISK,
+                severity=FindingSeverity.ERROR,
+                path="AGENTS.md",
+                message="Extension error.",
+            )
+        ]
+
+
+def register(registry):
+    registry.add_analyzer(ErrorAnalyzer())
+""",
+    )
+    _append_extension_config(tmp_path, ".ai-doc/extensions/error_analyzer.py")
+
+    result = CliRunner().invoke(app, ["check", str(tmp_path), "--format", "json", "--allow-extensions"])
+
+    assert result.exit_code == 2
+    assert _has_finding(json.loads(result.stdout)["findings"], "ORG_ERROR", None)
 
 
 def _write_project(root: Path, *, extension: bool) -> None:
@@ -217,5 +317,26 @@ def _write_extension(path: Path, text: str) -> None:
     path.write_text(text, encoding="utf-8")
 
 
-def _has_finding(findings: list[dict[str, object]], code: str, section: str) -> bool:
+def _has_finding(findings: list[dict[str, object]], code: str, section: str | None) -> bool:
     return any(finding["code"] == code and finding.get("section") == section for finding in findings)
+
+
+def _write_budget_error_project(root: Path) -> None:
+    (root / ".ai-doc.yaml").write_text(
+        """
+version: 1
+include: [AGENTS.md]
+profiles:
+  AGENTS.md: instruction
+budgets:
+  instruction:
+    error_tokens: 1
+""",
+        encoding="utf-8",
+    )
+    (root / "AGENTS.md").write_text("# Rules\n\nRun validation before merge.\n", encoding="utf-8")
+
+
+def _append_extension_config(root: Path, extension_path: str) -> None:
+    with (root / ".ai-doc.yaml").open("a", encoding="utf-8") as handle:
+        handle.write(f"\nextensions:\n  - path: {extension_path}\n")

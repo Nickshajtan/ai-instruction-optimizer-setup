@@ -13,15 +13,22 @@ C3 repeated execution benchmark (not current architecture)
 
 ## Safety Boundary
 
-`ai-doc execute` never points the target command at the source repository. For each evaluation scenario it creates a temporary filesystem copy, invokes the configured target adapter with that copy as its working directory, records the result, measures the filesystem before/after delta, and deletes the temporary copy afterwards.
+`ai-doc execute` never points the target command at the source repository. For each evaluation scenario it creates a temporary filesystem copy, invokes the operator-configured target adapter with that copy as its working directory, records the result, measures the filesystem before/after delta, and deletes the temporary copy afterwards.
 
-This is **workspace isolation**, not an OS security sandbox. The adapter process is trusted: it can still access the host according to the operating system permissions of the caller. Container/VM isolation is a future adapter/deployment concern, not something the core CLI pretends to guarantee.
+This is **workspace isolation**, not an OS security sandbox. The adapter process is trusted: it can still access the host according to the operating system permissions of the caller, including ambient environment, credentials, network access, and user-level configuration unless the operator's wrapper restricts them. Container/VM isolation is a future adapter/deployment concern, not something the core CLI pretends to guarantee.
 
-Symlink-containing source trees are rejected by the default workspace copier because a symlink can point outside the temporary tree and undermine the filesystem-isolation claim.
+Symlink-containing source trees are rejected by the workspace isolation boundary before
+copying because a symlink can point outside the temporary tree and undermine the
+filesystem-isolation claim. The manifest walk retains the same rejection as defense in
+depth.
 
 ## Command Contract
 
 C2 reuses `AI_DOC_TARGET_COMMAND`; the adapter distinguishes the request by `mode`.
+Repository-controlled evaluation scenarios and documentation can influence the request
+payload, but repository configuration does not select this command. Choosing to run
+`ai-doc execute` with `AI_DOC_TARGET_COMMAND` set is the operator authorization boundary
+for real target-agent execution.
 
 ```bash
 export AI_DOC_TARGET_COMMAND='your-target-adapter'
@@ -59,7 +66,9 @@ The command runs with `cwd` set to the temporary repository copy and returns a n
 }
 ```
 
-`ai-doc` does not trust the adapter for filesystem-change reporting. It computes `created_paths`, `modified_paths`, and `deleted_paths` independently from SHA-256 manifests of the temporary workspace.
+`ai-doc` does not trust the adapter for filesystem-change reporting. It computes
+`created_paths`, `modified_paths`, and `deleted_paths` independently from SHA-256
+manifests of the temporary workspace.
 
 ## Behavioral Verification
 
@@ -67,7 +76,17 @@ C2 reuses the scenario `behavior.required` and `behavior.forbidden` action contr
 
 Exact action matching is always available. Optional local NLI can recognize semantically equivalent wording. NLI remains a verifier of target evidence, never a substitute target.
 
-A target-reported `status: succeeded` is useful metadata, but it is not by itself proof that tests passed or that the task is correct. C2 currently combines real execution, action evidence, and independently observed repository delta. Stronger independent postcondition/test verification can be added without changing the provider-neutral target contract.
+A target-reported `status: succeeded` is useful metadata, but it is not by itself proof
+that tests passed or that the task is correct. C2 currently combines real execution,
+action evidence, and independently observed repository delta. Stronger independent
+postcondition/test verification can be added without changing the provider-neutral
+target contract.
+
+Workspace deltas can deterministically prove only file creation, modification, deletion,
+or no tracked file changes. They do not prove the semantic intent of a natural-language
+action. If the workspace changes while the target reports no performed actions,
+`ai-doc` records an uncertainty and downgrades a reported `succeeded` status to
+`uncertain`. Legitimate read-only executions with no workspace delta remain successful.
 
 ## FinOps
 

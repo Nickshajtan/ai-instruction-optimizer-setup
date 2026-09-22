@@ -2,12 +2,26 @@ from __future__ import annotations
 
 from typing import Protocol
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from ai_doc.domain.evaluations import CandidateComparison, EvaluationResult
 from ai_doc.domain.findings import Finding
 from ai_doc.domain.optimization import Candidate, OptimizationRun, ParetoEntry
 from ai_doc.domain.scores import ContextCost, ScoreSet
+
+
+class FindingAuditEvent(BaseModel):
+    adapter: str
+    code: str
+    severity: str
+    path: str
+    section: str | None = None
+    action: str
+
+
+class FindingAudit(BaseModel):
+    builtin_error_count: int = 0
+    adapter_events: list[FindingAuditEvent] = Field(default_factory=list)
 
 
 class CheckReport(BaseModel):
@@ -18,6 +32,7 @@ class CheckReport(BaseModel):
     context_cost: ContextCost
     profiles: dict[str, str]
     findings: list[Finding]
+    finding_audit: FindingAudit = Field(default_factory=FindingAudit)
     evaluation: EvaluationResult | None = None
 
 

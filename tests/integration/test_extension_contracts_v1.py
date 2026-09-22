@@ -49,15 +49,22 @@ def _extension(root: Path, text: str) -> None:
 
 
 def _run_json(args: list[str]) -> dict[str, object]:
-    result = CliRunner().invoke(app, args)
+    result = CliRunner().invoke(app, _with_allow_extensions(args))
     assert result.exit_code == 0, result.output
     return json.loads(result.output[result.output.index("{") :])
 
 
 def _run_json_with_exit(args: list[str], exit_code: int) -> dict[str, object]:
-    result = CliRunner().invoke(app, args)
+    result = CliRunner().invoke(app, _with_allow_extensions(args))
     assert result.exit_code == exit_code, result.output
     return json.loads(result.output[result.output.index("{") :])
+
+
+def _with_allow_extensions(args: list[str]) -> list[str]:
+    command = args[0] if args else ""
+    if command in {"check", "optimize", "probe", "execute"} and "--allow-extensions" not in args:
+        return [*args, "--allow-extensions"]
+    return args
 
 
 def test_l3_python_token_counter_affects_static_report(tmp_path: Path) -> None:
@@ -386,7 +393,7 @@ extension_runtime:
 """,
     )
 
-    result = CliRunner().invoke(app, [*command, str(tmp_path)])
+    result = CliRunner().invoke(app, [*command, str(tmp_path), "--allow-extensions"])
 
     assert result.exit_code == 1
     assert "counter_unavailable" in result.output

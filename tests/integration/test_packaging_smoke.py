@@ -48,4 +48,9 @@ def test_executable_smoke() -> None:
         executable = next((root / "dist").glob(f"*/ai-doc/{exe_name}"))
     subprocess.run([str(executable), "--version"], check=True, shell=False)
     subprocess.run([str(executable), "doctor", "examples/basic"], cwd=root, check=True, shell=False)
-    subprocess.run([str(executable), "check", "examples/basic"], cwd=root, check=True, shell=False)
+    subprocess.run(
+        [str(executable), "check", "examples/basic", "--allow-extensions"],
+        cwd=root,
+        check=True,
+        shell=False,
+    )

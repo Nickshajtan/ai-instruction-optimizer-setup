@@ -190,6 +190,20 @@ Project configuration separates registration from selection. `extensions` and
 `extension_runtime` make components available; `components` and mode-specific evaluator
 configuration select which named implementations affect production behavior.
 
+Registration is not authorization. Repository-controlled `.ai-doc.yaml` files, including
+nested configs, may declare Python extensions and process-backed components, but ordinary
+commands MUST receive the operator-controlled `--allow-extensions` flag before either
+kind of executable extension is loaded or registered. This keeps repository content as
+data until the operator grants executable trust.
+
+Static analysis preserves a pre-adaptation built-in safety baseline. Built-in analyzers
+run before extension analyzers and finding adapters; adapters may change the presented
+finding list, but the default `check` exit code remains fail-closed if a built-in
+error-severity finding existed before adaptation. `CheckReport.finding_audit` records the
+built-in error count and transition-based adapter effects such as suppression or severity
+changes, attributed to the adapter that caused them, so automation can distinguish
+absence from adaptation.
+
 ## Run Evidence
 
 The optimizer writes:

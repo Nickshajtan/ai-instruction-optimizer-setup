@@ -28,6 +28,52 @@ class FakeExecutionProbe:
         )
 
 
+class UnreportedMutationProbe:
+    def run(
+        self,
+        workspace_root: Path,
+        _snapshot: DocumentationSnapshot,
+        scenario: EvaluationScenario,
+    ) -> ExecutionObservation:
+        (workspace_root / "unreported.txt").write_text("changed", encoding="utf-8")
+        return ExecutionObservation(
+            target="codex",
+            scenario_id=scenario.id,
+            status=ExecutionStatus.SUCCEEDED,
+            performed_actions=[],
+        )
+
+
+class ReadOnlyProbe:
+    def run(
+        self,
+        _workspace_root: Path,
+        _snapshot: DocumentationSnapshot,
+        scenario: EvaluationScenario,
+    ) -> ExecutionObservation:
+        return ExecutionObservation(
+            target="codex",
+            scenario_id=scenario.id,
+            status=ExecutionStatus.SUCCEEDED,
+            performed_actions=[],
+        )
+
+
+class NoMutationActionProbe:
+    def run(
+        self,
+        _workspace_root: Path,
+        _snapshot: DocumentationSnapshot,
+        scenario: EvaluationScenario,
+    ) -> ExecutionObservation:
+        return ExecutionObservation(
+            target="codex",
+            scenario_id=scenario.id,
+            status=ExecutionStatus.SUCCEEDED,
+            performed_actions=["Inspected the documentation without editing files."],
+        )
+
+
 def _snapshot(tmp_path: Path) -> DocumentationSnapshot:
     text = "# Rules\nRun PHPUnit.\n"
     path = tmp_path / "AGENTS.md"
@@ -63,6 +109,39 @@ def test_execution_runner_measures_real_workspace_delta(tmp_path: Path) -> None:
     assert report.satisfied == 4
     assert report.observations[0].observation.workspace_delta.created_paths == ["php-change.txt"]
     assert report.observations[0].observation.cache_key
+
+
+def test_execution_runner_marks_unreported_workspace_mutation_uncertain(tmp_path: Path) -> None:
+    runner = ExecutionProbeRunner(UnreportedMutationProbe(), ExecutionActionVerifier())
+
+    report = runner.run(_snapshot(tmp_path), EvaluationSuite(scenarios=[_scenario()]))
+
+    observation = report.observations[0].observation
+    assert observation.workspace_delta.created_paths == ["unreported.txt"]
+    assert observation.status == ExecutionStatus.UNCERTAIN
+    assert "reported no performed actions" in observation.uncertainties[0]
+
+
+def test_execution_runner_allows_read_only_execution_without_uncertainty(tmp_path: Path) -> None:
+    runner = ExecutionProbeRunner(ReadOnlyProbe(), ExecutionActionVerifier())
+
+    report = runner.run(_snapshot(tmp_path), EvaluationSuite(scenarios=[_scenario()]))
+
+    observation = report.observations[0].observation
+    assert observation.workspace_delta.changed_paths == []
+    assert observation.status == ExecutionStatus.SUCCEEDED
+    assert observation.uncertainties == []
+
+
+def test_execution_runner_does_not_require_mutation_for_reported_read_action(tmp_path: Path) -> None:
+    runner = ExecutionProbeRunner(NoMutationActionProbe(), ExecutionActionVerifier())
+
+    report = runner.run(_snapshot(tmp_path), EvaluationSuite(scenarios=[_scenario()]))
+
+    observation = report.observations[0].observation
+    assert observation.workspace_delta.changed_paths == []
+    assert observation.status == ExecutionStatus.SUCCEEDED
+    assert observation.uncertainties == []
 
 
 def test_execution_verifier_detects_forbidden_performed_action() -> None:

@@ -19,7 +19,7 @@ def test_execute_cli_runs_target_in_temporary_workspace(monkeypatch) -> None:
     monkeypatch.setenv(TARGET_COMMAND_ENV, _fixture_command())
     runner = CliRunner()
 
-    result = runner.invoke(app, ["execute", "examples/basic"])
+    result = runner.invoke(app, ["execute", "examples/basic", "--allow-extensions"])
 
     assert result.exit_code == 0, result.output
     report = json.loads(result.stdout)

@@ -5,12 +5,14 @@ on:
     branches:
       - main
     paths-ignore:
-      - "**/*.md"
+      - "docs/guides/**"
+      - "docs/operations/release-notes.md"
   pull_request:
     branches:
       - main
     paths-ignore:
-      - "**/*.md"
+      - "docs/guides/**"
+      - "docs/operations/release-notes.md"
 
 permissions:
   contents: read
@@ -71,7 +73,7 @@ jobs:
         run: |
           ai-doc --version
           ai-doc doctor examples/basic
-          ai-doc check examples/basic
+          ai-doc check examples/basic --allow-extensions
 
   packaging:
     name: Packaging / wheel / Python 3.12
@@ -95,4 +97,4 @@ jobs:
         run: |
           ai-doc --version
           ai-doc doctor examples/basic
-          ai-doc check examples/basic
+          ai-doc check examples/basic --allow-extensions

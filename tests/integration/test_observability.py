@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
 from typer.testing import CliRunner
 
 from ai_doc.cli.main import app
@@ -103,8 +104,8 @@ extensions:
     )
 
     runner = CliRunner()
-    first = runner.invoke(app, ["check", str(tmp_path), "--format", "json"])
-    second = runner.invoke(app, ["check", str(tmp_path), "--format", "json"])
+    first = runner.invoke(app, ["check", str(tmp_path), "--format", "json", "--allow-extensions"])
+    second = runner.invoke(app, ["check", str(tmp_path), "--format", "json", "--allow-extensions"])
 
     assert first.exit_code == 0
     assert second.exit_code == 0
@@ -123,6 +124,86 @@ extensions:
     assert records[0]["findings"][0]["fingerprint"] == records[1]["findings"][0]["fingerprint"]
     assert "AGENTS.md" not in raw_lines[0]
     assert "SECRET DOCUMENT BODY" not in raw_lines[0]
+
+
+def test_observability_rejects_relative_traversal_outside_project(tmp_path: Path) -> None:
+    outside = tmp_path.parent / f"{tmp_path.name}-outside.jsonl"
+    _write_project(
+        tmp_path,
+        f"""
+observability:
+  enabled: true
+  path: ../outside-placeholder/../{tmp_path.name}-outside.jsonl
+""",
+    )
+
+    result = CliRunner().invoke(app, ["check", str(tmp_path), "--format", "json"])
+
+    assert result.exit_code == 0
+    assert "Observation logging failed:" in result.stderr
+    assert "must stay inside the project root" in result.stderr
+    assert not outside.exists()
+
+
+def test_observability_rejects_absolute_path_outside_project(tmp_path: Path) -> None:
+    outside = tmp_path.parent / f"{tmp_path.name}-absolute-outside.jsonl"
+    _write_project(
+        tmp_path,
+        f"""
+observability:
+  enabled: true
+  path: {json.dumps(str(outside))}
+""",
+    )
+
+    result = CliRunner().invoke(app, ["check", str(tmp_path), "--format", "json"])
+
+    assert result.exit_code == 0
+    assert "Observation logging failed:" in result.stderr
+    assert "must stay inside the project root" in result.stderr
+    assert not outside.exists()
+
+
+def test_observability_accepts_nested_path_inside_project(tmp_path: Path) -> None:
+    _write_project(
+        tmp_path,
+        """
+observability:
+  enabled: true
+  path: nested/observability/events.jsonl
+""",
+    )
+
+    result = CliRunner().invoke(app, ["check", str(tmp_path), "--format", "json"])
+
+    assert result.exit_code == 0
+    assert "Observation logging failed:" not in result.stderr
+    assert (tmp_path / "nested" / "observability" / "events.jsonl").exists()
+
+
+def test_observability_rejects_symlink_escape(tmp_path: Path) -> None:
+    outside = tmp_path.parent / f"{tmp_path.name}-symlink-outside"
+    outside.mkdir()
+    link = tmp_path / "observability-link"
+    try:
+        link.symlink_to(outside, target_is_directory=True)
+    except OSError:
+        pytest.skip("symlinks unavailable on this platform")
+    _write_project(
+        tmp_path,
+        """
+observability:
+  enabled: true
+  path: observability-link/events.jsonl
+""",
+    )
+
+    result = CliRunner().invoke(app, ["check", str(tmp_path), "--format", "json"])
+
+    assert result.exit_code == 0
+    assert "Observation logging failed:" in result.stderr
+    assert "must stay inside the project root" in result.stderr
+    assert not (outside / "events.jsonl").exists()
 
 
 def test_observation_write_failure_preserves_primary_check_result(tmp_path: Path) -> None:
@@ -165,7 +246,7 @@ extensions:
     )
     _write_provider_extension(tmp_path)
 
-    result = CliRunner().invoke(app, ["optimize", str(tmp_path), "--format", "json"])
+    result = CliRunner().invoke(app, ["optimize", str(tmp_path), "--format", "json", "--allow-extensions"])
 
     assert result.exit_code in {0, 4}
     records = [
@@ -213,7 +294,7 @@ extensions:
     )
     _write_provider_extension(tmp_path)
 
-    result = CliRunner().invoke(app, ["optimize", str(tmp_path), "--format", "json"])
+    result = CliRunner().invoke(app, ["optimize", str(tmp_path), "--format", "json", "--allow-extensions"])
 
     assert result.exit_code in {0, 4}
     record = json.loads((tmp_path / ".ai-doc" / "observations.jsonl").read_text(encoding="utf-8").splitlines()[-1])
@@ -266,7 +347,7 @@ extensions:
     )
     _write_provider_extension(tmp_path)
 
-    result = CliRunner().invoke(app, ["optimize", str(tmp_path), "--format", "json"])
+    result = CliRunner().invoke(app, ["optimize", str(tmp_path), "--format", "json", "--allow-extensions"])
 
     assert result.exit_code in {0, 4}
     report = json.loads(result.stdout)
@@ -314,7 +395,10 @@ extensions:
     )
     _write_provider_extension(tmp_path)
 
-    result = CliRunner().invoke(app, ["optimize", str(tmp_path), "--require-pairwise-semantic", "--format", "json"])
+    result = CliRunner().invoke(
+        app,
+        ["optimize", str(tmp_path), "--require-pairwise-semantic", "--format", "json", "--allow-extensions"],
+    )
 
     assert result.exit_code in {0, 4}
     report = json.loads(result.stdout)

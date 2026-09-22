@@ -5,12 +5,14 @@ on:
     branches:
       - main
     paths-ignore:
-      - "**/*.md"
+      - "docs/guides/**"
+      - "docs/operations/release-notes.md"
   push:
     branches:
       - main
     paths-ignore:
-      - "**/*.md"
+      - "docs/guides/**"
+      - "docs/operations/release-notes.md"
   workflow_dispatch:
 
 permissions:
@@ -37,29 +39,11 @@ jobs:
       - name: Upgrade pip
         run: python -m pip install --upgrade pip
 
+      - name: Install dependency parser
+        run: python -m pip install "packaging>=24.0"
+
       - name: Build minimum dependency constraints
-        run: |
-          python - <<'PY'
-          import re
-          import tomllib
-          from pathlib import Path
-
-          pyproject = tomllib.loads(Path("pyproject.toml").read_text(encoding="utf-8"))
-          requirements = [
-              *pyproject["project"]["dependencies"],
-              *pyproject["project"]["optional-dependencies"]["dev"],
-          ]
-
-          constraints = []
-          for requirement in requirements:
-              requirement = requirement.split(";", 1)[0].strip()
-              match = re.match(r"^([A-Za-z0-9_.-]+)\s*>=\s*([A-Za-z0-9_.!+*-]+)", requirement)
-              if not match:
-                  raise SystemExit(f"Cannot derive a minimum version from: {requirement}")
-              constraints.append(f"{match.group(1)}=={match.group(2)}")
-
-          Path("minimum-constraints.txt").write_text("\n".join(constraints) + "\n", encoding="utf-8")
-          PY
+        run: python -m tools.minimum_constraints pyproject.toml minimum-constraints.txt
 
       - name: Install minimum declared dependencies
         run: python -m pip install -e ".[dev]" -c minimum-constraints.txt

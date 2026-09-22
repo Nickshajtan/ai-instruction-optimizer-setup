@@ -5,7 +5,8 @@ on:
     branches:
       - "**"
     paths-ignore:
-      - "**/*.md"
+      - "docs/guides/**"
+      - "docs/operations/release-notes.md"
 
 permissions:
   contents: read

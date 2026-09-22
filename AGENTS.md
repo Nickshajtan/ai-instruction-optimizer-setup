@@ -23,6 +23,12 @@ map.
   before changing repository documentation.
 - Use [.ai/skills/semantic-optimization-review/SKILL.md](.ai/skills/semantic-optimization-review/SKILL.md)
   when reviewing, explaining, validating, or critiquing an optimization run.
+- Use [.ai/skills/security-review/SKILL.md](.ai/skills/security-review/SKILL.md)
+  before changing code that introduces or modifies executable processes, dynamic loading,
+  external providers, credentials, filesystem isolation, extension authority, CI security
+  permissions, or security-relevant verdicts.
+- For subprocess, dynamic-code, plugin, command-provider, or other external execution
+  changes, also use [.ai/skills/safe-external-execution/SKILL.md](.ai/skills/safe-external-execution/SKILL.md).
 
 ## Agent Setup
 Use shared agent workflows from `.ai/skills/`. Use Codex-specific and Claude-specific

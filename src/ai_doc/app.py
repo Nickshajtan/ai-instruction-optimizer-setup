@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from pathlib import Path
 
 from ai_doc.analyzers.base import AnalysisContext, sort_findings
@@ -11,10 +12,11 @@ from ai_doc.config.models import AiDocConfig
 from ai_doc.discovery.markdown_discovery import discover_markdown
 from ai_doc.domain.documents import DocumentProfile
 from ai_doc.domain.evaluations import EvaluationSuite
+from ai_doc.domain.findings import Finding, FindingSeverity
 from ai_doc.evaluators.suite import load_evaluation_suite
 from ai_doc.markdown.graph import DocumentGraph
 from ai_doc.plugins.registry import ExtensionRegistry
-from ai_doc.reporting.models import CheckReport
+from ai_doc.reporting.models import CheckReport, FindingAudit, FindingAuditEvent
 from ai_doc.tokens.counter import TokenCounter, token_count_accuracy
 
 
@@ -41,11 +43,17 @@ def run_static_check(
         token_count_accuracy=accuracy.value,
     )
     findings = run_analyzers(context)
+    builtin_snapshots = [_finding_snapshot(finding) for finding in findings]
+    builtin_error_count = sum(snapshot.severity == FindingSeverity.ERROR for snapshot in builtin_snapshots)
+    audit_events: list[FindingAuditEvent] = []
     if extensions:
         for analyzer in extensions.analyzers:
             findings.extend(analyzer.analyze(context))
         for adapter in extensions.finding_adapters:
+            before = [_finding_snapshot(finding) for finding in findings]
             findings = adapter.adapt_findings(context, findings)
+            after = [_finding_snapshot(finding) for finding in findings]
+            audit_events.extend(_adapter_audit_events(_adapter_identifier(adapter), builtin_snapshots, before, after))
         findings = sort_findings(findings)
     duplicate_tokens = estimate_duplicate_tokens(context)
     cost = calculate_context_cost(context, duplicate_tokens)
@@ -57,8 +65,113 @@ def run_static_check(
         context_cost=cost,
         profiles={doc.relative_path: doc.profile.value for doc in snapshot.documents},
         findings=findings,
+        finding_audit=FindingAudit(
+            builtin_error_count=builtin_error_count,
+            adapter_events=audit_events,
+        ),
     )
 
 
 def load_suite(root: Path) -> EvaluationSuite:
     return load_evaluation_suite(root)
+
+
+def has_blocking_static_errors(report: CheckReport) -> bool:
+    return any(finding.severity == FindingSeverity.ERROR for finding in report.findings) or (
+        report.finding_audit.builtin_error_count > 0
+    )
+
+
+@dataclass(frozen=True)
+class _FindingSnapshot:
+    object_id: int
+    code: str
+    category: str
+    severity: FindingSeverity
+    path: str
+    section: str | None
+    message: str
+
+    @property
+    def stable_identity(self) -> tuple[str, str, str, str | None, str]:
+        return (self.code, self.category, self.path, self.section, self.message)
+
+
+def _adapter_audit_events(
+    adapter: str,
+    builtin_findings: list[_FindingSnapshot],
+    before: list[_FindingSnapshot],
+    after: list[_FindingSnapshot],
+) -> list[FindingAuditEvent]:
+    before_by_object = {finding.object_id: finding for finding in before}
+    after_by_object = {finding.object_id: finding for finding in after}
+    builtin_objects = {finding.object_id for finding in builtin_findings}
+    unmatched_after = list(after)
+    events: list[FindingAuditEvent] = []
+    for builtin in builtin_findings:
+        finding = before_by_object.get(builtin.object_id)
+        if finding is None:
+            continue
+        adapted = _match_after_snapshot(finding, after_by_object, unmatched_after)
+        if adapted is None:
+            events.append(_audit_event(adapter, finding, "suppressed"))
+        elif finding.severity != adapted.severity:
+            events.append(_audit_event(adapter, finding, "severity_changed"))
+        elif finding.stable_identity != adapted.stable_identity:
+            events.append(_audit_event(adapter, finding, "metadata_changed"))
+    for identity, finding in before_by_object.items():
+        if identity not in after_by_object and identity not in builtin_objects:
+            adapted = _match_after_snapshot(finding, after_by_object, unmatched_after)
+            if adapted is None:
+                events.append(_audit_event(adapter, finding, "suppressed_extension"))
+    return events
+
+
+def _match_after_snapshot(
+    finding: _FindingSnapshot,
+    after_by_object: dict[int, _FindingSnapshot],
+    unmatched_after: list[_FindingSnapshot],
+) -> _FindingSnapshot | None:
+    adapted = after_by_object.get(finding.object_id)
+    if adapted is not None:
+        _discard_after_snapshot(unmatched_after, adapted.object_id)
+        return adapted
+    for index, candidate in enumerate(unmatched_after):
+        if candidate.stable_identity == finding.stable_identity:
+            return unmatched_after.pop(index)
+    return None
+
+
+def _discard_after_snapshot(unmatched_after: list[_FindingSnapshot], object_id: int) -> None:
+    for index, candidate in enumerate(unmatched_after):
+        if candidate.object_id == object_id:
+            unmatched_after.pop(index)
+            return
+
+
+def _finding_snapshot(finding: Finding) -> _FindingSnapshot:
+    return _FindingSnapshot(
+        object_id=id(finding),
+        code=finding.code,
+        category=finding.category.value,
+        severity=finding.severity,
+        path=finding.path,
+        section=finding.section,
+        message=finding.message,
+    )
+
+
+def _adapter_identifier(adapter: object) -> str:
+    adapter_type = type(adapter)
+    return f"{adapter_type.__module__}.{adapter_type.__qualname__}"
+
+
+def _audit_event(adapter: str, finding: _FindingSnapshot, action: str) -> FindingAuditEvent:
+    return FindingAuditEvent(
+        adapter=adapter,
+        code=finding.code,
+        severity=finding.severity.value,
+        path=finding.path,
+        section=finding.section,
+        action=action,
+    )

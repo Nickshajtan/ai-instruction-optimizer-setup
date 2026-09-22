@@ -175,15 +175,17 @@ def _measure_pairwise_dimension(
     suite: EvaluationSuite,
     model: str,
 ) -> PairwiseDimensionResult:
-    assert symbols.arena_test_case is not None
-    assert symbols.contestant is not None
-    assert symbols.arena_geval is not None
+    if symbols.arena_test_case is None or symbols.contestant is None or symbols.arena_geval is None:
+        raise DeepEvalUnavailableError("DeepEval ArenaGEval symbols are unavailable.")
+    arena_test_case = symbols.arena_test_case
+    contestant = symbols.contestant
+    arena_geval = symbols.arena_geval
     baseline_text = _snapshot_text(baseline)
     candidate_text = _snapshot_text(candidate)
     criteria = _pairwise_criteria(dimension)
-    test_case = symbols.arena_test_case(
+    test_case = arena_test_case(
         contestants=[
-            symbols.contestant(
+            contestant(
                 name=BASELINE_CONTESTANT,
                 hyperparameters={"variant": BASELINE_CONTESTANT},
                 test_case=symbols.llm_test_case(
@@ -192,7 +194,7 @@ def _measure_pairwise_dimension(
                     expected_output=_pairwise_expected(suite),
                 ),
             ),
-            symbols.contestant(
+            contestant(
                 name=CANDIDATE_CONTESTANT,
                 hyperparameters={"variant": CANDIDATE_CONTESTANT},
                 test_case=symbols.llm_test_case(
@@ -203,7 +205,7 @@ def _measure_pairwise_dimension(
             ),
         ]
     )
-    metric = symbols.arena_geval(
+    metric = arena_geval(
         name=f"{DEEPEVAL_METRIC_PREFIX}-pairwise-{dimension.value}",
         criteria=criteria,
         evaluation_params=[

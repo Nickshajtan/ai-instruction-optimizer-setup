@@ -11,10 +11,12 @@ from pydantic import BaseModel, Field
 from ai_doc.config.search import GepaConfig, SearchConfig
 from ai_doc.domain.evaluations import EvaluationSuite
 
-DEFAULT_REFLECTION_MODEL = "gpt-4o-mini"
-DEFAULT_MUTATION_MODEL = "gpt-4o"
 DEEPEVAL_PACKAGE = "deepeval"
 DEEPEVAL_UNAVAILABLE_MESSAGE = "DeepEval GEPA is unavailable. Install ai-doc[deepeval]."
+GEPA_MODEL_CONFIGURATION_MESSAGE = (
+    "GEPA requires explicit optimization.gepa.reflection_model and "
+    "optimization.gepa.mutation_model configuration."
+)
 PROMPT_ROLE = "instruction-fragment"
 METADATA_SEED_KEY = "seed"
 METADATA_GEPA_KEY = "gepa"
@@ -63,6 +65,7 @@ class DeepEvalGEPAPromptOptimizer:
         evals: EvaluationSuite,
         budget: SearchConfig,
     ) -> PromptOptimizationResult:
+        validate_gepa_model_configuration(self.config)
         symbols = _load_deepeval_gepa_symbols()
 
         def model_callback(de_prompt: Any, golden: Any) -> str:
@@ -74,8 +77,8 @@ class DeepEvalGEPAPromptOptimizer:
             minibatch_size=self.config.minibatch_size,
             patience=self.config.patience,
             random_seed=self.config.random_seed,
-            reflection_model=self.config.reflection_model or DEFAULT_REFLECTION_MODEL,
-            mutation_model=self.config.mutation_model or DEFAULT_MUTATION_MODEL,
+            reflection_model=self.config.reflection_model,
+            mutation_model=self.config.mutation_model,
         )
         optimizer = symbols.prompt_optimizer(
             algorithm=algorithm,
@@ -112,6 +115,17 @@ class DeepEvalGEPAPromptOptimizer:
             METADATA_GEPA_KEY: self.config.model_dump(),
             METADATA_DEEPEVAL_VERSION_KEY: version,
         }
+
+
+def validate_gepa_model_configuration(config: GepaConfig) -> None:
+    if config.reflection_model and config.mutation_model:
+        return
+    missing = []
+    if not config.reflection_model:
+        missing.append("optimization.gepa.reflection_model")
+    if not config.mutation_model:
+        missing.append("optimization.gepa.mutation_model")
+    raise RuntimeError(f"{GEPA_MODEL_CONFIGURATION_MESSAGE} Missing: {', '.join(missing)}.")
 
 
 def _load_deepeval_gepa_symbols() -> DeepEvalGEPASymbols:

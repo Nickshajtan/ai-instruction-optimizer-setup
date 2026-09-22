@@ -325,6 +325,8 @@ optimization:
     minimum_clarity_delta: -0.02
   gepa:
     enabled: false
+    reflection_model: null
+    mutation_model: null
 ```
 
 CLI options can override common search settings:
@@ -371,6 +373,12 @@ least one pairwise comparison actually occurs. Strict pairwise overrides
 `gated_pairwise`; an intentional optional skip never satisfies the required-pairwise
 postcondition.
 
+GEPA prompt suboptimization is disabled by default. When enabled through
+`optimization.gepa.enabled`, `--gepa`, or `--experimental-gepa`, both
+`optimization.gepa.reflection_model` and `optimization.gepa.mutation_model` must be set
+explicitly. `ai-doc` does not infer GEPA models from installed packages, provider
+credentials, DeepEval defaults, or hardcoded OpenAI model names.
+
 ## Local Observation Logging
 
 Observation logging records one local JSONL record per opted-in command run. Use it when
@@ -385,7 +393,9 @@ observability:
 
 The default path is `.ai-doc/observations.jsonl`. Each line is an independent
 `ai-doc.observation/v1` JSON object. Logging is append-only and local; `ai-doc` does not
-upload observations or create a database.
+upload observations or create a database. The observation path must resolve inside the
+project root. Absolute paths outside the project, `..` traversal, and symlink escapes are
+rejected rather than rewritten or silently disabled.
 
 Observation records are intended to contain structured machine facts such as command
 status, duration, document counts, tier names, finding fingerprints, evaluation outcomes,
@@ -403,6 +413,10 @@ is printed to stderr.
 Extensions are explicit, project-local Python files configured with the `extensions` key.
 Configured files must stay inside the project root because extension loading executes
 Python code.
+
+Configuration declares extension capabilities; it does not authorize them. Commands that
+may execute project-local Python extensions or `extension_runtime` processes fail closed
+unless the operator passes `--allow-extensions`.
 
 Python extensions can register analyzers, finding adapters, evaluators, token counters,
 recommendation policies, and semantic providers. Registering a component makes it
@@ -453,7 +467,13 @@ extension_runtime:
   providers:
     company-provider:
       command: [python, .ai-doc/extensions/company_process.py]
+      env:
+        AI_DOC_EXTENSION_MODE: trusted
 ```
+
+Process extensions receive a minimal platform environment plus literal values from
+`env:`. They do not inherit the full parent environment, so ambient secrets such as
+provider API keys are not passed by default.
 
 Built-in names include `approximate` and `openai-tiktoken` for token counters,
 `default` for the default recommendation policy, and `semantic-command` for the

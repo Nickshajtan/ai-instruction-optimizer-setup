@@ -26,6 +26,7 @@ from ai_doc.domain.documents import DocumentationSnapshot
 from ai_doc.domain.evaluations import Evaluator, PairwiseSemanticEvaluator
 from ai_doc.evaluators.context import ScenarioContextEvaluator
 from ai_doc.evaluators.deepeval import DeepEvalEvaluator, DeepEvalUnavailableError
+from ai_doc.extension_trust import ExtensionTrustError, ensure_extensions_authorized
 from ai_doc.extensions.process import ProcessExtensionError
 from ai_doc.observability import (
     ObservationRecord,
@@ -36,7 +37,7 @@ from ai_doc.observability import (
 )
 from ai_doc.optimizer.generator import SemanticCandidateGenerator
 from ai_doc.optimizer.invariants import SemanticInvariantDiscoverer, SemanticInvariantVerifier
-from ai_doc.optimizer.prompt_suboptimizer import PromptSubOptimizer
+from ai_doc.optimizer.prompt_suboptimizer import PromptSubOptimizer, validate_gepa_model_configuration
 from ai_doc.optimizer.search import SearchController, SearchResult
 from ai_doc.optimizer.semantic import (
     ProviderPairwiseSemanticEvaluator,
@@ -131,13 +132,20 @@ def optimize_command(  # pylint: disable=too-many-arguments,too-many-positional-
     ] = False,
     debug: Annotated[bool, typer.Option("--debug", help="Keep adapter temporary files.")] = False,
     experimental_gepa: Annotated[bool, typer.Option("--experimental-gepa", help="Alias for --gepa.")] = False,
+    allow_extensions: Annotated[
+        bool,
+        typer.Option(
+            "--allow-extensions",
+            help="Execute trusted project-local Python and process extensions declared by repository config.",
+        ),
+    ] = False,
 ) -> None:
     timer = ObservationTimer()
     project_root = discover_project_root(path, root)
     output_root = (project_root / output).resolve() if not output.is_absolute() else output
     try:
-        inputs = _load_optimize_inputs(project_root, config, debug, output_root)
-    except (ConfigError, ExtensionError, ProcessExtensionError, KeyError, ValueError) as exc:
+        inputs = _load_optimize_inputs(project_root, config, debug, output_root, allow_extensions=allow_extensions)
+    except (ConfigError, ExtensionTrustError, ExtensionError, ProcessExtensionError, KeyError, ValueError) as exc:
         typer.echo(str(exc), err=True)
         raise typer.Exit(1) from exc
 
@@ -161,6 +169,12 @@ def optimize_command(  # pylint: disable=too-many-arguments,too-many-positional-
         gated_pairwise=gated_pairwise or inputs.config.optimization.gated_pairwise,
     )
     _apply_overrides(runtime, candidates, generations, max_candidates, max_cost, max_requests)
+    if runtime.gepa.enabled:
+        try:
+            validate_gepa_model_configuration(runtime.gepa)
+        except RuntimeError as exc:
+            typer.echo(str(exc), err=True)
+            raise typer.Exit(1) from exc
     if runtime.mode == OptimizeMode.CONSERVATIVE:
         runtime.population.initial_candidates = 1
         runtime.search.max_candidates = 1
@@ -293,9 +307,17 @@ def _warn_pairwise_not_performed(*, required: bool, skipped_not_needed: int) -> 
     typer.echo("This run did NOT receive a pairwise semantic judgment.", err=True)
 
 
-def _load_optimize_inputs(project_root: Path, config: Path | None, debug: bool, output_root: Path) -> OptimizeInputs:
+def _load_optimize_inputs(
+    project_root: Path,
+    config: Path | None,
+    debug: bool,
+    output_root: Path,
+    *,
+    allow_extensions: bool,
+) -> OptimizeInputs:
     loaded = load_config(project_root, config)
     warn_if_explicit_config_disables_observability(config, loaded)
+    ensure_extensions_authorized(loaded, allow_extensions=allow_extensions)
     extensions = load_extensions(project_root, loaded.extensions, debug=debug)
     register_configured_extensions(loaded, extensions)
     token_counter = resolve_token_counter(loaded, extensions)

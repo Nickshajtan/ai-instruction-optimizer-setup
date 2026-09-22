@@ -53,6 +53,9 @@ Stable exit codes:
 ## Extension Standards
 
 - Extensions must be explicitly configured.
+- Repository-declared executable extensions must not execute unless the operator
+  explicitly authorizes them with `--allow-extensions` on the command being run.
+- Repository configuration must not be able to authorize its own executable extensions.
 - Extension paths must stay inside the project root.
 - In-process extensions register analyzer, finding-adapter, evaluator, token-counter,
   recommendation-policy, or semantic-provider behavior through `register(registry)`.
@@ -60,6 +63,64 @@ Stable exit codes:
 - Extension examples must import from `ai_doc.api.v1`.
 - Extension loading executes code; document trust requirements wherever extensions are
   described.
+- Finding adapters may adapt the presented finding list, but the default CLI quality
+  gate must preserve the existence of pre-adaptation built-in error findings.
+- Process extensions must not inherit the full parent process environment by default;
+  pass only the documented minimal runtime environment plus explicit configured values.
+
+## Security Standards
+
+- Repository-controlled content is untrusted input unless an independently trusted
+  boundary explicitly grants it additional authority. This includes configuration,
+  Markdown, nested configuration, extension declarations, executable paths, commands and
+  arguments, provider/model identifiers, target-agent output, generated files, and
+  external process responses.
+- Configuration is not authorization. Repository-controlled configuration cannot
+  independently authorize executable extensions, arbitrary process execution, external
+  provider activation, access to credentials, elevated filesystem authority, or other
+  privileged capabilities.
+- Every security-sensitive change must identify the trusted actor, untrusted input,
+  privileged operation, authorization boundary, validation boundary, failure behavior,
+  and audit evidence. If these cannot be identified, do not invent implicit trust.
+- Grant only the authority required for the operation. Review environment variables,
+  credentials, filesystem access, network access, subprocess execution, writable
+  locations, and inherited process state. Permission to execute is not permission to
+  inherit every available capability.
+- Security-sensitive ambiguity must fail closed with explicit rejection or explicit
+  uncertainty rather than unsupported success.
+- Do not silently activate external model/provider behavior based only on ambient
+  credentials, installed packages, SDK defaults, implicit model defaults, or unrelated
+  environment state. External execution and provider selection must follow explicit
+  project configuration and authorization contracts.
+- `shell=False` prevents shell interpretation, but it is not an authorization mechanism.
+  Review who chooses the executable, who chooses arguments, who authorizes execution,
+  which environment is inherited, which filesystem is accessible, which network authority
+  exists, and which evidence is trusted afterward.
+- External agents, providers, and subprocesses may return claims, but their self-report
+  is not automatically authoritative. Security-sensitive conclusions must account for
+  independent deterministic evidence where it exists, and must not claim semantic
+  certainty beyond the evidence available.
+- Isolation abstractions must enforce their own invariants, including symlink rejection,
+  workspace boundaries, output boundaries, and writable paths. Do not rely on unrelated
+  upstream operations accidentally enforcing those invariants.
+- Extension mechanisms must not silently weaken authoritative built-in security or safety
+  evidence. Any mechanism capable of suppressing, downgrading, replacing, or transforming
+  authoritative findings requires explicit security review.
+- Secrets and credentials must not be committed, written to ordinary diagnostics, included
+  in observations, included in generated fixtures, exposed unnecessarily to child
+  processes, or copied into security-test artifacts. Tests requiring secret-like data must
+  use synthetic values.
+- Every fixed vulnerability class must receive a causal regression test where practical:
+  attacker-controlled input, production boundary, attempted security-sensitive effect,
+  and protected result.
+- Where a security guarantee depends on a conditional decision, mutation testing should
+  be able to detect meaningful weakening of that decision. Do not require mutation
+  testing for code that contains no meaningful security decision.
+- Security-sensitive dependencies and CI automation must be reviewed proportionally to
+  their authority. GitHub Actions should prefer first-party or well-established Actions,
+  newly introduced third-party Actions should prefer immutable full-SHA references, and
+  workflow permissions must remain least privilege. Avoid privileged workflow triggers
+  unless required and reviewed.
 
 ## Architecture Standards
 
@@ -69,6 +130,8 @@ Stable exit codes:
 - LLM providers must remain replaceable behind protocols.
 - Source repository files must not be mutated during optimization.
 - Findings and evaluation results must use stable machine-readable schemas.
+- GEPA must require explicit reflection and mutation model configuration when enabled;
+  do not fall back to provider, credential, dependency, or hardcoded model defaults.
 - FinOps, clarity, reliability, and critical invariant recall must remain separate
   dimensions.
 - Semantic success and invariant preservation dominate token reduction.
@@ -166,6 +229,8 @@ Stable exit codes:
   needs multiple scenarios with different expectations.
 - Critical workflows require causal assertions showing that changing a meaningful input
   changes the downstream decision.
+- Security-critical trust boundaries must have causal regression tests under
+  `tests/security` and a dedicated failing CI check.
 - Important happy paths should have negative/adversarial counterparts, especially around
   semantic evaluation, invariants, routing, budgets, and recommendation.
 - Mock external boundaries rather than the implementation under test. Prefer deterministic

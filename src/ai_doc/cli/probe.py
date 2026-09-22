@@ -11,6 +11,7 @@ from ai_doc.config.loader import ConfigError, load_config
 from ai_doc.config.models import AiDocConfig
 from ai_doc.discovery.markdown_discovery import discover_markdown
 from ai_doc.evaluators.suite import load_evaluation_suite
+from ai_doc.extension_trust import ExtensionTrustError, ensure_extensions_authorized
 from ai_doc.extensions.process import ProcessExtensionError
 from ai_doc.ml.nli_sentence_transformers import SentenceTransformersNLIEngine
 from ai_doc.ml.sentence_transformers import LocalModelUnavailableError
@@ -40,6 +41,13 @@ def probe_command(
             help="Optional alternate documentation tree for baseline-vs-candidate planning comparison.",
         ),
     ] = None,
+    allow_extensions: Annotated[
+        bool,
+        typer.Option(
+            "--allow-extensions",
+            help="Execute trusted project-local Python and process extensions declared by repository config.",
+        ),
+    ] = False,
 ) -> None:
     """Run one real target-model planning probe per configured evaluation scenario."""
 
@@ -49,13 +57,23 @@ def probe_command(
     try:
         loaded = load_config(project_root, config)
         warn_if_explicit_config_disables_observability(config, loaded)
+        ensure_extensions_authorized(loaded, allow_extensions=allow_extensions)
         extensions = load_extensions(project_root, loaded.extensions)
         register_configured_extensions(loaded, extensions)
         token_counter = resolve_token_counter(loaded, extensions)
         baseline = discover_markdown(project_root, loaded, token_counter)
         suite = load_evaluation_suite(project_root)
         probe = CommandTargetProbe()
-    except (ConfigError, ExtensionError, ProcessExtensionError, KeyError, ValueError, TargetProbeError, OSError) as exc:
+    except (
+        ConfigError,
+        ExtensionTrustError,
+        ExtensionError,
+        ProcessExtensionError,
+        KeyError,
+        ValueError,
+        TargetProbeError,
+        OSError,
+    ) as exc:
         typer.echo(str(exc), err=True)
         raise typer.Exit(1) from exc
 

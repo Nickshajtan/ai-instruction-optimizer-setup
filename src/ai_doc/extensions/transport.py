@@ -11,6 +11,14 @@ PROTOCOL_VERSION = "ai-doc.extension/v1"
 DEFAULT_TIMEOUT_SECONDS = 120.0
 DIAGNOSTIC_LIMIT = 4000
 DESCRIBE_OPERATION = "describe"
+MINIMAL_PROCESS_ENV_KEYS = {
+    "LANG",
+    "LC_ALL",
+    "PATH",
+    "PATHEXT",
+    "SYSTEMROOT",
+    "WINDIR",
+}
 
 
 class ProcessExtensionError(RuntimeError):
@@ -64,7 +72,7 @@ class ProcessTransport:
                 timeout=self.timeout,
                 check=False,
                 shell=False,
-                env=None if not self.env else {**os.environ, **self.env},
+                env=_process_environment(self.env),
             )
         except FileNotFoundError as exc:
             raise ProcessExtensionError(f"Process extension could not start: {self.command[0]}") from exc
@@ -117,3 +125,9 @@ def _limit_diagnostics(stderr: str | bytes | None, limit: int = DIAGNOSTIC_LIMIT
     if not text:
         return None
     return text[:limit]
+
+
+def _process_environment(configured: Mapping[str, str]) -> dict[str, str]:
+    environment = {key: os.environ[key] for key in MINIMAL_PROCESS_ENV_KEYS if key in os.environ}
+    environment.update(configured)
+    return environment

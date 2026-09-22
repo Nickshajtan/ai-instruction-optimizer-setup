@@ -10,6 +10,7 @@ from ai_doc.domain.probes import (
     ExecutionObservation,
     ExecutionProbe,
     ExecutionProbeReport,
+    ExecutionStatus,
     ProbeExpectationKind,
     ProbeExpectationOutcome,
     ProbeExpectationResult,
@@ -121,6 +122,7 @@ class ExecutionProbeRunner:
                 observation = self.probe.run(workspace_root, selected, scenario)
                 after = workspace_manifest(workspace_root)
             observation.workspace_delta = compare_manifests(before, after)
+            _cross_check_workspace_evidence(observation)
             observation.cache_key = execution_cache_key(selected, scenario, observation)
             observations.append(
                 VerifiedExecutionObservation(
@@ -164,6 +166,19 @@ def _lexical_match(expectation: str, actions: list[str]) -> str | None:
 
 def _normalize(text: str) -> str:
     return " ".join(NORMALIZE_RE.sub(" ", text.casefold()).split())
+
+
+def _cross_check_workspace_evidence(observation: ExecutionObservation) -> None:
+    changed_paths = observation.workspace_delta.changed_paths
+    if not changed_paths or observation.performed_actions:
+        return
+    paths = ", ".join(changed_paths)
+    observation.uncertainties.append(
+        "Workspace files changed but the target reported no performed actions; "
+        f"changed paths: {paths}."
+    )
+    if observation.status == ExecutionStatus.SUCCEEDED:
+        observation.status = ExecutionStatus.UNCERTAIN
 
 
 def _result(

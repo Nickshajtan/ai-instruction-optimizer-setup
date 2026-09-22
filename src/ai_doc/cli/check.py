@@ -7,7 +7,7 @@ from typing import Annotated, Protocol
 
 import typer
 
-from ai_doc.app import load_suite, run_static_check
+from ai_doc.app import has_blocking_static_errors, load_suite, run_static_check
 from ai_doc.cli.config_warnings import warn_if_explicit_config_disables_observability
 from ai_doc.composition import register_configured_extensions, resolve_configured_evaluator, resolve_token_counter
 from ai_doc.config.loader import ConfigError, load_config
@@ -17,6 +17,7 @@ from ai_doc.domain.documents import DocumentationSnapshot, DocumentProfile
 from ai_doc.domain.evaluations import EvaluationResult, EvaluationSuite
 from ai_doc.evaluators.deepeval import DeepEvalEvaluator, DeepEvalUnavailableError
 from ai_doc.evaluators.promptfoo import PromptfooEvaluator, PromptfooUnavailableError
+from ai_doc.extension_trust import ExtensionTrustError, ensure_extensions_authorized
 from ai_doc.extensions.process import ProcessExtensionError
 from ai_doc.observability import (
     ObservationRecord,
@@ -71,6 +72,13 @@ def check_command(
         ),
     ] = False,
     debug: Annotated[bool, typer.Option("--debug", help="Keep adapter temporary files.")] = False,
+    allow_extensions: Annotated[
+        bool,
+        typer.Option(
+            "--allow-extensions",
+            help="Execute trusted project-local Python and process extensions declared by repository config.",
+        ),
+    ] = False,
 ) -> None:
     timer = ObservationTimer()
     run_id = new_run_id()
@@ -78,13 +86,14 @@ def check_command(
     try:
         loaded = load_config(project_root, config)
         warn_if_explicit_config_disables_observability(config, loaded)
+        ensure_extensions_authorized(loaded, allow_extensions=allow_extensions)
         extensions = load_extensions(project_root, loaded.extensions, debug=debug)
         register_configured_extensions(loaded, extensions)
         token_counter = resolve_token_counter(loaded, extensions)
         static_started = perf_counter()
         report = run_static_check(project_root, loaded, profile, extensions, token_counter=token_counter)
         static_duration_ms = _elapsed_ms(static_started)
-    except ConfigError as exc:
+    except (ConfigError, ExtensionTrustError) as exc:
         typer.echo(str(exc), err=True)
         raise typer.Exit(1) from exc
     except (ExtensionError, ProcessExtensionError, KeyError, ValueError) as exc:
@@ -157,7 +166,7 @@ def _safe_append_observation(project_root: Path, config: AiDocConfig, record: Ob
 
 
 def _exit_code(report: CheckReport) -> int:
-    return 2 if any(f.severity == "error" for f in report.findings) else 0
+    return 2 if has_blocking_static_errors(report) else 0
 
 
 def _prepare_deep_engine(

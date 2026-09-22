@@ -20,8 +20,11 @@ dev = [
   "build>=1.2",
   "hatchling>=1.25",
   "pyinstaller>=6.10",
+  "packaging>=24.0",
   "pytest>=8.2",
   "pytest-cov>=5.0",
+  "bandit[toml]>=1.7.10",
+  "pip-audit>=2.7",
   "mutmut>=3.7.0",
   "ruff>=0.6",
   "pylint>=3.2",
@@ -105,10 +108,16 @@ only_mutate = [
   "src/ai_doc/optimizer/evaluation.py",
   "src/ai_doc/optimizer/pareto.py",
   "src/ai_doc/optimizer/recommendation.py",
+  "src/ai_doc/app.py",
+  "src/ai_doc/extension_trust.py",
+  "src/ai_doc/extensions/transport.py",
+  "src/ai_doc/optimizer/prompt_suboptimizer.py",
+  "src/ai_doc/probes/execution_runner.py",
+  "src/ai_doc/probes/workspace.py",
   "src/ai_doc/evaluators/promptfoo.py",
   "src/ai_doc/evaluators/deepeval.py",
   "src/ai_doc/providers/semantic.py",
 ]
-pytest_add_cli_args_test_selection = ["tests/unit", "tests/integration"]
+pytest_add_cli_args_test_selection = ["tests/unit", "tests/integration", "tests/security"]
 also_copy = ["tools", "examples"]
 mutate_only_covered_lines = true
