@@ -10,6 +10,9 @@ concurrency:
   group: examples-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+
 jobs:
   examples:
     name: Deterministic examples
