@@ -42,14 +42,9 @@ class EvaluationBudget:
         )
 
     def assert_can_start(self) -> None:
-        if self.max_requests is not None and self.usage.requests >= self.max_requests:
-            raise SemanticBudgetExceeded("external evaluation request budget exhausted")
-        if self.max_input_tokens is not None and self.usage.input_tokens >= self.max_input_tokens:
-            raise SemanticBudgetExceeded("external evaluation input-token budget exhausted")
-        if self.max_output_tokens is not None and self.usage.output_tokens >= self.max_output_tokens:
-            raise SemanticBudgetExceeded("external evaluation output-token budget exhausted")
-        if self.max_cost_usd is not None and self.usage.cost_usd >= self.max_cost_usd:
-            raise SemanticBudgetExceeded("external evaluation cost budget exhausted")
+        reason = self.exhausted_reason()
+        if reason is not None:
+            raise SemanticBudgetExceeded(reason)
 
     def record(self, usage: ProviderUsage) -> None:
         self.usage = ProviderUsage(
@@ -60,6 +55,17 @@ class EvaluationBudget:
             cost_source=_combine_cost_source(self.usage.cost_source, usage.cost_source),
             cache_hits=self.usage.cache_hits + usage.cache_hits,
         )
+
+    def exhausted_reason(self) -> str | None:
+        if self.max_requests is not None and self.usage.requests >= self.max_requests:
+            return "external evaluation request budget exhausted"
+        if self.max_input_tokens is not None and self.usage.input_tokens >= self.max_input_tokens:
+            return "external evaluation input-token budget exhausted"
+        if self.max_output_tokens is not None and self.usage.output_tokens >= self.max_output_tokens:
+            return "external evaluation output-token budget exhausted"
+        if self.max_cost_usd is not None and self.usage.cost_usd >= self.max_cost_usd:
+            return "external evaluation cost budget exhausted"
+        return None
 
 
 class BudgetedEvaluator:
@@ -97,6 +103,10 @@ class BudgetedEvaluator:
                 usage = self.evaluator.drain_usage()
             self.budget.record(usage)
             cases.extend(result.cases or [EvaluationCaseResult(id=scenario.id, passed=result.passed)])
+            exhaustion_message = self.budget.exhausted_reason()
+            if exhaustion_message is not None:
+                budget_exhausted = True
+                break
 
         if budget_exhausted:
             cases.append(

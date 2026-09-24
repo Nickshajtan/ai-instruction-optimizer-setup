@@ -106,6 +106,31 @@ def test_budgeted_evaluator_preserves_one_call_overrun_before_stopping() -> None
     assert evaluator.calls == 1
     assert result.raw_summary["usage"]["input_tokens"] == 10
     assert [case.id for case in result.cases] == ["s0", "budget"]
+    assert result.raw_summary["budget_exhausted"] is True
+
+
+def test_budgeted_evaluator_reports_single_scenario_overrun() -> None:
+    evaluator = UsageEvaluator([ProviderUsage(requests=1, input_tokens=10)])
+    budgeted = BudgetedEvaluator(evaluator, EvaluationBudget.from_config(EvaluationBudgetConfig(max_input_tokens=5)))
+
+    result = budgeted.evaluate(_snapshot(), None, _suite(1))
+
+    assert evaluator.calls == 1
+    assert result.raw_summary["usage"]["input_tokens"] == 10
+    assert result.raw_summary["budget_exhausted"] is True
+    assert [case.id for case in result.cases] == ["s0", "budget"]
+
+
+def test_budgeted_evaluator_reports_exact_single_scenario_exhaustion() -> None:
+    evaluator = UsageEvaluator([ProviderUsage(requests=1)])
+    budgeted = BudgetedEvaluator(evaluator, EvaluationBudget.from_config(EvaluationBudgetConfig(max_requests=1)))
+
+    result = budgeted.evaluate(_snapshot(), None, _suite(1))
+
+    assert evaluator.calls == 1
+    assert result.raw_summary["usage"]["requests"] == 1
+    assert result.raw_summary["budget_exhausted"] is True
+    assert [case.id for case in result.cases] == ["s0", "budget"]
 
 
 def test_budgeted_evaluator_marks_unknown_usage_honestly() -> None:

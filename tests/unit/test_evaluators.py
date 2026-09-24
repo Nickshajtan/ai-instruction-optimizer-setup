@@ -103,9 +103,10 @@ def test_promptfoo_model_graded_config_uses_explicit_model_and_rubric() -> None:
         assertion=PROMPTFOO_LLM_RUBRIC_ASSERTION,
     )
 
-    assert config["providers"] == ["openai:gpt-4o-mini"]
+    assert config["providers"] == ["echo"]
     assertion = config["tests"][0]["assert"][0]
     assert assertion["type"] == PROMPTFOO_LLM_RUBRIC_ASSERTION
+    assert assertion["provider"] == "openai:gpt-4o-mini"
     assert "Required behavior" in assertion["value"]
     assert "Forbidden behavior" in assertion["value"]
 

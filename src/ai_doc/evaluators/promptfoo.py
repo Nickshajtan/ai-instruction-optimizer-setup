@@ -195,9 +195,14 @@ def _scenario_rubric(required: list[str], forbidden: list[str]) -> str:
     return "\n".join(lines)
 
 
-def _model_graded_assertions(required: list[str], forbidden: list[str], assertion: str | None) -> list[dict[str, str]]:
+def _model_graded_assertions(
+    required: list[str],
+    forbidden: list[str],
+    assertion: str | None,
+    model: str,
+) -> list[dict[str, str]]:
     assertion_type = assertion or PROMPTFOO_LLM_RUBRIC_ASSERTION
-    return [{"type": assertion_type, "value": _scenario_rubric(required, forbidden)}]
+    return [{"type": assertion_type, "provider": model, "value": _scenario_rubric(required, forbidden)}]
 
 
 def _promptfoo_config(
@@ -210,16 +215,20 @@ def _promptfoo_config(
     assertion: str | None = None,
 ) -> dict[str, object]:
     candidate_text = "\n\n".join(doc.text for doc in (candidate or baseline).documents)
-    providers = [model] if mode == PROMPTFOO_MODE_MODEL_GRADED and model is not None else [PROMPTFOO_ECHO_PROVIDER]
     return {
         "prompts": [PROMPTFOO_PROMPT_TEMPLATE],
-        "providers": providers,
+        "providers": [PROMPTFOO_ECHO_PROVIDER],
         "tests": [
             {
                 "description": scenario.id,
                 "vars": {"documentation": candidate_text, "task": scenario.task},
                 "assert": (
-                    _model_graded_assertions(scenario.expected_required, scenario.expected_forbidden, assertion)
+                    _model_graded_assertions(
+                        scenario.expected_required,
+                        scenario.expected_forbidden,
+                        assertion,
+                        model or "",
+                    )
                     if mode == PROMPTFOO_MODE_MODEL_GRADED
                     else _scenario_assertions(scenario.expected_required, scenario.expected_forbidden)
                 ),
