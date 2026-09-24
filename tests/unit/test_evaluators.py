@@ -155,6 +155,50 @@ def test_promptfoo_normalize_accepts_success_and_pass_keys() -> None:
     assert result.raw_summary["semantic"] is False
 
 
+def test_promptfoo_normalize_current_results_envelope_with_failure_reason() -> None:
+    suite = EvaluationSuite.model_validate({"scenarios": [{"id": "one", "task": ""}, {"id": "two", "task": ""}]})
+    result = _normalize(
+        {
+            "version": 4,
+            "results": {
+                "results": [
+                    {
+                        "success": True,
+                        "gradingResult": {"pass": True, "score": 1.0, "reason": "ok"},
+                    },
+                    {
+                        "success": False,
+                        "gradingResult": {
+                            "pass": False,
+                            "score": 0.25,
+                            "reason": "Required validation step was missing.",
+                        },
+                    },
+                ],
+                "stats": {"successes": 1, "failures": 1},
+            },
+        },
+        suite,
+    )
+
+    assert result.passed is False
+    assert [case.passed for case in result.cases] == [True, False]
+    assert result.cases[1].score == 0.25
+    assert result.cases[1].message == "Required validation step was missing."
+    assert result.raw_summary["result_count"] == 2
+
+
+def test_promptfoo_normalize_malformed_successful_output_fails_closed() -> None:
+    suite = EvaluationSuite.model_validate({"scenarios": [{"id": "one", "task": ""}]})
+
+    result = _normalize({"results": {"stats": {"successes": 1}}}, suite)
+
+    assert result.passed is False
+    assert result.cases[0].id == "promptfoo-output"
+    assert "unsupported results JSON" in (result.cases[0].message or "")
+    assert result.raw_summary["adapter_error"] == "Promptfoo returned unsupported results JSON."
+
+
 def test_promptfoo_lexical_evaluator_writes_echo_config() -> None:
     suite = EvaluationSuite.model_validate(
         {"scenarios": [{"id": "one", "task": "Read.", "expected_required": ["Docs"]}]}
