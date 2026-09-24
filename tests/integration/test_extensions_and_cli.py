@@ -4,8 +4,9 @@ from typer.testing import CliRunner
 
 from ai_doc.cli.main import app
 from ai_doc.config.models import EvaluationEngine
-from ai_doc.domain.evaluations import EvaluationResult
+from ai_doc.domain.evaluations import EvaluationCaseResult, EvaluationResult
 from ai_doc.optional_dependencies import DependencyStatus
+from ai_doc.providers.semantic import ProviderUsage
 
 
 def test_project_extension_adds_finding_and_nested_check_discovers_root(tmp_path: Path) -> None:
@@ -234,7 +235,7 @@ evaluation:
         "ai_doc.cli.check.install_missing_for_engine",
         lambda engine: installed.append(engine) or ["promptfoo"],
     )
-    monkeypatch.setattr("ai_doc.cli.check._deep_evaluator", lambda engine, debug, model: FakeEvaluator())
+    monkeypatch.setattr("ai_doc.cli.check._deep_evaluator", lambda config, debug: FakeEvaluator())
 
     result = CliRunner().invoke(
         app,
@@ -270,7 +271,7 @@ evaluation:
     monkeypatch.setattr("ai_doc.cli.check.missing_dependencies_for_engine", lambda engine: [])
     monkeypatch.setattr(
         "ai_doc.cli.check._deep_evaluator",
-        lambda engine, debug, model: engines.append(engine) or FakeEvaluator(),
+        lambda config, debug: engines.append(config.engine) or FakeEvaluator(),
     )
 
     result = CliRunner().invoke(app, ["check", str(tmp_path), "--deep", "--format", "json"])
@@ -302,6 +303,58 @@ evaluation:
     assert result.exit_code == 3
     assert "No implicit OpenAI model" in result.output
     assert "Traceback" not in result.output
+
+
+def test_deep_check_budget_exhaustion_returns_semantic_failure(monkeypatch, tmp_path: Path) -> None:
+    (tmp_path / ".ai-doc.yaml").write_text(
+        """
+version: 1
+include: [AGENTS.md]
+profiles:
+  AGENTS.md: instruction
+evaluation:
+  deep:
+    engine: promptfoo
+    budget:
+      max_requests: 1
+""",
+        encoding="utf-8",
+    )
+    eval_dir = tmp_path / ".ai-doc" / "evals"
+    eval_dir.mkdir(parents=True)
+    (eval_dir / "one.yaml").write_text("id: one\ntask: First task.\n", encoding="utf-8")
+    (eval_dir / "two.yaml").write_text("id: two\ntask: Second task.\n", encoding="utf-8")
+    (tmp_path / "AGENTS.md").write_text("# Rules\n\nRun validation.\n", encoding="utf-8")
+
+    class FakeEvaluator:
+        def __init__(self) -> None:
+            self.calls = 0
+            self.last_usage = ProviderUsage(requests=0, cost_source="unknown")
+
+        def evaluate(self, baseline, candidate, suite):
+            self.calls += 1
+            self.last_usage = ProviderUsage(requests=1, cost_source="unknown")
+            scenario = suite.scenarios[0]
+            return EvaluationResult(
+                engine="fake",
+                passed=True,
+                cases=[EvaluationCaseResult(id=scenario.id, passed=True)],
+                raw_summary={"semantic": True, "usage": self.last_usage.model_dump(mode="json")},
+            )
+
+        def drain_usage(self):
+            return self.last_usage
+
+    fake = FakeEvaluator()
+    monkeypatch.setattr("ai_doc.cli.check.missing_dependencies_for_engine", lambda engine: [])
+    monkeypatch.setattr("ai_doc.cli.check._deep_evaluator", lambda config, debug: fake)
+
+    result = CliRunner().invoke(app, ["check", str(tmp_path), "--deep", "--format", "json"])
+
+    assert result.exit_code == 3
+    assert fake.calls == 1
+    assert '"budget_exhausted": true' in result.output
+    assert '"requests": 1' in result.output
 
 
 def test_setup_deep_installs_optional_dependencies(monkeypatch) -> None:

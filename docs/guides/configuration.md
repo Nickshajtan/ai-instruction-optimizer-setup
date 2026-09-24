@@ -253,6 +253,7 @@ evaluation:
     engine: promptfoo
   deep:
     engine: promptfoo
+    mode: lexical
 ```
 
 Evaluation scenarios live in `.ai-doc/evals/*.yaml`.
@@ -279,6 +280,33 @@ internal scenarios to Promptfoo configuration.
 values are `promptfoo` and `deepeval`. Missing optional dependencies can be prepared with
 `ai-doc setup --deep` or `ai-doc check --deep --install-missing`.
 
+Promptfoo supports two modes through `ai-doc`:
+
+```yaml
+evaluation:
+  deep:
+    engine: promptfoo
+    mode: lexical
+```
+
+Lexical mode is the compatibility default. It generates Promptfoo `echo` evaluations
+with `contains` and `not-contains` assertions. This is useful as cheap deterministic
+evidence, but it is not semantic or model-graded evidence.
+
+```yaml
+evaluation:
+  deep:
+    engine: promptfoo
+    mode: model_graded
+    model: openai:gpt-4o-mini
+    assertion: llm-rubric
+```
+
+Model-graded mode converts required and forbidden scenario expectations into an explicit
+Promptfoo rubric and delegates grading to Promptfoo. It requires an explicit model. If no
+model is configured, `ai-doc` exits with a configuration error instead of choosing an
+implicit provider or model. The supported model-graded assertion is `llm-rubric`.
+
 DeepEval-backed evaluation requires an explicit model:
 
 ```yaml
@@ -291,9 +319,32 @@ evaluation:
 If `engine: deepeval` is selected without `model`, `ai-doc` exits with a configuration
 error instead of allowing DeepEval to choose an implicit OpenAI default.
 
+Deep checks can also declare a budget:
+
+```yaml
+evaluation:
+  deep:
+    engine: promptfoo
+    mode: model_graded
+    model: openai:gpt-4o-mini
+    budget:
+      max_requests: 10
+      max_input_tokens: 50000
+      max_output_tokens: 10000
+      max_cost_usd: 0.50
+```
+
+`ai-doc check --deep` enforces known request, token, and USD limits before starting the
+next external scenario evaluation. If a completed call reports that it crossed a limit,
+the result and usage are preserved, and later external evaluation is blocked. Backends do
+not all report usage equally; unknown token or cost dimensions remain marked unknown
+rather than being fabricated. A backend with unknown cost cannot provide a hard USD cap
+unless it reports or estimates cost through the normalized result.
+
 Use static checks first. Add deep evaluation when you need to test whether documentation
-actually supports a realistic task, such as routing an agent to the right runbook or
-preserving a safety requirement during optimization.
+is predicted to support a realistic task, such as routing an agent to the right runbook
+or preserving a safety requirement during optimization. Use C-tier probes when you need
+observed target-agent planning or execution behavior.
 
 ## Optimization
 

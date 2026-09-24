@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import subprocess
+
 import pytest
 
 import ai_doc.evaluators.deepeval as deepeval_module
@@ -9,8 +11,13 @@ from ai_doc.evaluators.deepeval import DeepEvalConfigurationError, DeepEvalEvalu
 from ai_doc.evaluators.promptfoo import (
     PROMPTFOO_CONTAINS_ASSERTION,
     PROMPTFOO_ENGINE,
+    PROMPTFOO_LLM_RUBRIC_ASSERTION,
+    PROMPTFOO_MODE_MODEL_GRADED,
+    PROMPTFOO_MODEL_GRADED_ENGINE,
     PROMPTFOO_NOT_CONTAINS_ASSERTION,
     PROMPTFOO_PROMPT_TEMPLATE,
+    PromptfooConfigurationError,
+    PromptfooEvaluator,
     _normalize,
     _promptfoo_config,
 )
@@ -73,6 +80,71 @@ def test_promptfoo_config_keeps_valid_default_assertion_for_unconstrained_scenar
     assert config["tests"][0]["assert"] == [{"type": PROMPTFOO_CONTAINS_ASSERTION, "value": ""}]
 
 
+def test_promptfoo_model_graded_config_uses_explicit_model_and_rubric() -> None:
+    suite = EvaluationSuite.model_validate(
+        {
+            "scenarios": [
+                {
+                    "id": "setup",
+                    "task": "Install the tool.",
+                    "expected_required": ["run setup"],
+                    "expected_forbidden": ["skip validation"],
+                }
+            ]
+        }
+    )
+
+    config = _promptfoo_config(
+        _snapshot("Docs"),
+        None,
+        suite,
+        mode=PROMPTFOO_MODE_MODEL_GRADED,
+        model="openai:gpt-4o-mini",
+        assertion=PROMPTFOO_LLM_RUBRIC_ASSERTION,
+    )
+
+    assert config["providers"] == ["echo"]
+    assertion = config["tests"][0]["assert"][0]
+    assert assertion["type"] == PROMPTFOO_LLM_RUBRIC_ASSERTION
+    assert assertion["provider"] == "openai:gpt-4o-mini"
+    assert "Required behavior" in assertion["value"]
+    assert "Forbidden behavior" in assertion["value"]
+
+
+def test_promptfoo_model_graded_requires_explicit_model() -> None:
+    suite = EvaluationSuite.model_validate({"scenarios": [{"id": "smoke", "task": "Read the docs."}]})
+
+    with pytest.raises(PromptfooConfigurationError, match="No implicit provider"):
+        PromptfooEvaluator(mode=PROMPTFOO_MODE_MODEL_GRADED).evaluate(_snapshot("Docs"), None, suite)
+
+
+def test_promptfoo_model_graded_normalizes_semantic_metadata() -> None:
+    suite = EvaluationSuite.model_validate({"scenarios": [{"id": "one", "task": ""}]})
+    result = _normalize(
+        {"results": [{"success": True, "reason": "rubric passed"}]},
+        suite,
+        mode=PROMPTFOO_MODE_MODEL_GRADED,
+        assertion=PROMPTFOO_LLM_RUBRIC_ASSERTION,
+    )
+
+    assert result.engine == PROMPTFOO_MODEL_GRADED_ENGINE
+    assert result.raw_summary["semantic"] is True
+    assert result.raw_summary["backend"] == "promptfoo"
+    assert result.raw_summary["mode"] == PROMPTFOO_MODE_MODEL_GRADED
+    assert result.raw_summary["assertion"] == PROMPTFOO_LLM_RUBRIC_ASSERTION
+
+
+def test_promptfoo_invalid_model_graded_assertion_fails_cleanly() -> None:
+    suite = EvaluationSuite.model_validate({"scenarios": [{"id": "smoke", "task": "Read the docs."}]})
+
+    with pytest.raises(PromptfooConfigurationError, match="Unsupported Promptfoo model-graded assertion"):
+        PromptfooEvaluator(
+            mode=PROMPTFOO_MODE_MODEL_GRADED,
+            model="openai:gpt-4o-mini",
+            assertion="contains",
+        ).evaluate(_snapshot("Docs"), None, suite)
+
+
 def test_promptfoo_normalize_accepts_success_and_pass_keys() -> None:
     suite = EvaluationSuite.model_validate({"scenarios": [{"id": "one", "task": ""}, {"id": "two", "task": ""}]})
     result = _normalize({"results": [{"success": True}, {"pass": False, "reason": "missing route"}]}, suite)
@@ -81,6 +153,29 @@ def test_promptfoo_normalize_accepts_success_and_pass_keys() -> None:
     assert [case.passed for case in result.cases] == [True, False]
     assert result.cases[1].message == "missing route"
     assert result.raw_summary["semantic"] is False
+
+
+def test_promptfoo_lexical_evaluator_writes_echo_config() -> None:
+    suite = EvaluationSuite.model_validate(
+        {"scenarios": [{"id": "one", "task": "Read.", "expected_required": ["Docs"]}]}
+    )
+    seen_config: dict[str, object] = {}
+
+    class FakeRunner:
+        def available(self) -> bool:
+            return True
+
+        def run(self, config_path, output_path):
+            import yaml
+
+            seen_config.update(yaml.safe_load(config_path.read_text(encoding="utf-8")))
+            output_path.write_text('{"results": [{"success": true}]}', encoding="utf-8")
+            return subprocess.CompletedProcess(args=["promptfoo"], returncode=0, stdout="", stderr="")
+
+    result = PromptfooEvaluator(debug=True, runner=FakeRunner()).evaluate(_snapshot("Docs"), None, suite)
+
+    assert result.engine == PROMPTFOO_ENGINE
+    assert seen_config["providers"] == ["echo"]
 
 
 def test_load_evaluation_suite_reads_yaml_keys(tmp_path) -> None:

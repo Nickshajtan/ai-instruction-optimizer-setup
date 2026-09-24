@@ -16,6 +16,7 @@ from ai_doc.domain.evaluations import (
     PairwiseSemanticResult,
 )
 from ai_doc.optimizer.semantic import PAIRWISE_DIMENSIONS, uncertain_pairwise_result
+from ai_doc.providers.semantic import ProviderUsage
 
 DEEPEVAL_ENGINE = "deepeval"
 DEEPEVAL_METRIC_PREFIX = "ai-doc"
@@ -32,6 +33,7 @@ DEEPEVAL_EXPLICIT_MODEL_MESSAGE = (
     "DeepEval requires an explicitly configured evaluation model. "
     "No implicit OpenAI model will be selected."
 )
+DEEPEVAL_UNKNOWN_USAGE_FIELDS = ["input_tokens", "output_tokens", "cost_usd"]
 
 
 class DeepEvalUnavailableError(RuntimeError):
@@ -60,6 +62,7 @@ class DeepEvalEvaluator:
     def __init__(self, threshold: float = DEEPEVAL_DEFAULT_THRESHOLD, model: str | None = None) -> None:
         self.threshold = threshold
         self.model = model
+        self.last_usage = ProviderUsage(requests=0, cost_source="unknown")
 
     def evaluate(
         self,
@@ -67,6 +70,7 @@ class DeepEvalEvaluator:
         candidate: DocumentationSnapshot | None,
         suite: EvaluationSuite,
     ) -> EvaluationResult:
+        self.last_usage = ProviderUsage(requests=0, cost_source="unknown")
         model = self._model()
         symbols = _load_deepeval_symbols()
         documents = (candidate if candidate is not None else baseline).documents
@@ -92,6 +96,14 @@ class DeepEvalEvaluator:
                 expected_output="\n".join(expected),
             )
             metric.measure(test_case)
+            self.last_usage = ProviderUsage(
+                requests=self.last_usage.requests + 1,
+                input_tokens=self.last_usage.input_tokens,
+                output_tokens=self.last_usage.output_tokens,
+                cost_usd=self.last_usage.cost_usd,
+                cost_source="unknown",
+                cache_hits=self.last_usage.cache_hits,
+            )
             cases.append(
                 EvaluationCaseResult(
                     id=scenario.id,
@@ -104,7 +116,11 @@ class DeepEvalEvaluator:
             engine=DEEPEVAL_ENGINE,
             passed=all(case.passed for case in cases),
             cases=cases,
-            raw_summary={"semantic": True},
+            raw_summary={
+                "semantic": True,
+                "usage": self.last_usage.model_dump(mode="json"),
+                "usage_unknown": DEEPEVAL_UNKNOWN_USAGE_FIELDS,
+            },
         )
 
     def compare_pairwise(
@@ -129,6 +145,11 @@ class DeepEvalEvaluator:
             reason="Overall is derived from requested pairwise dimensions; uncertainty or ties remain explicit.",
             raw_summary={"semantic": True, "pairwise": True},
         )
+
+    def drain_usage(self) -> ProviderUsage:
+        usage = self.last_usage
+        self.last_usage = ProviderUsage(requests=0, cost_source="unknown")
+        return usage
 
     def _model(self) -> str:
         if not self.model:

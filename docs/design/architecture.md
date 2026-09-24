@@ -140,6 +140,12 @@ The production CLI passes request, input-token, output-token, and USD limits int
 
 `SearchController` checkpoints accumulated usage between semantic stages. Budget exhaustion from discovery, baseline evaluation, generation, GEPA, invariant safety, or semantic evaluation becomes an ordinary `stopped_*_budget` run. `metadata.budget_stop_stage` identifies the stage, and the normal CLI path can still persist `run.json` and `report.json`.
 
+Direct external evaluation through `ai-doc check --deep` uses the same accounting
+principle at the evaluator boundary when `evaluation.deep.budget` is configured. A
+completed scenario result is retained even if its reported usage crosses a limit; later
+scenario evaluations are blocked before they start. Token and USD dimensions remain
+unknown when the backend cannot report them.
+
 Token/USD limits are not described as strict reservations for unknowable future calls. Deterministic operations consume zero external usage.
 
 ## GEPA / Prompt Suboptimization
@@ -152,7 +158,7 @@ Ineligible/no-provider cases remain truthful no-ops. Usage from actual prompt su
 
 ## Lexical And Optional Evaluator Adapters
 
-Promptfoo remains isolated in `ai_doc.evaluators.promptfoo`; echo/contains behavior is lexical evidence, not semantic evidence, and scenario assertions are isolated. DeepEval remains optional and evaluates baseline documentation when no candidate is supplied.
+Promptfoo remains isolated in `ai_doc.evaluators.promptfoo`. Its default echo/contains behavior is lexical evidence, not semantic evidence, and scenario assertions are isolated. Explicit Promptfoo `model_graded` mode converts required/forbidden scenario expectations into a Promptfoo rubric and delegates model-backed grading to Promptfoo with an explicitly configured model. DeepEval remains optional and evaluates baseline documentation when no candidate is supplied.
 
 ## Process Extension Boundary
 

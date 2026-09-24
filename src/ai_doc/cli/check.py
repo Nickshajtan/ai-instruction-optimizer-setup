@@ -11,12 +11,17 @@ from ai_doc.app import has_blocking_static_errors, load_suite, run_static_check
 from ai_doc.cli.config_warnings import warn_if_explicit_config_disables_observability
 from ai_doc.composition import register_configured_extensions, resolve_configured_evaluator, resolve_token_counter
 from ai_doc.config.loader import ConfigError, load_config
-from ai_doc.config.models import AiDocConfig, EvaluationEngine, EvaluationModeConfig
+from ai_doc.config.models import AiDocConfig, EvaluationEngine, EvaluationMode, EvaluationModeConfig
 from ai_doc.discovery.markdown_discovery import discover_markdown
 from ai_doc.domain.documents import DocumentationSnapshot, DocumentProfile
 from ai_doc.domain.evaluations import EvaluationResult, EvaluationSuite
+from ai_doc.evaluators.budget import BudgetedEvaluator, EvaluationBudget
 from ai_doc.evaluators.deepeval import DeepEvalEvaluator, DeepEvalUnavailableError
-from ai_doc.evaluators.promptfoo import PromptfooEvaluator, PromptfooUnavailableError
+from ai_doc.evaluators.promptfoo import (
+    PROMPTFOO_LLM_RUBRIC_ASSERTION,
+    PromptfooEvaluator,
+    PromptfooUnavailableError,
+)
 from ai_doc.extension_trust import ExtensionTrustError, ensure_extensions_authorized
 from ai_doc.extensions.process import ProcessExtensionError
 from ai_doc.observability import (
@@ -108,7 +113,8 @@ def check_command(
             evaluator = resolve_configured_evaluator(loaded, extensions, "deep")
             if evaluator is None:
                 _prepare_deep_engine(deep_config.engine, install_missing, non_interactive, output_format)
-                evaluator = _deep_evaluator(deep_config.engine, debug, deep_config.model)
+                evaluator = _deep_evaluator(deep_config, debug)
+            evaluator = _budgeted_evaluator(evaluator, deep_config)
             snapshot_report = report
             snapshot = discover_markdown(project_root, loaded, token_counter)
             deep_started = perf_counter()
@@ -203,9 +209,22 @@ def _missing_message(missing: list[DependencyStatus]) -> str:
     return "\n".join(lines)
 
 
-def _deep_evaluator(engine: EvaluationEngine, debug: bool, model: str | None) -> DeepEvaluator:
-    if engine == EvaluationEngine.PROMPTFOO:
-        return PromptfooEvaluator(debug=debug)
-    if engine == EvaluationEngine.DEEPEVAL:
-        return DeepEvalEvaluator(model=model)
-    raise typer.BadParameter(f"Unsupported deep evaluator: {engine}")
+def _deep_evaluator(config: EvaluationModeConfig, debug: bool) -> DeepEvaluator:
+    if config.engine == EvaluationEngine.PROMPTFOO:
+        return PromptfooEvaluator(
+            debug=debug,
+            mode=config.mode.value,
+            model=config.model,
+            assertion=config.assertion or PROMPTFOO_LLM_RUBRIC_ASSERTION,
+        )
+    if config.engine == EvaluationEngine.DEEPEVAL:
+        if config.mode != EvaluationMode.LEXICAL:
+            raise typer.BadParameter("DeepEval does not support evaluation.deep.mode; configure engine: promptfoo.")
+        return DeepEvalEvaluator(model=config.model)
+    raise typer.BadParameter(f"Unsupported deep evaluator: {config.engine}")
+
+
+def _budgeted_evaluator(evaluator: DeepEvaluator, config: EvaluationModeConfig) -> DeepEvaluator:
+    if not config.budget.has_limits():
+        return evaluator
+    return BudgetedEvaluator(evaluator, EvaluationBudget.from_config(config.budget))

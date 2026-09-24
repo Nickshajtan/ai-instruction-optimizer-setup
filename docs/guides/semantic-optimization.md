@@ -71,7 +71,12 @@ Without a semantic verifier, deterministic literal protection remains the offlin
 
 ## Semantic Evaluation And Effective Context
 
-`--deep` evaluates scenarios independently. When `AI_DOC_SEMANTIC_COMMAND` is configured, the same production provider contract performs semantic evaluation; otherwise the optional DeepEval adapter remains available.
+`optimize --deep` evaluates scenarios independently. When `AI_DOC_SEMANTIC_COMMAND` is configured, the same production provider contract performs semantic evaluation; otherwise the optional DeepEval adapter remains available.
+
+The separate `ai-doc check --deep` command can use Promptfoo or DeepEval as the
+configured deep evaluator. Promptfoo lexical mode is deterministic assertion evidence,
+while Promptfoo `model_graded` and DeepEval are predictive semantic evidence and require
+explicit model configuration where a model-backed backend is used.
 
 Evaluation uses task-selected effective context rather than blindly concatenating the
 repository. Instruction and skill documents are modeled as always loaded for this
@@ -145,6 +150,12 @@ Budget exhaustion is an ordinary search stop, not an internal/configuration fail
 Token and USD budgets are truthful accumulated controls, not a promise that an unknown provider call can always be predicted before it runs. If no trustworthy pre-call estimate exists, one provider call may report usage beyond the remaining token/USD budget. A completed provider call always returns its reported usage to the optimizer; the overrun is retained and subsequent external work is blocked. Request budgets are also enforced before starting another invocation, while an unexpectedly multi-request provider operation can similarly report completed work before the next call is blocked.
 
 Deterministic operations remain zero external usage. The command adapter is responsible for returning truthful provider usage or an explicitly identified estimate.
+
+Direct `ai-doc check --deep` budget enforcement follows the same overrun rule at the
+external evaluator boundary: when `evaluation.deep.budget` is configured, no further
+scenario evaluation starts after known usage reaches a request, token, or USD limit. A
+scenario call that reports an overrun after completion is preserved in the result, and
+unknown token or cost dimensions remain unknown.
 
 ## GEPA / Prompt Suboptimization
 
