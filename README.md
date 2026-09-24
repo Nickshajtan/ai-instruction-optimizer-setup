@@ -1,16 +1,24 @@
 # AI Documentation Optimizer
 
-`ai-doc` analyzes and improves Markdown documentation used as context by AI systems: instructions, skills, reference material, architecture and context documentation, and other project knowledge.
+`ai-doc` is a quality, evidence, and cost gateway for AI-facing repository documentation.
 
-It understands common coding-agent conventions out of the box, including `AGENTS.md`, `CLAUDE.md`, `GEMINI.md`, agent skills, GitHub Copilot instructions, Cursor rules, and related formats. Projects can include additional Markdown files or globs through `.ai-doc.yaml`.
+AI-facing documentation includes `AGENTS.md`, `CLAUDE.md`, `GEMINI.md`, agent skills,
+GitHub Copilot instructions, Cursor rules, architecture/reference docs, and
+project-specific Markdown that agents use as working context. Projects can include
+additional Markdown files or globs through `.ai-doc.yaml`.
 
-It is not just a Markdown linter. It helps answer:
+`ai-doc` does not try to prove that optimized Markdown is universally better for every
+LLM or agent. It helps answer bounded repository questions:
 
 - Is AI-facing documentation clear, consistent, and appropriately structured?
 - Which documents belong to the modeled AI context, and what roles do they serve?
 - Is important knowledge reachable without unnecessarily inflating context?
 - Did a proposed documentation change preserve critical behavior?
 - When a target adapter is configured, what does that target plan to do, and what does it report or change during execution?
+
+Static findings do not prove that an LLM or agent will fail. Different evidence tiers
+answer different questions: deterministic facts and policy violations, local semantic
+risk signals, predictive evaluator judgments, or observed target-agent behavior.
 
 The first useful workflow is local and deterministic:
 
@@ -44,11 +52,21 @@ lower:  cheaper, faster, and suitable for every PR
 
 Higher tiers are not universally "more correct"; they answer different questions and use different evidence.
 
-- A0/A1 analyze the repository's modeled documentation/context interface using discovered files, configuration, profiles, supported conventions, and local analysis.
-- B predicts whether baseline or candidate documentation is semantically better.
-- C1 observes what the configured target adapter plans for concrete scenarios.
-- C2 observes what the configured target adapter reports doing and what changed in an isolated workspace copy.
+- A0 deterministic/static verifies structural facts, policy violations, and cheap risk signals.
+- A1 local semantic detects probabilistic local semantic signals without external providers.
+- B predictive evaluators estimate likely semantic quality or behavior.
+- C1 planning probes observe real target planning behavior for configured scenarios.
+- C2 execution probes observe real target execution behavior in an isolated workspace copy.
 - C3 repeated execution/statistical benchmarking is intentionally not part of the current architecture.
+
+Lint output has two different meanings:
+
+- Hard/verifiable defects, such as broken references, invalid configuration, missing
+  required structures, budget violations, deterministic duplication, and invalid document
+  relationships. These are suitable for blocking CI when configured.
+- Risk signals, such as clarity concerns, possible semantic duplication, possible
+  contradiction, excessive context, and weak hierarchy. These justify review or
+  escalation to stronger evidence, but they are not proof of agent failure.
 
 ## Command Map
 
@@ -208,11 +226,38 @@ See [Analysis Pyramid](docs/design/analysis-pyramid.md) and [Packaging](docs/ope
 
 ## Optional Predictive Evaluation
 
-`ai-doc optimize` and `ai-doc check --deep` can use optional evaluator/provider integrations for B-tier predictive evidence.
+`ai-doc optimize` and `ai-doc check --deep` can use optional evaluator/provider
+integrations for B-tier predictive evidence.
 
-Promptfoo and DeepEval remain optional, and provider-backed semantic optimization uses the provider-neutral `AI_DOC_SEMANTIC_COMMAND` contract.
+Promptfoo and DeepEval remain optional evaluation engines. Promptfoo has two supported
+`ai-doc` modes:
+
+- lexical mode, the compatibility default, uses Promptfoo `echo` plus
+  `contains`/`not-contains` assertions and is not semantic evidence;
+- model-graded mode is explicit, requires a configured Promptfoo model, and delegates
+  semantic rubric grading to Promptfoo.
+
+DeepEval also requires an explicit model. Deep evaluation budgets can cap known
+requests, input tokens, output tokens, and USD usage. When a backend cannot report token
+or cost data reliably, `ai-doc` marks those dimensions unknown instead of inventing them.
+Provider-backed semantic optimization uses the provider-neutral
+`AI_DOC_SEMANTIC_COMMAND` contract.
 
 See [Semantic Optimization](docs/guides/semantic-optimization.md) and [Predictive Semantic Evaluation](docs/design/predictive-evaluation.md).
+
+## Why Not Use Promptfoo Or DeepEval Directly?
+
+Promptfoo and DeepEval are evaluation engines. `ai-doc` adds repository/document-domain
+concerns around them: Markdown discovery, profiles and scope, context loading models,
+documentation graph analysis, static checks, invariant preservation, token and cost
+analysis, evaluator-independent scenarios, budget and escalation policy, normalized
+results, and real-agent probes.
+
+Use Promptfoo or DeepEval directly when you only need to test a small set of stable
+prompts. `ai-doc` becomes useful when AI-facing documentation is a system: several
+instruction files, skills, reference docs, agent ecosystems, budgets, and release gates.
+A project with one small instruction file, few stable prompts, and no multi-agent
+documentation structure may not need `ai-doc`.
 
 ## C1 Planning And C2 Execution
 

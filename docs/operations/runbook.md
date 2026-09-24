@@ -53,9 +53,13 @@ Expected behavior:
 
 - Static checks always run first.
 - The configured deep evaluator is read from `evaluation.deep.engine`.
+- Promptfoo lexical mode remains deterministic `echo` plus `contains`/`not-contains`.
+- Promptfoo model-graded mode requires an explicit `evaluation.deep.model`.
 - Promptfoo is discovered with executable lookup and Node.js version validation.
 - DeepEval is discovered through Python importability.
 - Raw Promptfoo result shapes are normalized to `ai-doc` evaluation schemas.
+- Declared `evaluation.deep.budget` limits are enforced before starting the next external
+  scenario evaluation. Unknown token or cost dimensions are reported as unknown.
 - Missing dependencies return exit code `3`.
 
 Prepare optional dependencies up front:

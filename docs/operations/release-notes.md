@@ -4,6 +4,27 @@ Use this page to identify user-visible behavior and public contract changes for 
 `ai-doc` release. It is the canonical release-history document for downstream vendoring
 decisions.
 
+## 0.2.1
+
+This patch release closes release-readiness gaps while preserving existing default
+behavior.
+
+- Added explicit Promptfoo `model_graded` evaluation mode with generated `llm-rubric`
+  assertions from `EvaluationScenario` requirements.
+- Preserved Promptfoo lexical `echo` plus `contains`/`not-contains` behavior as the
+  default for existing `engine: promptfoo` configuration.
+- Required explicit model configuration for Promptfoo model-graded evaluation.
+- Added `evaluation.deep.budget` for `ai-doc check --deep` request, input-token,
+  output-token, and USD limits.
+- Recorded completed deep-evaluation usage before blocking later scenario calls after
+  budget exhaustion or overrun.
+- Marked unknown token and cost usage dimensions as unknown instead of fabricating
+  values for Promptfoo, DeepEval, or opaque evaluator backends.
+- Updated README and guides to position `ai-doc` as a quality, evidence, and cost
+  gateway for AI-facing repository documentation.
+- Clarified that static risk findings do not prove agent failure, and that Promptfoo and
+  DeepEval are delegated evaluation engines rather than replaced by `ai-doc`.
+
 ## 0.2.0
 
 This release hardens static analysis, semantic optimization evidence accounting, and

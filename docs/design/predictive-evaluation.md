@@ -84,6 +84,21 @@ The current implementation compares seven dimensions:
 
 Each dimension returns its own outcome and textual evidence. The implementation does not compress these dimensions into a magic numeric quality score.
 
+## Promptfoo And DeepEval Adapters
+
+Promptfoo can participate in two different ways:
+
+- lexical mode uses Promptfoo `echo` plus `contains`/`not-contains` assertions. This is
+  cheap deterministic evidence and remains the compatibility default.
+- model-graded mode requires an explicit Promptfoo model and uses a Promptfoo
+  `llm-rubric` assertion generated from `EvaluationScenario.expected_required` and
+  `expected_forbidden`. This is B-tier predictive semantic evidence delegated to
+  Promptfoo.
+
+The normalized result distinguishes these modes with `semantic: false` for lexical
+results and `semantic: true`, `backend: promptfoo`, and `mode: model_graded` for
+model-graded results.
+
 ## DeepEval Adapter
 
 When no provider-neutral semantic command is configured, explicit B-tier pairwise evaluation can use `DeepEvalEvaluator`.
@@ -198,6 +213,13 @@ No candidate preference is manufactured when the evaluator cannot run.
 Similarly, response normalization fills absent dimensions with explicit `uncertain` evidence and maps unknown outcome labels to `uncertain`.
 
 DeepEval arena feature absence is also represented as uncertainty. A full DeepEval import/setup failure after explicit opt-in can currently surface through the CLI as an error rather than an uncertain result.
+
+For direct `ai-doc check --deep`, `evaluation.deep.budget` enforces known request, input
+token, output token, and USD limits before starting the next scenario evaluation. If a
+completed call crosses a configured token or cost limit because actual usage was only
+known afterward, that result and usage remain in the report, and subsequent external
+scenario calls are blocked. Promptfoo and DeepEval do not expose usage identically, so
+unknown token or cost dimensions are marked unknown rather than fabricated.
 
 ## Cost And Network Implications
 

@@ -21,15 +21,41 @@ class EvaluationEngine(StrEnum):
     DEEPEVAL = "deepeval"
 
 
+class EvaluationMode(StrEnum):
+    LEXICAL = "lexical"
+    MODEL_GRADED = "model_graded"
+
+
 class BudgetConfig(BaseModel):
     warning_tokens: int | None = None
     error_tokens: int | None = None
+
+
+class EvaluationBudgetConfig(BaseModel):
+    max_requests: int | None = Field(default=None, ge=0)
+    max_input_tokens: int | None = Field(default=None, ge=0)
+    max_output_tokens: int | None = Field(default=None, ge=0)
+    max_cost_usd: Decimal | None = Field(default=None, ge=0)
+
+    def has_limits(self) -> bool:
+        return any(
+            value is not None
+            for value in (
+                self.max_requests,
+                self.max_input_tokens,
+                self.max_output_tokens,
+                self.max_cost_usd,
+            )
+        )
 
 
 class EvaluationModeConfig(BaseModel):
     engine: EvaluationEngine = EvaluationEngine.PROMPTFOO
     evaluator: str | None = None
     model: str | None = None
+    mode: EvaluationMode = EvaluationMode.LEXICAL
+    assertion: str | None = None
+    budget: EvaluationBudgetConfig = Field(default_factory=EvaluationBudgetConfig)
 
 
 class LocalMLConfig(BaseModel):

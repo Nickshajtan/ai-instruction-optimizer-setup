@@ -20,6 +20,8 @@ OBSERVATION_SCHEMA = "ai-doc.observation/v1"
 HASH_PREFIX_LENGTH = 16
 WARNING_PREFIX = "Observation logging failed:"
 TOKEN_SEMANTICS_REPORTED = "reported"
+TOKEN_SEMANTICS_UNKNOWN = "unknown"
+EVALUATION_USAGE_KEY = "usage"
 
 
 class ObservationWriteError(RuntimeError):
@@ -210,6 +212,7 @@ def check_observation(
         tiers=tiers,
         findings=[finding_observation(finding, "a0") for finding in report.findings],
         evaluations=evaluations,
+        providers=_evaluation_provider_observations(report.evaluation),
     )
 
 
@@ -439,6 +442,38 @@ def _provider_observations(cost: CandidateCost) -> list[ProviderObservation]:
             )
         )
     return observations
+
+
+def _evaluation_provider_observations(evaluation: EvaluationResult | None) -> list[ProviderObservation]:
+    if evaluation is None:
+        return []
+    usage = evaluation.raw_summary.get(EVALUATION_USAGE_KEY)
+    if not isinstance(usage, dict):
+        return []
+    requests = usage.get("requests", 0)
+    input_tokens = usage.get("input_tokens", 0)
+    output_tokens = usage.get("output_tokens", 0)
+    cache_hits = usage.get("cache_hits", 0)
+    cost_usd = usage.get("cost_usd")
+    cost_source = usage.get("cost_source")
+    unknown = evaluation.raw_summary.get("usage_unknown")
+    token_semantics = (
+        TOKEN_SEMANTICS_UNKNOWN
+        if isinstance(unknown, list) and "input_tokens" in unknown
+        else TOKEN_SEMANTICS_REPORTED
+    )
+    return [
+        ProviderObservation(
+            operation="evaluation",
+            requests=int(requests) if isinstance(requests, int) else 0,
+            input_tokens=int(input_tokens) if isinstance(input_tokens, int) else 0,
+            output_tokens=int(output_tokens) if isinstance(output_tokens, int) else 0,
+            cache_hits=int(cache_hits) if isinstance(cache_hits, int) else None,
+            token_semantics=token_semantics,
+            cost_usd=Decimal(str(cost_usd)) if cost_usd is not None else None,
+            cost_source=str(cost_source) if cost_source is not None else None,
+        )
+    ]
 
 
 def _append_provider_usage(
