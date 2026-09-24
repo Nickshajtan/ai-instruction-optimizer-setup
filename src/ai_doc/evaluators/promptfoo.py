@@ -32,6 +32,9 @@ PROMPTFOO_REASON_KEY = "reason"
 SKIPPED_REASON_KEY = "skipped"
 NO_SCENARIOS_REASON = "no scenarios"
 PROMPTFOO_RESULT_COUNT_KEY = "result_count"
+PROMPTFOO_GRADING_RESULT_KEY = "gradingResult"
+PROMPTFOO_ADAPTER_ERROR_CASE_ID = "promptfoo-output"
+PROMPTFOO_UNSUPPORTED_RESULTS_MESSAGE = "Promptfoo returned unsupported results JSON."
 PROMPTFOO_EXPLICIT_MODEL_MESSAGE = (
     "Promptfoo model-graded evaluation requires an explicitly configured model. "
     "No implicit provider or model will be selected."
@@ -245,28 +248,85 @@ def _normalize(
     mode: str = PROMPTFOO_MODE_LEXICAL,
     assertion: str | None = None,
 ) -> EvaluationResult:
-    results = raw.get(PROMPTFOO_RESULTS_KEY)
-    cases: list[EvaluationCaseResult] = []
-    if isinstance(results, list):
-        for index, item in enumerate(results):
-            data = item if isinstance(item, dict) else {}
-            scenario_id = suite.scenarios[index].id if index < len(suite.scenarios) else str(index)
-            success = bool(data.get(PROMPTFOO_SUCCESS_KEY, data.get(PROMPTFOO_PASS_KEY, False)))
-            cases.append(
+    results = _promptfoo_result_rows(raw)
+    if results is None:
+        return EvaluationResult(
+            engine=PROMPTFOO_MODEL_GRADED_ENGINE if mode == PROMPTFOO_MODE_MODEL_GRADED else PROMPTFOO_ENGINE,
+            passed=False,
+            cases=[
                 EvaluationCaseResult(
-                    id=scenario_id,
-                    passed=success,
-                    message=str(data.get(PROMPTFOO_REASON_KEY, "")) or None,
+                    id=PROMPTFOO_ADAPTER_ERROR_CASE_ID,
+                    passed=False,
+                    message=PROMPTFOO_UNSUPPORTED_RESULTS_MESSAGE,
                 )
+            ],
+            raw_summary={
+                PROMPTFOO_RESULT_COUNT_KEY: 0,
+                "adapter_error": PROMPTFOO_UNSUPPORTED_RESULTS_MESSAGE,
+                **_summary_metadata(mode, assertion, 1),
+            },
+        )
+    cases = []
+    for index, item in enumerate(results):
+        data = item if isinstance(item, dict) else {}
+        scenario_id = suite.scenarios[index].id if index < len(suite.scenarios) else str(index)
+        cases.append(
+            EvaluationCaseResult(
+                id=scenario_id,
+                passed=_case_passed(data),
+                score=_case_score(data),
+                message=_case_reason(data),
             )
-    else:
-        cases = [EvaluationCaseResult(id=scenario.id, passed=True) for scenario in suite.scenarios]
+        )
     return EvaluationResult(
         engine=PROMPTFOO_MODEL_GRADED_ENGINE if mode == PROMPTFOO_MODE_MODEL_GRADED else PROMPTFOO_ENGINE,
         passed=all(case.passed for case in cases),
         cases=cases,
         raw_summary={PROMPTFOO_RESULT_COUNT_KEY: len(cases), **_summary_metadata(mode, assertion, 1)},
     )
+
+
+def _promptfoo_result_rows(raw: dict[str, object]) -> list[object] | None:
+    results = raw.get(PROMPTFOO_RESULTS_KEY)
+    if isinstance(results, list):
+        return results
+    if isinstance(results, dict):
+        nested = results.get(PROMPTFOO_RESULTS_KEY)
+        if isinstance(nested, list):
+            return nested
+    return None
+
+
+def _case_passed(data: dict[str, object]) -> bool:
+    grading = data.get(PROMPTFOO_GRADING_RESULT_KEY)
+    if isinstance(data.get(PROMPTFOO_SUCCESS_KEY), bool):
+        return bool(data[PROMPTFOO_SUCCESS_KEY])
+    if isinstance(data.get(PROMPTFOO_PASS_KEY), bool):
+        return bool(data[PROMPTFOO_PASS_KEY])
+    if isinstance(grading, dict) and isinstance(grading.get(PROMPTFOO_PASS_KEY), bool):
+        return bool(grading[PROMPTFOO_PASS_KEY])
+    return False
+
+
+def _case_score(data: dict[str, object]) -> float | None:
+    grading = data.get(PROMPTFOO_GRADING_RESULT_KEY)
+    value = grading.get("score") if isinstance(grading, dict) else data.get("score")
+    if isinstance(value, int | float):
+        return float(value)
+    return None
+
+
+def _case_reason(data: dict[str, object]) -> str | None:
+    grading = data.get(PROMPTFOO_GRADING_RESULT_KEY)
+    values = [data.get(PROMPTFOO_REASON_KEY)]
+    if isinstance(grading, dict):
+        values.extend([grading.get(PROMPTFOO_REASON_KEY), grading.get("comment")])
+    for value in values:
+        if isinstance(value, str) and value.strip():
+            return value
+    if not _case_passed(data):
+        return "Promptfoo result did not include a passing status."
+    return None
 
 
 def _summary_metadata(mode: str, assertion: str | None, requests: int) -> dict[str, object]:
